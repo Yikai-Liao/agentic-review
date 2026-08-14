@@ -2,7 +2,7 @@
 
 ## 当前阶段
 
-Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了核心执行路径可以成立，但尚未在真实模型和真实 GitHub PR 上完成端到端验证，因此当前不能视为可迁移到 Orchestra 的生产版本。
+Review Engine 的最小纵切面和 sealed benchmark 已完成并推送到 `main`。真实模型已回放 5 个外部 defect 样本和 1 个 clean 样本，但尚未在真实 GitHub PR 上验证发布路径，因此当前不能视为可迁移到 Orchestra 的生产版本。
 
 ## 已完成
 
@@ -20,12 +20,12 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 - 已建立 evaluator-only corpus：5 个经人工筛选的 AACR-Bench TypeScript 缺陷样本和 1 个 SWRench clean 样本；Reviewer context 不包含 expectation。
 - 已实现 fail-closed Benchmark runner：隔离回放仓库、独立语义 Judge、manifest expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 thinking level 报告。
 - Reviewer 文件工具限制在目标仓库与生成的 Review context 内，finding 必须通过共享 RIGHT-side diff 定位校验。
+- 已完成首次真实模型 baseline：命中 4/5 个 manifest expectation，发现 4 个经独立代码路径复核的额外问题，1 个 clean 样本无 finding；详见 [`benchmark-baseline-2026-08-14.md`](benchmark-baseline-2026-08-14.md)。
 - `pnpm install --frozen-lockfile`、`pnpm check` 和 8 个单元测试通过。
 
 ## 当前明确边界
 
-- 尚未调用真实模型。
-- 尚未向真实实验 PR 发布 Review。
+- 已在 sealed external PR replay 中调用真实模型；尚未向真实实验 PR 发布 Review。
 - 尚未处理已有 Review thread 的读取、匹配、回复、关闭和重新打开。
 - 尚未实现大 diff 的上下文预算、裁剪或分片。
 - 尚未实现 Benchmark 版本对比。
@@ -50,7 +50,8 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 - [x] 从固定 commit 的 AACR-Bench 选取 5 个 TypeScript Defect/Security 样本，并逐个验证 base/head SHA 可获取。
 - [x] 定义 evaluator-only expectation manifest，避免 Reviewer prompt 泄漏答案。
 - [x] 实现最小 benchmark runner，记录 expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 reasoning level。
-- [ ] 加入 clean/noise 样本以及公司内部历史缺陷和 seeded PR。
+- [x] 完成一次固定 Engine/模型/thinking 的真实 baseline 并裁决 unmatched finding。
+- [ ] 扩充 clean/noise 样本，并加入公司内部历史缺陷和 seeded PR。
 - [ ] 按 `docs/规则演化.md` 执行同一 judge 成对比较、退化回滚和两个人工确认门。
 
 验收：任何 prompt、模型、thinking level 或聚合规则变更都能用同一 sealed corpus 比较前后结果。
