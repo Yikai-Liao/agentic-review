@@ -1,0 +1,64 @@
+name: Agentic Review Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewer-thinking:
+        description: Reviewer thinking level
+        required: true
+        type: choice
+        default: high
+        options:
+          - low
+          - medium
+          - high
+          - xhigh
+
+jobs:
+  benchmark:
+    name: 运行真实模型 Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - name: 检出 Benchmark Engine
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 验证固定语料
+        run: pnpm benchmark:verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 运行 Benchmark
+        run: pnpm benchmark:run
+        env:
+          REVIEW_AGENT_API_KEY: ${{ secrets.REVIEW_AGENT_API_KEY }}
+          REVIEW_AGENT_BASE_URL: ${{ vars.REVIEW_AGENT_BASE_URL }}
+          REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+          REVIEW_AGENT_THINKING: ${{ inputs.reviewer-thinking }}
+
+      - name: 上传评测报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentic-review-benchmark-${{ github.run_id }}
+          path: .benchmark/report.json
+          if-no-files-found: error
+          retention-days: 30
