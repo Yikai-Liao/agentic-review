@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "required": [
+    "category",
+    "path",
+    "startLine",
+    "endLine",
+    "title",
+    "evidence",
+    "trigger",
+    "baseBehavior",
+    "headBehavior",
+    "violatedConstraint",
+    "impact",
+    "suggestedSeverity"
+  ],
+  "properties": {
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "startLine": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "endLine": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "evidence": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5000
+    },
+    "trigger": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "baseBehavior": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "headBehavior": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "violatedConstraint": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "impact": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "suggestedSeverity": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "P0"
+        },
+        {
+          "type": "string",
+          "const": "P1"
+        },
+        {
+          "type": "string",
+          "const": "P2"
+        },
+        {
+          "type": "string",
+          "const": "CONFIRM"
+        },
+        {
+          "type": "string",
+          "const": "TEST"
+        },
+        {
+          "type": "string",
+          "const": "DESIGN"
+        },
+        {
+          "type": "string",
+          "const": "PERF"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

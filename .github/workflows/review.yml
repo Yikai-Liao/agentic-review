@@ -1,0 +1,73 @@
+name: Agentic Review
+
+on:
+  workflow_call:
+    inputs:
+      policy-root:
+        description: base 版本中的仓库 Review 规则目录
+        required: false
+        type: string
+        default: spec/review
+    secrets:
+      AGENTIC_REVIEW_TOKEN:
+        description: 只读检出私有 Review Engine 的 GitHub token
+        required: true
+      REVIEW_AGENT_API_KEY:
+        required: true
+
+jobs:
+  review:
+    name: 自动代码审查
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    steps:
+      - name: 检出被审仓库 PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: target
+
+      - name: 检出固定版本 Review Engine
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          token: ${{ secrets.AGENTIC_REVIEW_TOKEN }}
+          persist-credentials: false
+          path: engine
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: engine/pnpm-lock.yaml
+
+      - name: 安装 Review Engine
+        run: pnpm --dir engine install --frozen-lockfile
+
+      - name: 运行多 Agent Review
+        run: pnpm --dir engine start
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_AGENT_API_KEY: ${{ secrets.REVIEW_AGENT_API_KEY }}
+          REVIEW_AGENT_BASE_URL: ${{ vars.REVIEW_AGENT_BASE_URL }}
+          REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+          REVIEW_REPOSITORY_PATH: ${{ github.workspace }}/target
+          REVIEW_CONTEXT_PATH: ${{ github.workspace }}/review-context
+          REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_PULL_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_POLICY_ROOT: ${{ inputs.policy-root }}

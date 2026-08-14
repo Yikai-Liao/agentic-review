@@ -1,0 +1,23 @@
+{
+  "name": "@qiyin-tech/agentic-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.4.0",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "schemas": "tsx scripts/write-schemas.ts",
+    "start": "tsx src/main.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "typebox": "1.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}
