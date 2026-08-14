@@ -54,6 +54,7 @@ jobs:
           REVIEW_AGENT_BASE_URL: ${{ vars.REVIEW_AGENT_BASE_URL }}
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_AGENT_THINKING: ${{ inputs.reviewer-thinking }}
+          BENCHMARK_SEAL_EXPECTATIONS: '1'
 
       - name: 上传评测报告
         uses: actions/upload-artifact@v4

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Type, type Static } from 'typebox';
 import { Compile } from 'typebox/compile';
@@ -56,6 +56,18 @@ export type BenchmarkScore = {
   unmatchedFindings: number[];
 };
 const validator = Compile(benchmarkCorpusSchema);
+
+export async function sealBenchmarkWorkspace(engineRoot: string, corpusFile: string): Promise<void> {
+  const root = path.resolve(engineRoot);
+  if (path.resolve(corpusFile) !== path.join(root, 'benchmark/corpus.json')) {
+    throw new Error('only the engine benchmark corpus can be sealed');
+  }
+  await Promise.all([
+    rm(path.join(root, 'benchmark'), { recursive: true }),
+    rm(path.join(root, 'docs'), { recursive: true, force: true }),
+    rm(path.join(root, '.git'), { recursive: true, force: true }),
+  ]);
+}
 
 export async function loadBenchmarkCorpus(file: string): Promise<BenchmarkCorpus> {
   const value: unknown = JSON.parse(await readFile(file, 'utf8'));

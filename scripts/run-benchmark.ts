@@ -7,6 +7,7 @@ import {
   createBenchmarkCandidates,
   loadBenchmarkCorpus,
   scoreBenchmark,
+  sealBenchmarkWorkspace,
   type BenchmarkCandidate,
 } from '../src/benchmark.ts';
 import { prepareContext } from '../src/context.ts';
@@ -20,13 +21,19 @@ const workRoot = `${engineRoot}/.benchmark`;
 await rm(workRoot, { recursive: true, force: true });
 await mkdir(workRoot, { recursive: true });
 
-const corpus = await loadBenchmarkCorpus(process.env.BENCHMARK_CORPUS ?? `${engineRoot}/benchmark/corpus.json`);
+const corpusPath = process.env.BENCHMARK_CORPUS ?? `${engineRoot}/benchmark/corpus.json`;
+const corpus = await loadBenchmarkCorpus(corpusPath);
 const requestedIds = new Set((process.env.BENCHMARK_SAMPLE_IDS ?? '').split(',').map((id) => id.trim()).filter(Boolean));
 const samples = requestedIds.size ? corpus.samples.filter(({ id }) => requestedIds.has(id)) : corpus.samples;
 if (samples.length !== (requestedIds.size || corpus.samples.length)) throw new Error('BENCHMARK_SAMPLE_IDS contains an unknown sample');
 
 const thinking = parseThinking(process.env.REVIEW_AGENT_THINKING ?? 'high');
 const { runtime, model } = await createReviewModel(`${workRoot}/runtime`);
+const engineCommit = (await git(engineRoot, ['rev-parse', 'HEAD'])).trim();
+const engineDirty = Boolean((await git(engineRoot, ['status', '--porcelain'])).trim());
+const engineTreeHash = await treeHash();
+const expectationsHiddenFromReviewer = process.env.BENCHMARK_SEAL_EXPECTATIONS === '1';
+if (expectationsHiddenFromReviewer) await sealBenchmarkWorkspace(engineRoot, corpusPath);
 const startedAt = performance.now();
 const sampleResults = [];
 
@@ -86,13 +93,13 @@ const totals = sampleResults.reduce((sum, sample) => ({
   cleanSamples: sum.cleanSamples + Number(sample.label === 'clean'),
   noisyCleanSamples: sum.noisyCleanSamples + Number(sample.label === 'clean' && sample.findings.length > 0),
 }), { matchedExpectations: 0, missedExpectations: 0, unmatchedDefectFindings: 0, cleanFindings: 0, cleanSamples: 0, noisyCleanSamples: 0 });
-const engineCommit = (await git(engineRoot, ['rev-parse', 'HEAD'])).trim();
 const report = {
   version: 1,
   generatedAt: new Date().toISOString(),
   engineCommit,
-  engineDirty: Boolean((await git(engineRoot, ['status', '--porcelain'])).trim()),
-  engineTreeHash: await treeHash(),
+  engineDirty,
+  engineTreeHash,
+  expectationsHiddenFromReviewer,
   corpusVersion: corpus.version,
   metricScope: 'matched/missed expectations are relative to the non-exhaustive manifest; unmatched defect findings require human adjudication; only clean-sample findings are false positives',
   model: model.id,

@@ -12,14 +12,14 @@ Review Engine 的最小纵切面和 sealed benchmark 已完成并推送到 `main
 - 仓库专用 Review 规则只从 base 快照读取，PR head 不能削弱本次审查规则。
 - 使用共享 `ModelRuntime` 并发运行独立 Reviewer session。
 - 已提供生产语义、测试质量、性能和设计质量四类 Reviewer prompt；当前默认只启用生产语义和测试质量。
-- Reviewer 只有只读代码工具和 `submit_findings`，不能发布 GitHub 评论。
+- Reviewer 只有内置 Bash 和 `submit_findings`；Prompt 限制 Bash 只做静态读取和搜索，禁止测试、构建、安装依赖、执行项目代码、修改文件和访问网络。
 - finding 使用 TypeBox schema 校验，包含触发条件、base/head 行为、违反约束、影响和建议等级。
 - 聚合 Agent 直接信任 Reviewer 结果，看不到仓库、diff、base 或 policy，不做二次证据校验；只合并明显重复项、排版并一次性发布。
 - GitHub 工具限制每次运行最多创建一个 `COMMENT` Review，并验证 inline comment 的文件和 RIGHT-side diff 行。
 - 全部说明文档和 prompt 使用中文，代码标识符、schema 字段和第三方 API 名称保留英文。
 - 已建立 evaluator-only corpus：5 个经人工筛选的 AACR-Bench TypeScript 缺陷样本和 1 个 SWRench clean 样本；Reviewer context 不包含 expectation。
 - 已实现 fail-closed Benchmark runner：隔离回放仓库、独立语义 Judge、manifest expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 thinking level 报告。
-- Reviewer 文件工具限制在目标仓库与生成的 Review context 内，finding 必须通过共享 RIGHT-side diff 定位校验。
+- 正式 Benchmark 在 Reviewer 启动前删除本地 benchmark、历史结果文档和 Engine Git 元数据；finding 仍必须通过共享 RIGHT-side diff 定位校验。
 - 已完成首次真实模型 baseline：命中 4/5 个 manifest expectation，发现 4 个经独立代码路径复核的额外问题，1 个 clean 样本无 finding；详见 [`benchmark-baseline-2026-08-14.md`](benchmark-baseline-2026-08-14.md)。
 - `pnpm install --frozen-lockfile`、`pnpm check` 和 8 个单元测试通过。
 
@@ -30,7 +30,7 @@ Review Engine 的最小纵切面和 sealed benchmark 已完成并推送到 `main
 - 尚未实现大 diff 的上下文预算、裁剪或分片。
 - 尚未实现 Benchmark 版本对比。
 - 性能 Reviewer 尚无自动路由；设计质量 Reviewer 尚未默认启用。
-- 当前只有 schema、base policy、diff 行、sandbox、benchmark manifest 与计分逻辑的单元测试，没有模型和 GitHub API 集成测试。
+- 当前只有 schema、base policy、diff 行、benchmark expectation 隔离、manifest 与计分逻辑的单元测试，没有模型和 GitHub API 集成测试。
 - 当前生产语义 Reviewer 失败会中止；其他 Reviewer 的失败会写入 `failures.json`，最终失败策略仍需通过实验确定。
 
 ## TODO

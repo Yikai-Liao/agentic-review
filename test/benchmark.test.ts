@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createBenchmarkCandidates, loadBenchmarkCorpus, scoreBenchmark } from '../src/benchmark.ts';
-import { createRestrictedReadTools } from '../src/restricted-tools.ts';
+import { createBenchmarkCandidates, loadBenchmarkCorpus, scoreBenchmark, sealBenchmarkWorkspace } from '../src/benchmark.ts';
 import type { Finding } from '../src/schema.ts';
 
 const corpusPath = path.resolve(import.meta.dirname, '../benchmark/corpus.json');
@@ -43,22 +42,23 @@ test('对所有候选做一对一最大匹配并计算 manifest 指标', async (
   assert.equal(score.manifestRecall, 1);
 });
 
-test('Reviewer 读取工具拒绝绝对路径和符号链接逃逸', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agentic-review-sandbox-'));
-  const allowed = path.join(root, 'allowed');
-  const outside = path.join(root, 'expectations.json');
-  await mkdir(path.join(allowed, '@..'), { recursive: true });
-  await writeFile(path.join(allowed, 'safe.txt'), 'safe');
-  await writeFile(path.join(allowed, '@..', 'expectations.json'), 'decoy');
-  await writeFile(outside, 'secret');
-  await symlink(outside, path.join(allowed, 'escape'));
-  const read = (await createRestrictedReadTools(allowed, [allowed])).find(({ name }) => name === 'review_read')!;
+test('正式 benchmark 在 Reviewer 运行前移除本地答案', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agentic-review-sealed-'));
+  const corpus = path.join(root, 'benchmark/corpus.json');
+  const unrelated = path.join(root, 'unrelated.json');
+  await mkdir(path.dirname(corpus), { recursive: true });
+  await mkdir(path.join(root, 'docs'));
+  await mkdir(path.join(root, '.git'));
+  await writeFile(corpus, 'answers');
+  await writeFile(path.join(root, 'docs/baseline.md'), 'more answers');
+  await writeFile(unrelated, 'keep');
 
-  const result = await read.execute('safe', { path: 'safe.txt' }, undefined, undefined, undefined as never);
-  assert.match(result.content[0]!.type === 'text' ? result.content[0]!.text : '', /safe/);
-  await assert.rejects(() => read.execute('absolute', { path: outside }, undefined, undefined, undefined as never), /outside the review sandbox/);
-  await assert.rejects(() => read.execute('at-prefix', { path: '@../expectations.json' }, undefined, undefined, undefined as never), /outside the review sandbox/);
-  await assert.rejects(() => read.execute('symlink', { path: 'escape' }, undefined, undefined, undefined as never), /outside the review sandbox/);
+  await sealBenchmarkWorkspace(root, corpus);
+  await assert.rejects(() => access(path.join(root, 'benchmark')));
+  await assert.rejects(() => access(path.join(root, 'docs')));
+  await assert.rejects(() => access(path.join(root, '.git')));
+  await access(unrelated);
+  await assert.rejects(() => sealBenchmarkWorkspace(root, unrelated), /only the engine benchmark corpus/);
 });
 
 function finding(file: string, line: number): Finding {

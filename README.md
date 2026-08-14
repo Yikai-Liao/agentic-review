@@ -4,7 +4,7 @@
 
 ## 运行方式
 
-一个 GitHub Actions job 只安装一次 Pi：先并发运行相互独立且只读的 Reviewer session，再串行运行唯一拥有窄化 GitHub Review 工具的聚合发布 Agent。Reviewer 对审查结论负责但不能发布；聚合 Agent 直接信任 Reviewer，只合并明显重复项、排版并一次性发布，不做二次证据校验。
+一个 GitHub Actions job 只安装一次 Pi：先并发运行相互独立的 Reviewer session，再串行运行唯一拥有窄化 GitHub Review 工具的聚合发布 Agent。Reviewer 只有内置 Bash 和结构化提交工具；Prompt 要求 Bash 只做静态读取与搜索，禁止运行测试、构建、安装依赖或项目代码。Reviewer 对审查结论负责但不能发布；聚合 Agent 直接信任 Reviewer，只合并明显重复项、排版并一次性发布，不做二次证据校验。
 
 ```bash
 pnpm install --frozen-lockfile
