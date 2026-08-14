@@ -43,6 +43,17 @@ Manifest 不是完整缺陷集，因此 unmatched finding 不直接计为 FP。�
 
 PR #5 已改为让 Judge 判断所有 expectation/finding 候选对，再由程序执行确定性一对一最大匹配；同时删除了把 defect 样本 unmatched finding 命名为 FP 的误导字段。上述 baseline 使用修复后的 Engine。
 
+## Bash Reviewer 对比
+
+PR #7 删除四个自研读取工具，改为内置 Bash + Prompt 静态审查约束。正式运行 [#31833872837](https://github.com/Qiyin-Tech/agentic-review/actions/runs/31833872837) 使用 Engine `3b6d916939b4af489ee695f11ff75334a508becb`，报告确认 `expectationsHiddenFromReviewer=true`。
+
+- Manifest：仍命中 4/5，recall 仍为 80%。
+- Defect 样本：仍有 4 个 unmatched finding；代码路径复核确认新出现的 task-runner release-expiration finding 有效。
+- Clean 样本：从 0 finding 变为 1 finding。两次独立静态复核均判定该 finding 是误报：单对象且无显式 indexes 时没有实际 alignment/reindex，提前返回恢复的是已有 trivial fast-path 语义。
+- 耗时：775,596 ms；token：4,381,550，其中 reasoning 30,288。
+
+单次对比没有显示 recall 退化，但出现 1 个 clean noise；这可能来自工具变化或模型波动，需要重复运行后才能归因。
+
 ## 结论边界
 
 - 这证明了 sealed external PR replay、Reviewer 隔离、Judge、计分和 artifact 路径能真实运行。
