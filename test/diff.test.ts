@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectRightSideLines } from '../src/diff.ts';
+import { assertRightSideRange, collectRightSideLines } from '../src/diff.ts';
 
 test('只收集 diff 右侧可评论行', () => {
   const lines = collectRightSideLines([
@@ -35,4 +35,13 @@ test('不把 diff 元数据和结尾空行当作右侧代码', () => {
   ].join('\n'));
   assert.deepEqual([...lines.get('src/a.ts') ?? []], [1]);
   assert.deepEqual([...lines.get('src/b.ts') ?? []], [4]);
+});
+
+test('Reviewer finding 必须使用规范化路径和完整 RIGHT-side 范围', () => {
+  const changed = new Set(['src/a.ts']);
+  const lines = new Map([['src/a.ts', new Set([10, 11])]]);
+  assert.doesNotThrow(() => assertRightSideRange(changed, lines, 'src/a.ts', 10, 11));
+  assert.throws(() => assertRightSideRange(changed, lines, 'src/a.ts', 11, 10), /must not exceed/);
+  assert.throws(() => assertRightSideRange(changed, lines, '../src/a.ts', 10, 10), /not in the current diff/);
+  assert.throws(() => assertRightSideRange(changed, lines, 'src/a.ts', 10, 12), /not on the RIGHT side/);
 });

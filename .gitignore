@@ -1,5 +1,6 @@
 node_modules/
 dist/
 .review/
+.benchmark/
 .env
 .pi-subagents/

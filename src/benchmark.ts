@@ -2,12 +2,13 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Type, type Static } from 'typebox';
 import { Compile } from 'typebox/compile';
+import type { Finding } from './schema.ts';
 
 const sha = Type.String({ pattern: '^[0-9a-f]{40}$' });
 
 const benchmarkSourceSchema = Type.Object({
-  id: Type.String({ minLength: 1 }),
-  repository: Type.String({ pattern: '^[^/]+/[^/]+$' }),
+  id: Type.String({ pattern: '^[a-z0-9][a-z0-9@.-]*$' }),
+  repository: Type.String({ pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' }),
   commit: sha,
   path: Type.String({ minLength: 1 }),
   sha256: Type.String({ pattern: '^[0-9a-f]{64}$' }),
@@ -25,11 +26,11 @@ const expectationSchema = Type.Object({
 }, { additionalProperties: false });
 
 const benchmarkSampleSchema = Type.Object({
-  id: Type.String({ minLength: 1 }),
+  id: Type.String({ pattern: '^[a-z0-9][a-z0-9-]*$' }),
   source: Type.String({ minLength: 1 }),
   label: Type.Union([Type.Literal('defect'), Type.Literal('clean')]),
   language: Type.String({ minLength: 1 }),
-  repository: Type.String({ pattern: '^[^/]+/[^/]+$' }),
+  repository: Type.String({ pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' }),
   pullRequestUrl: Type.String({ minLength: 1 }),
   baseSha: sha,
   headSha: sha,
@@ -44,6 +45,18 @@ export const benchmarkCorpusSchema = Type.Object({
 }, { additionalProperties: false });
 
 export type BenchmarkCorpus = Static<typeof benchmarkCorpusSchema>;
+export type BenchmarkExpectation = BenchmarkCorpus['samples'][number]['expectations'][number];
+export type BenchmarkCandidate = { expectationIndex: number; findingIndex: number };
+export type BenchmarkScore = {
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number | null;
+  recall: number | null;
+  matches: BenchmarkCandidate[];
+  unmatchedExpectations: number[];
+  unmatchedFindings: number[];
+};
 const validator = Compile(benchmarkCorpusSchema);
 
 export async function loadBenchmarkCorpus(file: string): Promise<BenchmarkCorpus> {
@@ -69,6 +82,62 @@ export async function loadBenchmarkCorpus(file: string): Promise<BenchmarkCorpus
     }
   }
   return value;
+}
+
+export function createBenchmarkCandidates(expectations: BenchmarkExpectation[], findings: Finding[]): BenchmarkCandidate[] {
+  return expectations.flatMap((expectation, expectationIndex) => findings.flatMap((finding, findingIndex) => (
+    expectation.path === finding.path ? [{ expectationIndex, findingIndex }] : []
+  )));
+}
+
+export function scoreBenchmark(expectationCount: number, findingCount: number, accepted: BenchmarkCandidate[]): BenchmarkScore {
+  const edges = new Map<number, number[]>();
+  for (const { expectationIndex, findingIndex } of accepted) {
+    if (expectationIndex < 0 || expectationIndex >= expectationCount || findingIndex < 0 || findingIndex >= findingCount) {
+      throw new Error('Benchmark judgment index is out of bounds');
+    }
+    const findings = edges.get(expectationIndex) ?? [];
+    if (!findings.includes(findingIndex)) findings.push(findingIndex);
+    edges.set(expectationIndex, findings.sort((a, b) => a - b));
+  }
+
+  const findingToExpectation = new Map<number, number>();
+  function assign(expectationIndex: number, seen: Set<number>): boolean {
+    for (const findingIndex of edges.get(expectationIndex) ?? []) {
+      if (seen.has(findingIndex)) continue;
+      seen.add(findingIndex);
+      const previous = findingToExpectation.get(findingIndex);
+      if (previous === undefined || assign(previous, seen)) {
+        findingToExpectation.set(findingIndex, expectationIndex);
+        return true;
+      }
+    }
+    return false;
+  }
+  for (let expectationIndex = 0; expectationIndex < expectationCount; expectationIndex += 1) {
+    assign(expectationIndex, new Set());
+  }
+
+  const matches = [...findingToExpectation]
+    .map(([findingIndex, expectationIndex]) => ({ expectationIndex, findingIndex }))
+    .sort((a, b) => a.expectationIndex - b.expectationIndex || a.findingIndex - b.findingIndex);
+  const matchedExpectations = new Set(matches.map(({ expectationIndex }) => expectationIndex));
+  const matchedFindings = new Set(matches.map(({ findingIndex }) => findingIndex));
+  const unmatchedExpectations = Array.from({ length: expectationCount }, (_, index) => index).filter((index) => !matchedExpectations.has(index));
+  const unmatchedFindings = Array.from({ length: findingCount }, (_, index) => index).filter((index) => !matchedFindings.has(index));
+  const tp = matches.length;
+  const fp = unmatchedFindings.length;
+  const fn = unmatchedExpectations.length;
+  return {
+    tp,
+    fp,
+    fn,
+    precision: tp + fp === 0 ? null : tp / (tp + fp),
+    recall: tp + fn === 0 ? null : tp / (tp + fn),
+    matches,
+    unmatchedExpectations,
+    unmatchedFindings,
+  };
 }
 
 function unique(values: string[], kind: string): Set<string> {

@@ -11,9 +11,10 @@ pnpm install --frozen-lockfile
 pnpm check
 pnpm test
 GITHUB_TOKEN=... pnpm benchmark:verify
+REVIEW_AGENT_MODEL=... REVIEW_AGENT_API_KEY=... pnpm benchmark:run
 ```
 
-`benchmark:verify` 只验证固定样本的 base/head 仍可获取且 expectation 位于 RIGHT-side diff，不调用模型。
+`benchmark:verify` 只验证固定样本的 base/head 仍可获取且 expectation 位于 RIGHT-side diff，不调用模型。`benchmark:run` 顺序回放 sealed corpus，默认把报告写到 `.benchmark/report.json`；可用 `BENCHMARK_SAMPLE_IDS` 选择逗号分隔的样本。
 
 运行时需要以下环境变量：
 

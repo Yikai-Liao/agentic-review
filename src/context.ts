@@ -10,11 +10,11 @@ export type ReviewContext = {
   headSha: string;
 };
 
-export async function prepareContext(cwd: string, baseSha: string, headSha: string): Promise<ReviewContext> {
+export async function prepareContext(cwd: string, baseSha: string, headSha: string, contextRoot?: string): Promise<ReviewContext> {
   await Promise.all([assertCommit(cwd, baseSha), assertCommit(cwd, headSha)]);
   const checkedOutHead = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
   if (checkedOutHead !== headSha) throw new Error(`工作区不是待审 head: ${checkedOutHead}`);
-  const root = process.env.REVIEW_CONTEXT_PATH ?? `${cwd}/.review`;
+  const root = contextRoot ?? process.env.REVIEW_CONTEXT_PATH ?? `${cwd}/.review`;
   await rm(root, { recursive: true, force: true });
   await mkdir(`${root}/base`, { recursive: true });
   await mkdir(`${root}/policy`, { recursive: true });

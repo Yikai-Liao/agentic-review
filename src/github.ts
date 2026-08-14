@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { collectRightSideLines } from './diff.ts';
+import { assertRightSideRange, collectRightSideLines } from './diff.ts';
 
 export function createGitHubReviewTool(contextRoot: string) {
   let submitted = false;
@@ -28,16 +27,7 @@ export function createGitHubReviewTool(contextRoot: string) {
       const changedFiles = new Set((await readFile(`${contextRoot}/changed-files.txt`, 'utf8')).split('\n').filter(Boolean));
       const rightSideLines = collectRightSideLines(await readFile(`${contextRoot}/pr.diff`, 'utf8'));
       for (const comment of params.comments) {
-        const normalized = path.posix.normalize(comment.path);
-        if (normalized !== comment.path || path.posix.isAbsolute(normalized) || normalized.startsWith('../') || !changedFiles.has(normalized)) {
-          throw new Error(`comment path is not in the current diff: ${comment.path}`);
-        }
-        if (comment.startLine && comment.startLine > comment.line) throw new Error('startLine must not exceed line');
-        const validLines = rightSideLines.get(normalized);
-        const start = comment.startLine ?? comment.line;
-        for (let line = start; line <= comment.line; line += 1) {
-          if (!validLines?.has(line)) throw new Error(`comment line is not on the RIGHT side of the diff: ${normalized}:${line}`);
-        }
+        assertRightSideRange(changedFiles, rightSideLines, comment.path, comment.startLine ?? comment.line, comment.line);
       }
       const token = required('GITHUB_TOKEN');
       const repository = required('GITHUB_REPOSITORY');

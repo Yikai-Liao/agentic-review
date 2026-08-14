@@ -18,7 +18,9 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 - GitHub 工具限制每次运行最多创建一个 `COMMENT` Review，并验证 inline comment 的文件和 RIGHT-side diff 行。
 - 全部说明文档和 prompt 使用中文，代码标识符、schema 字段和第三方 API 名称保留英文。
 - 已建立 evaluator-only corpus：5 个经人工筛选的 AACR-Bench TypeScript 缺陷样本和 1 个 SWRench clean 样本；Reviewer context 不包含 expectation。
-- `pnpm install --frozen-lockfile`、`pnpm check` 和 5 个单元测试通过。
+- 已实现 fail-closed Benchmark runner：隔离回放仓库、独立语义 Judge、manifest TP/FP/FN、precision/recall、耗时、token、模型和 thinking level 报告。
+- Reviewer 文件工具限制在目标仓库与生成的 Review context 内，finding 必须通过共享 RIGHT-side diff 定位校验。
+- `pnpm install --frozen-lockfile`、`pnpm check` 和 8 个单元测试通过。
 
 ## 当前明确边界
 
@@ -26,9 +28,9 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 - 尚未向真实实验 PR 发布 Review。
 - 尚未处理已有 Review thread 的读取、匹配、回复、关闭和重新打开。
 - 尚未实现大 diff 的上下文预算、裁剪或分片。
-- 尚未实现 Benchmark runner、评分报告和版本对比。
+- 尚未实现 Benchmark 版本对比。
 - 性能 Reviewer 尚无自动路由；设计质量 Reviewer 尚未默认启用。
-- 当前只有 schema、base policy、diff 行和 benchmark manifest 解析的单元测试，没有模型和 GitHub API 集成测试。
+- 当前只有 schema、base policy、diff 行、sandbox、benchmark manifest 与计分逻辑的单元测试，没有模型和 GitHub API 集成测试。
 - 当前生产语义 Reviewer 失败会中止；其他 Reviewer 的失败会写入 `failures.json`，最终失败策略仍需通过实验确定。
 
 ## TODO
@@ -47,7 +49,7 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 
 - [x] 从固定 commit 的 AACR-Bench 选取 5 个 TypeScript Defect/Security 样本，并逐个验证 base/head SHA 可获取。
 - [x] 定义 evaluator-only expectation manifest，避免 Reviewer prompt 泄漏答案。
-- [ ] 实现最小 benchmark runner，记录 TP、FP、FN、precision、recall、耗时、token、模型和 reasoning level。
+- [x] 实现最小 benchmark runner，记录 TP、FP、FN、precision、recall、耗时、token、模型和 reasoning level。
 - [ ] 加入 clean/noise 样本以及公司内部历史缺陷和 seeded PR。
 - [ ] 按 `docs/规则演化.md` 执行同一 judge 成对比较、退化回滚和两个人工确认门。
 
