@@ -18,7 +18,7 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 - GitHub 工具限制每次运行最多创建一个 `COMMENT` Review，并验证 inline comment 的文件和 RIGHT-side diff 行。
 - 全部说明文档和 prompt 使用中文，代码标识符、schema 字段和第三方 API 名称保留英文。
 - 已建立 evaluator-only corpus：5 个经人工筛选的 AACR-Bench TypeScript 缺陷样本和 1 个 SWRench clean 样本；Reviewer context 不包含 expectation。
-- 已实现 fail-closed Benchmark runner：隔离回放仓库、独立语义 Judge、manifest TP/FP/FN、precision/recall、耗时、token、模型和 thinking level 报告。
+- 已实现 fail-closed Benchmark runner：隔离回放仓库、独立语义 Judge、manifest expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 thinking level 报告。
 - Reviewer 文件工具限制在目标仓库与生成的 Review context 内，finding 必须通过共享 RIGHT-side diff 定位校验。
 - `pnpm install --frozen-lockfile`、`pnpm check` 和 8 个单元测试通过。
 
@@ -49,7 +49,7 @@ Review Engine 的最小纵切面已经完成并推送到 `main`。它证明了�
 
 - [x] 从固定 commit 的 AACR-Bench 选取 5 个 TypeScript Defect/Security 样本，并逐个验证 base/head SHA 可获取。
 - [x] 定义 evaluator-only expectation manifest，避免 Reviewer prompt 泄漏答案。
-- [x] 实现最小 benchmark runner，记录 TP、FP、FN、precision、recall、耗时、token、模型和 reasoning level。
+- [x] 实现最小 benchmark runner，记录 expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 reasoning level。
 - [ ] 加入 clean/noise 样本以及公司内部历史缺陷和 seeded PR。
 - [ ] 按 `docs/规则演化.md` 执行同一 judge 成对比较、退化回滚和两个人工确认门。
 

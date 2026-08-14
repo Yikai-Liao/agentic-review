@@ -23,10 +23,10 @@ test('加载固定 benchmark corpus 并拒绝标签与 expectation 不一致', a
   await assert.rejects(() => loadBenchmarkCorpus(file), /label does not match/);
 });
 
-test('按同文件候选做一对一最大匹配并计算 manifest 指标', async () => {
+test('对所有候选做一对一最大匹配并计算 manifest 指标', async () => {
   const expectation = (await loadBenchmarkCorpus(corpusPath)).samples[0]!.expectations[0]!;
   const expectations = [expectation, { ...expectation, startLine: expectation.endLine + 20, endLine: expectation.endLine + 20 }];
-  const findings = [finding(expectation.path, expectation.startLine), finding(expectation.path, expectation.endLine + 30)];
+  const findings = [finding(expectation.path, expectation.startLine), finding('another/root-cause.ts', expectation.endLine + 30)];
   assert.equal(createBenchmarkCandidates(expectations, findings).length, 4);
 
   const score = scoreBenchmark(2, 2, [
@@ -38,8 +38,9 @@ test('按同文件候选做一对一最大匹配并计算 manifest 指标', asyn
     { expectationIndex: 0, findingIndex: 1 },
     { expectationIndex: 1, findingIndex: 0 },
   ]);
-  assert.equal(score.precision, 1);
-  assert.equal(score.recall, 1);
+  assert.equal(score.matchedExpectations, 2);
+  assert.equal(score.missedExpectations, 0);
+  assert.equal(score.manifestRecall, 1);
 });
 
 test('Reviewer 读取工具拒绝绝对路径和符号链接逃逸', async () => {

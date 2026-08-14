@@ -24,6 +24,6 @@ REVIEW_AGENT_MODEL=... REVIEW_AGENT_API_KEY=... pnpm benchmark:run
 
 也可以在 GitHub Actions 手动运行 `Agentic Review Benchmark` workflow，并选择 Reviewer thinking level；成功后下载 `agentic-review-benchmark-<run-id>` artifact。
 
-Runner 顺序检出固定 base/head，只运行 `production-semantics` Reviewer，再用无仓库工具的独立 Judge 做同文件语义匹配。任一检出、模型、schema、定位或 Judge 失败都会令进程失败，并且不会写出 clean 报告。结果默认写到 `.benchmark/report.json`，包含 TP、FP、FN、precision、recall、耗时、token、模型和 thinking level。
+Runner 顺序检出固定 base/head，只运行 `production-semantics` Reviewer，再用无仓库工具的独立 Judge 判断所有 expectation/finding 候选对；最终由程序做一对一最大匹配。任一检出、模型、schema、定位或 Judge 失败都会令进程失败，并且不会写出 clean 报告。结果默认写到 `.benchmark/report.json`，包含命中/漏掉的 expectation、未匹配 finding、clean noise、耗时、token、模型和 thinking level。
 
-指标只相对于清单中已选 expectation；缺陷样本上的 unmatched finding 仍需人工裁决，不能直接当作真实误报。clean 样本上的 finding 可直接计为 FP。
+命中率只相对于清单中已选 expectation。清单不是完整缺陷集，因此缺陷样本上的 unmatched finding 单独列出并等待人工裁决，不能直接计为 FP；只有 clean 样本上的 finding 才计为误报。

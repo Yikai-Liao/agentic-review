@@ -48,11 +48,9 @@ export type BenchmarkCorpus = Static<typeof benchmarkCorpusSchema>;
 export type BenchmarkExpectation = BenchmarkCorpus['samples'][number]['expectations'][number];
 export type BenchmarkCandidate = { expectationIndex: number; findingIndex: number };
 export type BenchmarkScore = {
-  tp: number;
-  fp: number;
-  fn: number;
-  precision: number | null;
-  recall: number | null;
+  matchedExpectations: number;
+  missedExpectations: number;
+  manifestRecall: number | null;
   matches: BenchmarkCandidate[];
   unmatchedExpectations: number[];
   unmatchedFindings: number[];
@@ -85,9 +83,7 @@ export async function loadBenchmarkCorpus(file: string): Promise<BenchmarkCorpus
 }
 
 export function createBenchmarkCandidates(expectations: BenchmarkExpectation[], findings: Finding[]): BenchmarkCandidate[] {
-  return expectations.flatMap((expectation, expectationIndex) => findings.flatMap((finding, findingIndex) => (
-    expectation.path === finding.path ? [{ expectationIndex, findingIndex }] : []
-  )));
+  return expectations.flatMap((_expectation, expectationIndex) => findings.map((_finding, findingIndex) => ({ expectationIndex, findingIndex })));
 }
 
 export function scoreBenchmark(expectationCount: number, findingCount: number, accepted: BenchmarkCandidate[]): BenchmarkScore {
@@ -125,15 +121,12 @@ export function scoreBenchmark(expectationCount: number, findingCount: number, a
   const matchedFindings = new Set(matches.map(({ findingIndex }) => findingIndex));
   const unmatchedExpectations = Array.from({ length: expectationCount }, (_, index) => index).filter((index) => !matchedExpectations.has(index));
   const unmatchedFindings = Array.from({ length: findingCount }, (_, index) => index).filter((index) => !matchedFindings.has(index));
-  const tp = matches.length;
-  const fp = unmatchedFindings.length;
-  const fn = unmatchedExpectations.length;
+  const matchedExpectationsCount = matches.length;
+  const missedExpectations = unmatchedExpectations.length;
   return {
-    tp,
-    fp,
-    fn,
-    precision: tp + fp === 0 ? null : tp / (tp + fp),
-    recall: tp + fn === 0 ? null : tp / (tp + fn),
+    matchedExpectations: matchedExpectationsCount,
+    missedExpectations,
+    manifestRecall: matchedExpectationsCount + missedExpectations === 0 ? null : matchedExpectationsCount / (matchedExpectationsCount + missedExpectations),
     matches,
     unmatchedExpectations,
     unmatchedFindings,

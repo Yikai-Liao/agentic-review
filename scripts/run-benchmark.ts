@@ -79,10 +79,13 @@ for (const [index, sample] of samples.entries()) {
 }
 
 const totals = sampleResults.reduce((sum, sample) => ({
-  tp: sum.tp + sample.score.tp,
-  fp: sum.fp + sample.score.fp,
-  fn: sum.fn + sample.score.fn,
-}), { tp: 0, fp: 0, fn: 0 });
+  matchedExpectations: sum.matchedExpectations + sample.score.matchedExpectations,
+  missedExpectations: sum.missedExpectations + sample.score.missedExpectations,
+  unmatchedDefectFindings: sum.unmatchedDefectFindings + (sample.label === 'defect' ? sample.score.unmatchedFindings.length : 0),
+  cleanFindings: sum.cleanFindings + (sample.label === 'clean' ? sample.findings.length : 0),
+  cleanSamples: sum.cleanSamples + Number(sample.label === 'clean'),
+  noisyCleanSamples: sum.noisyCleanSamples + Number(sample.label === 'clean' && sample.findings.length > 0),
+}), { matchedExpectations: 0, missedExpectations: 0, unmatchedDefectFindings: 0, cleanFindings: 0, cleanSamples: 0, noisyCleanSamples: 0 });
 const engineCommit = (await git(engineRoot, ['rev-parse', 'HEAD'])).trim();
 const report = {
   version: 1,
@@ -91,15 +94,18 @@ const report = {
   engineDirty: Boolean((await git(engineRoot, ['status', '--porcelain'])).trim()),
   engineTreeHash: await treeHash(),
   corpusVersion: corpus.version,
-  metricScope: 'relative to selected manifest expectations; unmatched findings require human adjudication',
+  metricScope: 'matched/missed expectations are relative to the non-exhaustive manifest; unmatched defect findings require human adjudication; only clean-sample findings are false positives',
   model: model.id,
   thinking,
   durationMs: Math.round(performance.now() - startedAt),
   tokens: sumMetrics(sampleResults.flatMap(({ sessions }) => [sessions.reviewer, sessions.judge].filter((metric): metric is SessionMetrics => metric !== undefined))),
   totals: {
-    ...totals,
-    precision: totals.tp + totals.fp === 0 ? null : totals.tp / (totals.tp + totals.fp),
-    recall: totals.tp + totals.fn === 0 ? null : totals.tp / (totals.tp + totals.fn),
+    matchedExpectations: totals.matchedExpectations,
+    missedExpectations: totals.missedExpectations,
+    manifestRecall: totals.matchedExpectations + totals.missedExpectations === 0 ? null : totals.matchedExpectations / (totals.matchedExpectations + totals.missedExpectations),
+    unmatchedDefectFindings: totals.unmatchedDefectFindings,
+    cleanFindings: totals.cleanFindings,
+    cleanNoiseRate: totals.cleanSamples === 0 ? null : totals.noisyCleanSamples / totals.cleanSamples,
   },
   samples: sampleResults,
 };
