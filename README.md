@@ -10,7 +10,10 @@
 pnpm install --frozen-lockfile
 pnpm check
 pnpm test
+GITHUB_TOKEN=... pnpm benchmark:verify
 ```
+
+`benchmark:verify` 只验证固定样本的 base/head 仍可获取且 expectation 位于 RIGHT-side diff，不调用模型。
 
 运行时需要以下环境变量：
 

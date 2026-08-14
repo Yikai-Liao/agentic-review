@@ -5,6 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.4.0",
   "scripts": {
+    "benchmark:verify": "tsx scripts/verify-benchmark.ts",
     "check": "tsc --noEmit",
     "schemas": "tsx scripts/write-schemas.ts",
     "start": "tsx src/main.ts",
