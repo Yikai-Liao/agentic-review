@@ -2,23 +2,19 @@
   "agents": [
     {
       "id": "production-semantics",
-      "runByDefault": true,
-      "required": true
+      "runByDefault": true
     },
     {
       "id": "test-quality",
-      "runByDefault": true,
-      "required": false
+      "runByDefault": true
     },
     {
       "id": "performance",
-      "runByDefault": false,
-      "required": false
+      "runByDefault": false
     },
     {
       "id": "design-quality",
-      "runByDefault": false,
-      "required": false
+      "runByDefault": false
     }
   ]
 }

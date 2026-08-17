@@ -146,14 +146,13 @@ export async function runAggregator(options: {
   model: Model<any>;
   thinking: Thinking;
   results: ReviewerResult[];
-  failures: Array<{ reviewer: string; error: string }>;
   githubTool: ReturnType<typeof defineTool>;
 }): Promise<void> {
   const prompt = await readFile(options.promptPath, 'utf8');
   await runSession({
     ...options,
     systemPrompt: prompt,
-    task: `聚合并发布以下 Reviewer 输出：\n${JSON.stringify({ results: options.results, failures: options.failures })}`,
+    task: `聚合并发布以下 Reviewer 输出：\n${JSON.stringify({ results: options.results })}`,
     tools: ['create_pull_request_review'],
     customTools: [options.githubTool],
     requiredTool: 'create_pull_request_review',

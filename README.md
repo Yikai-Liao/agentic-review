@@ -23,6 +23,6 @@ REVIEW_AGENT_MODEL=... REVIEW_AGENT_API_KEY=... pnpm benchmark:run
 - 直接发布模式需要 `GITHUB_TOKEN`、`GITHUB_REPOSITORY`；中央模式改由可信 Publisher 注入
 - 可选：`REVIEW_AGENT_BASE_URL`、`REVIEW_POLICY_ROOT`、`REVIEW_AGENTS`
 
-中央 Engine 通过 `review-agents.json` 声明可用、默认和 required 的 Review Agents；`REVIEW_AGENTS` 仅在运行时覆盖选择，不是模型配置。Prompt 按 Agent ID 从 `prompts/<id>.md` 加载，目标仓库无需配置。仓库规则默认只从 base 快照的 `spec/review` 读取。
+中央 Engine 通过 `review-agents.json` 声明可用和默认的 Review Agents；`REVIEW_AGENTS` 仅在运行时覆盖选择，不是模型配置。Prompt 按 Agent ID 从 `prompts/<id>.md` 加载，目标仓库无需配置。仓库规则默认只从 base 快照的 `spec/review` 读取。
 
 Darwin Skill 不作为运行时依赖。后续本地 prompt 演化会采用它的同一 judge 成对比较和退化回滚，并保留新增 fixture 后、修改规则后的两个人工确认门。

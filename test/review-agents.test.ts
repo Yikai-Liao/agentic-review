@@ -9,13 +9,13 @@ test('从中央配置选择 Review Agents', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'review-agents-'));
   await writeFile(path.join(root, 'review-agents.json'), JSON.stringify({
     agents: [
-      { id: 'optional-agent', runByDefault: false, required: false },
-      { id: 'default-agent', runByDefault: true, required: true },
+      { id: 'optional-agent', runByDefault: false },
+      { id: 'default-agent', runByDefault: true },
     ],
   }));
   try {
     assert.deepEqual((await loadReviewAgents(root)).map(({ id }) => id), ['default-agent']);
-    assert.equal((await loadReviewAgents(root, 'optional-agent'))[0]!.id, 'optional-agent');
+    assert.deepEqual((await loadReviewAgents(root, 'optional-agent')).map(({ id }) => id), ['optional-agent']);
     await assert.rejects(() => loadReviewAgents(root, 'missing'), /Unknown REVIEW_AGENTS/);
   } finally {
     await rm(root, { recursive: true });

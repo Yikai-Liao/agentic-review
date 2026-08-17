@@ -32,8 +32,10 @@ const results = await Promise.allSettled(
   })),
 );
 const failures = results.flatMap((result, index) => result.status === 'rejected' ? [{ reviewer: reviewAgents[index]!.id, error: String(result.reason) }] : []);
-if (failures.length) await writeFile(`${context.root}/results/failures.json`, `${JSON.stringify(failures, null, 2)}\n`);
-if (failures.some(({ reviewer }) => reviewAgents.find(({ id }) => id === reviewer)?.required)) throw new Error('required Review Agent failed');
+if (failures.length) {
+  await writeFile(`${context.root}/results/failures.json`, `${JSON.stringify(failures, null, 2)}\n`);
+  throw new Error('Review Agent failed');
+}
 
 const reviewerResults = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
 console.log(`[agentic-review] Aggregating ${reviewerResults.reduce((count, result) => count + result.findings.length, 0)} finding(s)`);
@@ -44,7 +46,6 @@ await runAggregator({
   model,
   thinking: 'low',
   results: reviewerResults,
-  failures,
   githubTool: createGitHubReviewTool(context.root),
 });
 console.log('[agentic-review] Review request completed');

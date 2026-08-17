@@ -7,7 +7,6 @@ const configSchema = Type.Object({
   agents: Type.Array(Type.Object({
     id: Type.String({ pattern: '^[a-z0-9][a-z0-9-]*$' }),
     runByDefault: Type.Boolean(),
-    required: Type.Boolean(),
   }, { additionalProperties: false }), { minItems: 1 }),
 }, { additionalProperties: false });
 
