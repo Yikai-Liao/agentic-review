@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DeliveryDeduplicator, shouldDispatch, verifySignature } from '../worker/src/index.ts';
+import { DeliveryDeduplicator, deploymentConfig, shouldDispatch, verifySignature } from '../worker/src/index.ts';
 
 const payload = {
   action: 'opened',
-  repository: { id: 1, full_name: 'Qiyin-Tech/example', owner: { login: 'Qiyin-Tech' } },
+  repository: { id: 1, full_name: 'Example-Org/example', owner: { login: 'Example-Org' } },
   pull_request: {
     number: 2,
     draft: false,
@@ -13,11 +13,23 @@ const payload = {
   },
 };
 
+test('reads organization and control repository from deployment configuration', () => {
+  assert.deepEqual(deploymentConfig({
+    CONTROL_REPOSITORY: 'Another-Org/review-engine',
+    ALLOWED_OWNER: 'Target-Org',
+  }), {
+    allowedOwner: 'Target-Org',
+    controlOwner: 'Another-Org',
+    controlRepository: 'review-engine',
+    controlFullName: 'Another-Org/review-engine',
+  });
+});
+
 test('dispatches only accepted non-draft organization pull requests', () => {
-  assert.equal(shouldDispatch(payload), true);
-  assert.equal(shouldDispatch({ ...payload, action: 'closed' }), false);
-  assert.equal(shouldDispatch({ ...payload, pull_request: { ...payload.pull_request, draft: true } }), false);
-  assert.equal(shouldDispatch({ ...payload, repository: { ...payload.repository, owner: { login: 'other' } } }), false);
+  assert.equal(shouldDispatch(payload, 'Example-Org'), true);
+  assert.equal(shouldDispatch({ ...payload, action: 'closed' }, 'Example-Org'), false);
+  assert.equal(shouldDispatch({ ...payload, pull_request: { ...payload.pull_request, draft: true } }, 'Example-Org'), false);
+  assert.equal(shouldDispatch(payload, 'Different-Org'), false);
 });
 
 test('claims each webhook delivery atomically until released', async () => {

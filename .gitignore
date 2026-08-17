@@ -3,4 +3,5 @@ dist/
 .review/
 .benchmark/
 .env
+wrangler.local.toml
 .pi-subagents/

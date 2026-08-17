@@ -20,6 +20,8 @@ export interface Env {
   WEBHOOK_SECRET: string;
   DISPATCH_CLIENT_ID: string;
   DISPATCH_PRIVATE_KEY_PKCS8: string;
+  CONTROL_REPOSITORY: string;
+  ALLOWED_OWNER: string;
   DELIVERIES: DurableObjectNamespace;
 }
 
@@ -38,7 +40,13 @@ type PullRequestPayload = {
 
 const acceptedActions = new Set(['opened', 'reopened', 'synchronize', 'ready_for_review']);
 const api = 'https://api.github.com';
-const engineRepository = 'Qiyin-Tech/agentic-review';
+
+type DeploymentConfig = {
+  allowedOwner: string;
+  controlOwner: string;
+  controlRepository: string;
+  controlFullName: string;
+};
 
 export default { fetch: handleRequest };
 
@@ -83,8 +91,9 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (event === 'ping') return new Response('pong');
   if (event !== 'pull_request') return new Response(null, { status: 204 });
 
+  const config = deploymentConfig(env);
   const payload = JSON.parse(body) as PullRequestPayload;
-  if (!shouldDispatch(payload)) return new Response(null, { status: 204 });
+  if (!shouldDispatch(payload, config.allowedOwner)) return new Response(null, { status: 204 });
   const deliveryId = request.headers.get('x-github-delivery');
   if (!deliveryId) return new Response('Missing delivery id', { status: 400 });
 
@@ -95,7 +104,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (!claim.ok) return new Response('Delivery claim failed', { status: 502 });
 
   try {
-    await dispatchReview(payload, env);
+    await dispatchReview(payload, env, config);
     return new Response('Accepted', { status: 202 });
   } catch (error) {
     try {
@@ -108,8 +117,8 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   }
 }
 
-export function shouldDispatch(payload: PullRequestPayload): boolean {
-  return payload.repository.owner.login === 'Qiyin-Tech'
+export function shouldDispatch(payload: PullRequestPayload, allowedOwner: string): boolean {
+  return payload.repository.owner.login.toLowerCase() === allowedOwner.toLowerCase()
     && acceptedActions.has(payload.action)
     && !payload.pull_request.draft;
 }
@@ -128,30 +137,35 @@ export async function verifySignature(body: string, signature: string, secret: s
   return crypto.subtle.verify('HMAC', key, expected, new TextEncoder().encode(body));
 }
 
-async function dispatchReview(payload: PullRequestPayload, env: Env): Promise<void> {
+async function dispatchReview(payload: PullRequestPayload, env: Env, config: DeploymentConfig): Promise<void> {
   const jwt = await createAppJwt(env.DISPATCH_CLIENT_ID, env.DISPATCH_PRIVATE_KEY_PKCS8);
   const installationsResponse = await githubFetch('/app/installations?per_page=100', {
     method: 'GET',
     headers: { Authorization: `Bearer ${jwt}` },
   });
   const installations = await installationsResponse.json() as Array<{ id: number; account: { login: string } }>;
-  const installation = installations.find(({ account }) => account.login === 'Qiyin-Tech');
-  if (!installation) throw new Error('Dispatcher App is not installed in Qiyin-Tech');
+  const installation = installations.find(({ account }) => account.login.toLowerCase() === config.controlOwner.toLowerCase());
+  if (!installation) throw new Error(`Dispatcher App is not installed in ${config.controlOwner}`);
   const tokenResponse = await githubFetch(`/app/installations/${installation.id}/access_tokens`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${jwt}` },
-    body: JSON.stringify({ repositories: ['agentic-review'], permissions: { actions: 'write' } }),
+    body: JSON.stringify({ repositories: [config.controlRepository], permissions: { actions: 'write' } }),
   });
   const { token } = await tokenResponse.json() as { token: string };
+  const repositoryResponse = await githubFetch(`/repos/${config.controlFullName}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { default_branch: workflowRef } = await repositoryResponse.json() as { default_branch: string };
   const pr = payload.pull_request;
-  const engineRef = payload.repository.full_name === engineRepository
+  const engineRef = payload.repository.full_name.toLowerCase() === config.controlFullName.toLowerCase()
     ? pr.merge_commit_sha ?? ''
     : '';
-  await githubFetch(`/repos/${engineRepository}/actions/workflows/central-review.yml/dispatches`, {
+  await githubFetch(`/repos/${config.controlFullName}/actions/workflows/central-review.yml/dispatches`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      ref: 'main',
+      ref: workflowRef,
       inputs: {
         repository: payload.repository.full_name,
         repository_id: String(payload.repository.id),
@@ -162,6 +176,20 @@ async function dispatchReview(payload: PullRequestPayload, env: Env): Promise<vo
       },
     }),
   });
+}
+
+export function deploymentConfig(
+  env: Pick<Env, 'CONTROL_REPOSITORY' | 'ALLOWED_OWNER'>,
+): DeploymentConfig {
+  const match = /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/.exec(env.CONTROL_REPOSITORY);
+  if (!match) throw new Error('CONTROL_REPOSITORY must be owner/name');
+  if (!/^[A-Za-z0-9-]+$/.test(env.ALLOWED_OWNER)) throw new Error('Invalid ALLOWED_OWNER');
+  return {
+    allowedOwner: env.ALLOWED_OWNER,
+    controlOwner: match[1]!,
+    controlRepository: match[2]!,
+    controlFullName: env.CONTROL_REPOSITORY,
+  };
 }
 
 // GitHub recommends the App Client ID, rather than the legacy numeric App ID, as JWT iss.

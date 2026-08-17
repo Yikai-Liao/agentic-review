@@ -51,13 +51,15 @@ jobs:
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
           ENGINE_REF: ${{ inputs.engine_ref }}
+          CONTROL_REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Central Review must run from main"
+          if [[ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "Central Review must run from the control repository default branch"
             exit 1
           fi
           IFS=/ read -r owner name extra <<< "$REPOSITORY"
-          if [[ "$owner" != "Qiyin-Tech" || ! "$name" =~ ^[A-Za-z0-9._-]+$ || -n "$extra" ]]; then
+          if [[ ! "$owner" =~ ^[A-Za-z0-9-]+$ || ! "$name" =~ ^[A-Za-z0-9._-]+$ || -n "$extra" ]]; then
             echo "Unsupported repository: $REPOSITORY"
             exit 1
           fi
@@ -65,7 +67,7 @@ jobs:
             echo "Invalid PR snapshot inputs"
             exit 1
           fi
-          if [[ -n "$ENGINE_REF" && ( "$REPOSITORY" != "Qiyin-Tech/agentic-review" || ! "$ENGINE_REF" =~ ^[0-9a-f]{40}$ ) ]]; then
+          if [[ -n "$ENGINE_REF" && ( "$REPOSITORY" != "$CONTROL_REPOSITORY" || ! "$ENGINE_REF" =~ ^[0-9a-f]{40}$ ) ]]; then
             echo "Invalid candidate Engine"
             exit 1
           fi
@@ -169,7 +171,7 @@ jobs:
         if: inputs.engine_ref != ''
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          repository: Qiyin-Tech/agentic-review
+          repository: ${{ github.repository }}
           ref: ${{ inputs.engine_ref }}
           token: ${{ steps.target-token.outputs.token }}
           path: candidate
