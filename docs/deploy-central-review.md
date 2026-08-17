@@ -25,9 +25,10 @@ openssl pkcs8 -topk8 -nocrypt \
 - Cloudflare `account_id`；
 - Worker 名称与可选 custom domain；
 - `CONTROL_REPOSITORY=<owner>/<repository>`；
+- `CONTROL_WORKFLOW_REF=<中央 Action 所在 branch 或 tag>`；
 - `ALLOWED_OWNER=<允许审查的 owner>`。
 
-Worker 会通过 GitHub API 获取控制仓库的默认分支，不要求分支名。
+`CONTROL_WORKFLOW_REF` 在部署时确定，只定位控制仓库中的 `agentic-review.yml`；它不读取或限制目标 PR 的分支。
 
 然后登录并配置 secrets：
 

@@ -21,6 +21,7 @@ export interface Env {
   DISPATCH_CLIENT_ID: string;
   DISPATCH_PRIVATE_KEY_PKCS8: string;
   CONTROL_REPOSITORY: string;
+  CONTROL_WORKFLOW_REF: string;
   ALLOWED_OWNER: string;
   DELIVERIES: DurableObjectNamespace;
 }
@@ -46,6 +47,7 @@ type DeploymentConfig = {
   controlOwner: string;
   controlRepository: string;
   controlFullName: string;
+  workflowRef: string;
 };
 
 export default { fetch: handleRequest };
@@ -152,20 +154,15 @@ async function dispatchReview(payload: PullRequestPayload, env: Env, config: Dep
     body: JSON.stringify({ repositories: [config.controlRepository], permissions: { actions: 'write' } }),
   });
   const { token } = await tokenResponse.json() as { token: string };
-  const repositoryResponse = await githubFetch(`/repos/${config.controlFullName}`, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const { default_branch: workflowRef } = await repositoryResponse.json() as { default_branch: string };
   const pr = payload.pull_request;
   const engineRef = payload.repository.full_name.toLowerCase() === config.controlFullName.toLowerCase()
     ? pr.merge_commit_sha ?? ''
     : '';
-  await githubFetch(`/repos/${config.controlFullName}/actions/workflows/central-review.yml/dispatches`, {
+  await githubFetch(`/repos/${config.controlFullName}/actions/workflows/agentic-review.yml/dispatches`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      ref: workflowRef,
+      ref: config.workflowRef,
       inputs: {
         repository: payload.repository.full_name,
         repository_id: String(payload.repository.id),
@@ -179,16 +176,20 @@ async function dispatchReview(payload: PullRequestPayload, env: Env, config: Dep
 }
 
 export function deploymentConfig(
-  env: Pick<Env, 'CONTROL_REPOSITORY' | 'ALLOWED_OWNER'>,
+  env: Pick<Env, 'CONTROL_REPOSITORY' | 'CONTROL_WORKFLOW_REF' | 'ALLOWED_OWNER'>,
 ): DeploymentConfig {
   const match = /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/.exec(env.CONTROL_REPOSITORY);
   if (!match) throw new Error('CONTROL_REPOSITORY must be owner/name');
   if (!/^[A-Za-z0-9-]+$/.test(env.ALLOWED_OWNER)) throw new Error('Invalid ALLOWED_OWNER');
+  if (!/^[A-Za-z0-9._/-]+$/.test(env.CONTROL_WORKFLOW_REF) || env.CONTROL_WORKFLOW_REF.includes('..')) {
+    throw new Error('Invalid CONTROL_WORKFLOW_REF');
+  }
   return {
     allowedOwner: env.ALLOWED_OWNER,
     controlOwner: match[1]!,
     controlRepository: match[2]!,
     controlFullName: env.CONTROL_REPOSITORY,
+    workflowRef: env.CONTROL_WORKFLOW_REF,
   };
 }
 

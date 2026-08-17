@@ -16,12 +16,14 @@ const payload = {
 test('reads organization and control repository from deployment configuration', () => {
   assert.deepEqual(deploymentConfig({
     CONTROL_REPOSITORY: 'Another-Org/review-engine',
+    CONTROL_WORKFLOW_REF: 'stable',
     ALLOWED_OWNER: 'Target-Org',
   }), {
     allowedOwner: 'Target-Org',
     controlOwner: 'Another-Org',
     controlRepository: 'review-engine',
     controlFullName: 'Another-Org/review-engine',
+    workflowRef: 'stable',
   });
 });
 

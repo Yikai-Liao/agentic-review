@@ -62,5 +62,5 @@ Engine 默认只从 base SHA 的 `spec/review` 读取仓库规则，因此 PR �
 - 目标 PR 代码只作为静态数据读取，绝不执行测试、构建、依赖安装或项目代码。
 - Reviewer 没有 Bash，只有限定在目标工作区和 Review context 内的静态 read/grep/find/ls 工具。
 - GitHub/Lark 能力由可信采集器或窄化工具提供，不向 Reviewer 暴露真实 CLI 凭证。
-- Review 与 Publisher 运行在不同 GitHub Actions job；Publisher 从控制仓库受保护的默认分支重新检出代码和目标 head，并重新校验 schema、文件大小、RIGHT-side diff 行及提交 SHA。
+- Review 与 Publisher 运行在不同 GitHub Actions job；Publisher 从本次 Workflow 的同一控制仓库 commit 重新检出代码和目标 head，并重新校验 schema、文件大小、RIGHT-side diff 行及提交 SHA。
 - `agentic-review` 自审时，只有可验证父提交的 synthetic merge commit 才能作为候选 Engine；不存在该 commit 时回退到受信任 Engine。候选 job 不能接触 Publisher token。
