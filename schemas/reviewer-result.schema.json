@@ -2,28 +2,18 @@
   "type": "object",
   "required": [
     "reviewer",
+    "overview",
     "findings"
   ],
   "properties": {
     "reviewer": {
-      "anyOf": [
-        {
-          "type": "string",
-          "const": "production-semantics"
-        },
-        {
-          "type": "string",
-          "const": "test-quality"
-        },
-        {
-          "type": "string",
-          "const": "performance"
-        },
-        {
-          "type": "string",
-          "const": "design-quality"
-        }
-      ]
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "overview": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
     },
     "findings": {
       "type": "array",

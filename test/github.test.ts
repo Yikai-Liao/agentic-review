@@ -20,6 +20,13 @@ test('trusted publisher rejects undeclared review fields', () => {
   }), /Invalid pull request review/);
 });
 
+test('trusted publisher accepts a clean overview without inline comments', () => {
+  assert.deepEqual(validatePullRequestReview({
+    body: '## ✅ Agentic Review\n\n未发现需要处理的问题。',
+    comments: [],
+  }).comments, []);
+});
+
 test('trusted publisher revalidates the current head before posting', async () => {
   const context = await mkdtemp(path.join(tmpdir(), 'agentic-review-publish-'));
   await writeFile(`${context}/changed-files.txt`, 'src/a.ts\n');

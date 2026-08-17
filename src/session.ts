@@ -39,7 +39,7 @@ export type SessionMetrics = {
 
 type ReviewerOptions = {
   cwd: string;
-  id: ReviewerResult['reviewer'];
+  id: string;
   promptPath: string;
   modelRuntime: ModelRuntime;
   model: Model<any>;
@@ -56,11 +56,14 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
   const submit = defineTool({
     name: 'submit_findings',
     label: 'Submit findings',
-    description: 'Submit the complete structured finding set exactly once.',
-    parameters: Type.Object({ findings: Type.Array(findingSchema, { maxItems: 50 }) }),
+    description: 'Submit one PR overview and the complete structured finding set exactly once.',
+    parameters: Type.Object({
+      overview: Type.String({ minLength: 1, maxLength: 1000 }),
+      findings: Type.Array(findingSchema, { maxItems: 50 }),
+    }, { additionalProperties: false }),
     execute: async (_id, params) => {
       if (submitted) throw new Error('findings already submitted');
-      const candidate = validateReviewerResult({ reviewer: options.id, findings: params.findings });
+      const candidate = validateReviewerResult({ reviewer: options.id, overview: params.overview, findings: params.findings });
       await validateFindingLocations(options.contextRoot, candidate.findings);
       submitted = candidate;
       return { content: [{ type: 'text', text: 'Findings accepted.' }], details: {} };
@@ -140,10 +143,7 @@ export async function runAggregator(options: {
   githubTool: ReturnType<typeof defineTool>;
 }): Promise<void> {
   const findingCount = options.results.reduce((total, result) => total + result.findings.length, 0);
-  if (findingCount === 0) {
-    if (options.failures.length) throw new Error('reviewers failed without publishable findings');
-    return;
-  }
+  if (findingCount === 0 && options.failures.length) throw new Error('reviewers failed without publishable findings');
   const prompt = await readFile(options.promptPath, 'utf8');
   await runSession({
     ...options,

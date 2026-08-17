@@ -31,12 +31,8 @@ export const findingSchema = Type.Object(
 
 export const reviewerResultSchema = Type.Object(
   {
-    reviewer: Type.Union([
-      Type.Literal('production-semantics'),
-      Type.Literal('test-quality'),
-      Type.Literal('performance'),
-      Type.Literal('design-quality'),
-    ]),
+    reviewer: Type.String({ pattern: '^[a-z0-9][a-z0-9-]*$' }),
+    overview: Type.String({ minLength: 1, maxLength: 1000 }),
     findings: Type.Array(findingSchema, { maxItems: 50 }),
   },
   { additionalProperties: false },

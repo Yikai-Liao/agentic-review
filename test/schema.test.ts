@@ -17,6 +17,6 @@ test('接受完整 finding 并拒绝额外字段', () => {
     impact: '跨租户数据泄漏。',
     suggestedSeverity: 'P1' as const,
   };
-  assert.equal(validateReviewerResult({ reviewer: 'production-semantics', findings: [finding] }).findings.length, 1);
-  assert.throws(() => validateReviewerResult({ reviewer: 'production-semantics', findings: [{ ...finding, extra: true }] }));
+  assert.equal(validateReviewerResult({ reviewer: 'custom-reviewer', overview: '本 PR 调整租户资源查询。', findings: [finding] }).findings.length, 1);
+  assert.throws(() => validateReviewerResult({ reviewer: 'custom-reviewer', overview: '本 PR 调整租户资源查询。', findings: [{ ...finding, extra: true }] }));
 });

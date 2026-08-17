@@ -13,4 +13,4 @@
 
 不要报告 CI 可稳定发现的问题、纯缺少测试、风格偏好、无证据性能猜测或未受 diff 影响的旧问题。允许零条 finding。
 
-完成后必须调用 `submit_findings` 一次。不要在普通文本里输出 findings。
+调用 `submit_findings` 时，同时提交 `overview`：用 1–3 句客观中文概括 PR 做了什么及其业务/技术上下文，不涉及目标仓库的 CI 检查结果。即使没有 finding 也必须提供 overview。不要在普通文本里输出 findings。

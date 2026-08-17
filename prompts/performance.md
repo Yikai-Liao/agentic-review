@@ -2,4 +2,4 @@
 
 只报告当前 diff 可静态证明的资源或复杂度退化：N+1、O(n) 到 O(n²)、循环内远程调用、无界物化、分页错误、重复序列化/复制、锁范围扩大、独立 I/O 串行化、重试放大或批处理退化。必须给出实际调用路径、输入规模与资源后果。
 
-不建议 speculative cache，不报告无规模证据的可扩展性猜测。允许零条 finding。完成后必须调用 `submit_findings` 一次，不在普通文本中输出 findings。
+不建议 speculative cache，不报告无规模证据的可扩展性猜测。允许零条 finding。调用 `submit_findings` 时，同时提交 `overview`：用 1–3 句客观中文概括 PR 做了什么及其上下文，不涉及目标仓库的 CI 检查结果。即使没有 finding 也必须提供 overview，不在普通文本中输出 findings。

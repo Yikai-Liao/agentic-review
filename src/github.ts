@@ -14,7 +14,7 @@ export const pullRequestReviewSchema = Type.Object({
       side: Type.Literal('RIGHT'),
       body: Type.String({ minLength: 1, maxLength: 5000 }),
     }, { additionalProperties: false }),
-    { minItems: 1, maxItems: 30 },
+    { maxItems: 30 },
   ),
 }, { additionalProperties: false });
 
@@ -31,7 +31,7 @@ export function createGitHubReviewTool(contextRoot: string) {
   return defineTool({
     name: 'create_pull_request_review',
     label: 'Create pull request review',
-    description: 'Create at most one COMMENT review containing all accepted inline findings.',
+    description: 'Create exactly one COMMENT review with a summary and any accepted inline findings.',
     parameters: pullRequestReviewSchema,
     execute: async (_id, params) => {
       if (submitted) throw new Error('a review was already submitted');
