@@ -13,13 +13,14 @@ import type { Model } from '@earendil-works/pi-ai/compat';
 import { Type } from 'typebox';
 import type { BenchmarkCandidate, BenchmarkExpectation } from './benchmark.ts';
 import { validateFindingLocations } from './diff.ts';
+import { createRestrictedReadTools } from './restricted-tools.ts';
 import { findingSchema, validateReviewerResult, type Finding, type ReviewerResult } from './schema.ts';
 
 type Thinking = 'low' | 'medium' | 'high' | 'xhigh';
 
-const staticInspectionBoundary = `## Bash 使用边界
+const staticInspectionBoundary = `## 静态检查边界
 
-只允许用 Bash 静态读取和搜索工作区及指定 Review context。禁止运行测试、构建、lint、安装依赖、package script、编译器、解释器、项目二进制或任何项目代码；禁止修改文件、访问网络及读取工作区和 Review context 之外的路径。`;
+只能使用受限的只读工具读取和搜索工作区及指定 Review context。不得运行测试、构建、lint、依赖安装、项目代码或网络请求，也不得修改文件或读取允许目录之外的路径。`;
 
 export type SessionMetrics = {
   durationMs: number;
@@ -65,12 +66,13 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
       return { content: [{ type: 'text', text: 'Findings accepted.' }], details: {} };
     },
   });
+  const readTools = await createRestrictedReadTools(options.cwd, [options.cwd, options.contextRoot]);
   const prompt = `${await readFile(options.promptPath, 'utf8')}\n\n${staticInspectionBoundary}`;
   const metrics = await runSession({
     ...options,
     systemPrompt: prompt,
-    tools: ['bash', 'submit_findings'],
-    customTools: [submit],
+    tools: [...readTools.map(({ name }) => name), 'submit_findings'],
+    customTools: [...readTools, submit],
   });
   if (!submitted) throw new Error(`${options.id} did not submit findings`);
   await writeFile(`${options.contextRoot}/results/${options.id}.json`, `${JSON.stringify(submitted, null, 2)}\n`);

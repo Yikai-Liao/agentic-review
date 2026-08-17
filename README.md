@@ -4,7 +4,7 @@
 
 ## 运行方式
 
-一个 GitHub Actions job 只安装一次 Pi：先并发运行相互独立的 Reviewer session，再串行运行唯一拥有窄化 GitHub Review 工具的聚合发布 Agent。Reviewer 只有内置 Bash 和结构化提交工具；Prompt 要求 Bash 只做静态读取与搜索，禁止运行测试、构建、安装依赖或项目代码。Reviewer 对审查结论负责但不能发布；聚合 Agent 直接信任 Reviewer，只合并明显重复项、排版并一次性发布，不做二次证据校验。
+组织仓库通过 GitHub App webhook 触发本仓库的中央 GitHub Actions；下游无需复制 Workflow、保存密钥或遵循特定分支结构。中央任务先并发运行相互独立的 Reviewer session，再由独立可信 Publisher 校验 RIGHT-side diff 位置并一次性发布。Reviewer 只有受路径约束的静态读取/搜索工具，不能执行 Shell、项目代码或网络请求，也不能读取模型、GitHub、Lark 或 Pi session 凭证。完整协议见 [`docs/central-review.md`](docs/central-review.md)。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -20,8 +20,7 @@ REVIEW_AGENT_MODEL=... REVIEW_AGENT_API_KEY=... pnpm benchmark:run
 
 - `REVIEW_BASE_SHA`、`REVIEW_HEAD_SHA`、`REVIEW_PULL_NUMBER`
 - `REVIEW_AGENT_MODEL`、`REVIEW_AGENT_API_KEY`
-- `GITHUB_TOKEN`、`GITHUB_REPOSITORY`
-- reusable workflow 调用方需显式传入只读 `AGENTIC_REVIEW_TOKEN`，用于检出私有 Engine 仓库
+- 直接发布模式需要 `GITHUB_TOKEN`、`GITHUB_REPOSITORY`；中央模式改由可信 Publisher 注入
 - 可选：`REVIEW_AGENT_BASE_URL`、`REVIEW_POLICY_ROOT`、`REVIEWERS`
 
 仓库规则默认只从 base 快照的 `spec/review` 读取；通用审查方法来自当前固定版本的 Engine。
