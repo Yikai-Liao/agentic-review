@@ -15,16 +15,18 @@ afterEach(() => {
 
 test('trusted publisher rejects undeclared review fields', () => {
   assert.throws(() => validatePullRequestReview({
-    body: 'Review findings',
+    body: '## ⚠️ Agentic Review\n\n发现问题。',
     comments: [{ path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Problem', position: 99 }],
   }), /Invalid pull request review/);
 });
 
-test('trusted publisher accepts a clean overview without inline comments', () => {
+test('trusted publisher requires an Agentic Review overview', () => {
   assert.deepEqual(validatePullRequestReview({
     body: '## ✅ Agentic Review\n\n未发现需要处理的问题。',
     comments: [],
   }).comments, []);
+  assert.throws(() => validatePullRequestReview({ body: '', comments: [] }), /Invalid pull request review/);
+  assert.throws(() => validatePullRequestReview({ body: 'No issues.', comments: [] }), /Invalid pull request review/);
 });
 
 test('trusted publisher revalidates the current head before posting', async () => {
@@ -47,7 +49,7 @@ test('trusted publisher revalidates the current head before posting', async () =
 
   try {
     const message = await publishGitHubReview(context, {
-      body: 'Review findings',
+      body: '## ⚠️ Agentic Review\n\n发现问题。',
       comments: [{ path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Problem' }],
     });
     assert.equal(message, 'Review created: https://github.com/review/1');
@@ -79,7 +81,7 @@ test('trusted publisher rejects a stale review without posting', async () => {
   try {
     await assert.rejects(
       publishGitHubReview(context, {
-        body: 'Review findings',
+        body: '## ⚠️ Agentic Review\n\n发现问题。',
         comments: [{ path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Problem' }],
       }),
       /stale review head/,

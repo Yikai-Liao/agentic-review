@@ -5,7 +5,7 @@ import { Compile } from 'typebox/compile';
 import { assertRightSideRange, collectRightSideLines } from './diff.ts';
 
 export const pullRequestReviewSchema = Type.Object({
-  body: Type.String({ maxLength: 1000 }),
+  body: Type.String({ minLength: 1, maxLength: 1000, pattern: '^## (✅|⚠️) Agentic Review' }),
   comments: Type.Array(
     Type.Object({
       path: Type.String({ minLength: 1 }),

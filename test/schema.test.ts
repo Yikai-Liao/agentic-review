@@ -18,5 +18,8 @@ test('接受完整 finding 并拒绝额外字段', () => {
     suggestedSeverity: 'P1' as const,
   };
   assert.equal(validateReviewerResult({ reviewer: 'custom-reviewer', overview: '本 PR 调整租户资源查询。', findings: [finding] }).findings.length, 1);
+  assert.throws(() => validateReviewerResult({ reviewer: 'custom-reviewer', findings: [finding] }));
+  assert.throws(() => validateReviewerResult({ reviewer: 'custom-reviewer', overview: '', findings: [finding] }));
+  assert.throws(() => validateReviewerResult({ reviewer: 'custom-reviewer', overview: 'x'.repeat(1001), findings: [finding] }));
   assert.throws(() => validateReviewerResult({ reviewer: 'custom-reviewer', overview: '本 PR 调整租户资源查询。', findings: [{ ...finding, extra: true }] }));
 });
