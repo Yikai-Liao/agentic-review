@@ -19,11 +19,6 @@ on:
       head_sha:
         required: true
         type: string
-      engine_ref:
-        description: 仅自审时使用的候选 Engine synthetic merge commit
-        required: false
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -51,8 +46,6 @@ jobs:
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
-          ENGINE_REF: ${{ inputs.engine_ref }}
-          CONTROL_REPOSITORY: ${{ github.repository }}
         run: |
           IFS=/ read -r owner name extra <<< "$REPOSITORY"
           if [[ ! "$owner" =~ ^[A-Za-z0-9-]+$ || ! "$name" =~ ^[A-Za-z0-9._-]+$ || -n "$extra" ]]; then
@@ -61,10 +54,6 @@ jobs:
           fi
           if [[ ! "$REPOSITORY_ID" =~ ^[0-9]+$ || ! "$PULL_NUMBER" =~ ^[0-9]+$ || ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Invalid PR snapshot inputs"
-            exit 1
-          fi
-          if [[ -n "$ENGINE_REF" && ( "$REPOSITORY" != "$CONTROL_REPOSITORY" || ! "$ENGINE_REF" =~ ^[0-9a-f]{40}$ ) ]]; then
-            echo "Invalid candidate Engine"
             exit 1
           fi
           echo "owner=$owner" >> "$GITHUB_OUTPUT"
@@ -91,7 +80,6 @@ jobs:
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
-          ENGINE_REF: ${{ inputs.engine_ref }}
         run: |
           pr="$(gh api "repos/$REPOSITORY/pulls/$PULL_NUMBER")"
           jq -e \
@@ -104,7 +92,6 @@ jobs:
           if [[ "$REPOSITORY" == "$CONTROL_REPOSITORY" ]]; then
             engine_ref="$(jq -r '.merge_commit_sha // empty' <<< "$pr")"
             [[ -n "$engine_ref" ]]
-            [[ -z "$ENGINE_REF" || "$ENGINE_REF" == "$engine_ref" ]]
           fi
           echo "engine_ref=$engine_ref" >> "$GITHUB_OUTPUT"
 
