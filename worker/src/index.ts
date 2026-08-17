@@ -18,7 +18,7 @@ interface DurableObjectNamespace {
 
 export interface Env {
   WEBHOOK_SECRET: string;
-  DISPATCH_APP_ID: string;
+  DISPATCH_CLIENT_ID: string;
   DISPATCH_PRIVATE_KEY_PKCS8: string;
   DELIVERIES: DurableObjectNamespace;
 }
@@ -42,6 +42,7 @@ const engineRepository = 'Qiyin-Tech/agentic-review';
 
 export default { fetch: handleRequest };
 
+// One Durable Object instance per GitHub delivery serializes replay claims.
 export class DeliveryDeduplicator {
   constructor(private readonly state: DurableObjectState) {}
 
@@ -74,6 +75,7 @@ export class DeliveryDeduplicator {
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
   const body = await request.text();
+  // Authenticate the raw bytes before parsing attacker-controlled JSON.
   const signature = request.headers.get('x-hub-signature-256') ?? '';
   if (!await verifySignature(body, signature, env.WEBHOOK_SECRET)) return new Response('Invalid signature', { status: 401 });
 
@@ -86,6 +88,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   const deliveryId = request.headers.get('x-github-delivery');
   if (!deliveryId) return new Response('Missing delivery id', { status: 400 });
 
+  // Claim before dispatch so concurrent GitHub redeliveries cannot start duplicate workflows.
   const delivery = env.DELIVERIES.get(env.DELIVERIES.idFromName(deliveryId));
   const claim = await delivery.fetch(new Request('https://delivery/claim', { method: 'POST' }));
   if (claim.status === 409) return new Response('Already accepted', { status: 202 });
@@ -126,7 +129,7 @@ export async function verifySignature(body: string, signature: string, secret: s
 }
 
 async function dispatchReview(payload: PullRequestPayload, env: Env): Promise<void> {
-  const jwt = await createAppJwt(env.DISPATCH_APP_ID, env.DISPATCH_PRIVATE_KEY_PKCS8);
+  const jwt = await createAppJwt(env.DISPATCH_CLIENT_ID, env.DISPATCH_PRIVATE_KEY_PKCS8);
   const installationsResponse = await githubFetch('/app/installations?per_page=100', {
     method: 'GET',
     headers: { Authorization: `Bearer ${jwt}` },
@@ -161,14 +164,15 @@ async function dispatchReview(payload: PullRequestPayload, env: Env): Promise<vo
   });
 }
 
-async function createAppJwt(appId: string, privateKeyPem: string): Promise<string> {
-  if (!/^\d+$/.test(appId)) throw new Error('Invalid Dispatcher App ID');
+// GitHub recommends the App Client ID, rather than the legacy numeric App ID, as JWT iss.
+async function createAppJwt(clientId: string, privateKeyPem: string): Promise<string> {
+  if (!/^[A-Za-z0-9._-]+$/.test(clientId)) throw new Error('Invalid Dispatcher Client ID');
   if (privateKeyPem.includes('BEGIN RSA PRIVATE KEY')) {
     throw new Error('Dispatcher private key must be converted from PKCS#1 to PKCS#8');
   }
   const now = Math.floor(Date.now() / 1000);
   const header = base64Url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const payload = base64Url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId }));
+  const payload = base64Url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: clientId }));
   const unsigned = `${header}.${payload}`;
   const key = await crypto.subtle.importKey(
     'pkcs8',

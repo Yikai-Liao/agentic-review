@@ -10,7 +10,7 @@
 - Repository permissions：`Actions: Read and write`，其余均为 `No access`；
 - 安装范围：Only select repositories，仅选择 `Qiyin-Tech/agentic-review`。
 
-记录 App ID 并生成 private key。GitHub 下载的是 PKCS#1，Cloudflare Web Crypto 需要 PKCS#8：
+记录 Client ID 并生成 private key。GitHub 下载的是 PKCS#1，Cloudflare Web Crypto 需要 PKCS#8：
 
 ```bash
 openssl pkcs8 -topk8 -nocrypt \
@@ -25,13 +25,13 @@ openssl pkcs8 -topk8 -nocrypt \
 ```bash
 pnpm dlx wrangler@4.123.0 login
 pnpm dlx wrangler@4.123.0 secret put WEBHOOK_SECRET
-pnpm dlx wrangler@4.123.0 secret put DISPATCH_APP_ID
+pnpm dlx wrangler@4.123.0 secret put DISPATCH_CLIENT_ID
 pnpm dlx wrangler@4.123.0 secret put DISPATCH_PRIVATE_KEY_PKCS8
 pnpm dlx wrangler@4.123.0 deploy
 ```
 
 - `WEBHOOK_SECRET`：自行生成的随机值，例如 `openssl rand -hex 32`；
-- `DISPATCH_APP_ID`：上一步的 App ID；
+- `DISPATCH_CLIENT_ID`：上一步的 Client ID；
 - `DISPATCH_PRIVATE_KEY_PKCS8`：PKCS#8 PEM 的完整内容。
 
 记录 Wrangler 返回的 `https://...workers.dev` URL。
@@ -51,9 +51,9 @@ pnpm dlx wrangler@4.123.0 deploy
   - Pull requests: read and write；
 - 安装到需要审查的 Qiyin-Tech 仓库，首批至少包含 `agentic-review`。
 
-记录 App ID 并生成 private key。在 `Qiyin-Tech/agentic-review` Actions 中配置：
+记录 Client ID 并生成 private key。在 `Qiyin-Tech/agentic-review` Actions 中配置：
 
-- Repository variable `AGENTIC_REVIEW_APP_ID`：Review App ID；
+- Repository variable `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
 - Repository secret `AGENTIC_REVIEW_APP_PRIVATE_KEY`：原始 PEM 完整内容；
 - 继续保留 `REVIEW_AGENT_API_KEY`、`REVIEW_AGENT_MODEL`、`REVIEW_AGENT_BASE_URL`。
 

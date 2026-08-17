@@ -1,4 +1,5 @@
 name = "qiyin-agentic-review-dispatcher"
+account_id = "6264e98fe582a4d34556807f320eec92"
 main = "worker/src/index.ts"
 compatibility_date = "2026-08-17"
 workers_dev = true

@@ -12,10 +12,9 @@ async function start(): Promise<void> {
     `/repos/${repository}/commits/${required('REVIEW_HEAD_SHA')}/check-runs?check_name=${encodeURIComponent('Agentic Review / audit')}&filter=all`,
     { method: 'GET' },
   );
-  const appId = Number(required('REVIEW_APP_ID'));
-  if (!Number.isSafeInteger(appId)) throw new Error('invalid REVIEW_APP_ID');
+  const appSlug = required('REVIEW_APP_SLUG');
   const checks = (await existingResponse.json() as { check_runs: ExistingCheck[] }).check_runs;
-  const selected = selectExistingCheck(checks, appId, taskId);
+  const selected = selectExistingCheck(checks, appSlug, taskId);
   const output = required('GITHUB_OUTPUT');
   if (selected) {
     await appendOutputs(output, selected.id, selected.duplicate);
