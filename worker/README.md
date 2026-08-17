@@ -43,7 +43,7 @@ Webhook 签名、事件过滤与 delivery claim 行为覆盖在 `test/webhook.te
 
 ## 部署
 
-部署到 `wrangler.toml` 指定的 `Root@qiyin.ink` Cloudflare account：
+部署到 `wrangler.toml` 指定的 `Root@qiyin.ink` Cloudflare account，并绑定 `https://agentic-review.daqiyin.com`：
 
 ```bash
 pnpm dlx wrangler@4.123.0 secret put WEBHOOK_SECRET

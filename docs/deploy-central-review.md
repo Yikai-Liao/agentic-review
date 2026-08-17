@@ -34,7 +34,7 @@ pnpm dlx wrangler@4.123.0 deploy
 - `DISPATCH_CLIENT_ID`：上一步的 Client ID；
 - `DISPATCH_PRIVATE_KEY_PKCS8`：PKCS#8 PEM 的完整内容。
 
-记录 Wrangler 返回的 `https://...workers.dev` URL。
+Webhook URL 固定为 `https://agentic-review.daqiyin.com`；`wrangler.toml` 会创建对应 Cloudflare custom domain，并关闭 `workers.dev` 与 preview URL。
 
 ## 3. 创建 Review App
 
