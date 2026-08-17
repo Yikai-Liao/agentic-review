@@ -89,7 +89,7 @@ jobs:
             '.state == "open" and .draft == false and .base.repo.id == $repository_id and .base.sha == $base and .head.sha == $head' \
             <<< "$pr" >/dev/null
           engine_ref=""
-          if [[ "$REPOSITORY" == "$CONTROL_REPOSITORY" ]]; then
+          if [[ "${REPOSITORY,,}" == "${CONTROL_REPOSITORY,,}" ]]; then
             engine_ref="$(jq -r '.merge_commit_sha // empty' <<< "$pr")"
             [[ -n "$engine_ref" ]]
           fi
