@@ -69,17 +69,24 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
       return { content: [{ type: 'text', text: 'Findings accepted.' }], details: {} };
     },
   });
-  const readTools = await createRestrictedReadTools(options.cwd, [options.cwd, options.contextRoot]);
-  const prompt = `${await readFile(options.promptPath, 'utf8')}\n\n${staticInspectionBoundary}`;
-  const metrics = await runSession({
-    ...options,
-    systemPrompt: prompt,
-    tools: [...readTools.map(({ name }) => name), 'submit_findings'],
-    customTools: [...readTools, submit],
-  });
-  if (!submitted) throw new Error(`${options.id} did not submit findings`);
-  await writeFile(`${options.contextRoot}/results/${options.id}.json`, `${JSON.stringify(submitted, null, 2)}\n`);
-  return { result: submitted, metrics };
+  console.log(`[review-agent:${options.id}] Started (${options.model.id}, ${options.thinking})`);
+  try {
+    const readTools = await createRestrictedReadTools(options.cwd, [options.cwd, options.contextRoot]);
+    const prompt = `${await readFile(options.promptPath, 'utf8')}\n\n${staticInspectionBoundary}`;
+    const metrics = await runSession({
+      ...options,
+      systemPrompt: prompt,
+      tools: [...readTools.map(({ name }) => name), 'submit_findings'],
+      customTools: [...readTools, submit],
+    });
+    if (!submitted) throw new Error(`${options.id} did not submit findings`);
+    await writeFile(`${options.contextRoot}/results/${options.id}.json`, `${JSON.stringify(submitted, null, 2)}\n`);
+    console.log(`[review-agent:${options.id}] Completed: ${submitted.findings.length} finding(s), ${(metrics.durationMs / 1000).toFixed(1)}s, ${metrics.tokens.total} tokens`);
+    return { result: submitted, metrics };
+  } catch (error) {
+    console.error(`[review-agent:${options.id}] Failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
 }
 
 export type JudgmentCandidate = BenchmarkCandidate & {
@@ -142,8 +149,6 @@ export async function runAggregator(options: {
   failures: Array<{ reviewer: string; error: string }>;
   githubTool: ReturnType<typeof defineTool>;
 }): Promise<void> {
-  const findingCount = options.results.reduce((total, result) => total + result.findings.length, 0);
-  if (findingCount === 0 && options.failures.length) throw new Error('reviewers failed without publishable findings');
   const prompt = await readFile(options.promptPath, 'utf8');
   await runSession({
     ...options,

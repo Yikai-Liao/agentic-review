@@ -41,6 +41,7 @@ jobs:
       name: ${{ steps.target.outputs.name }}
       check_id: ${{ steps.check.outputs.check_id }}
       duplicate: ${{ steps.check.outputs.duplicate }}
+      engine_ref: ${{ steps.snapshot.outputs.engine_ref }}
     steps:
       - name: Validate target
         id: target
@@ -81,9 +82,11 @@ jobs:
           permission-pull-requests: read
 
       - name: Validate PR snapshot
+        id: snapshot
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
+          CONTROL_REPOSITORY: ${{ github.repository }}
           REPOSITORY_ID: ${{ inputs.repository_id }}
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ inputs.base_sha }}
@@ -97,10 +100,13 @@ jobs:
             --arg head "$HEAD_SHA" \
             '.state == "open" and .draft == false and .base.repo.id == $repository_id and .base.sha == $base and .head.sha == $head' \
             <<< "$pr" >/dev/null
-          if [[ -n "$ENGINE_REF" ]]; then
-            expected="$(jq -r '.merge_commit_sha // empty' <<< "$pr")"
-            [[ -n "$expected" && "$ENGINE_REF" == "$expected" ]]
+          engine_ref=""
+          if [[ "$REPOSITORY" == "$CONTROL_REPOSITORY" ]]; then
+            engine_ref="$(jq -r '.merge_commit_sha // empty' <<< "$pr")"
+            [[ -n "$engine_ref" ]]
+            [[ -z "$ENGINE_REF" || "$ENGINE_REF" == "$engine_ref" ]]
           fi
+          echo "engine_ref=$engine_ref" >> "$GITHUB_OUTPUT"
 
       - name: Checkout trusted control plane
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -163,17 +169,17 @@ jobs:
           persist-credentials: false
 
       - name: Checkout candidate Engine
-        if: inputs.engine_ref != ''
+        if: needs.start.outputs.engine_ref != ''
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ${{ github.repository }}
-          ref: ${{ inputs.engine_ref }}
+          ref: ${{ needs.start.outputs.engine_ref }}
           token: ${{ steps.target-token.outputs.token }}
           path: candidate
           persist-credentials: false
 
       - name: Verify candidate merge parents
-        if: inputs.engine_ref != ''
+        if: needs.start.outputs.engine_ref != ''
         working-directory: candidate
         env:
           BASE_SHA: ${{ inputs.base_sha }}
@@ -197,7 +203,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install candidate Engine
-        if: inputs.engine_ref != ''
+        if: needs.start.outputs.engine_ref != ''
         working-directory: candidate
         run: pnpm install --frozen-lockfile
 
@@ -207,7 +213,7 @@ jobs:
           touch "${{ runner.temp }}/review-output/empty"
 
       - name: Run Review Engine
-        working-directory: ${{ inputs.engine_ref != '' && 'candidate' || 'engine' }}
+        working-directory: ${{ needs.start.outputs.engine_ref != '' && 'candidate' || 'engine' }}
         env:
           REVIEW_REPOSITORY_PATH: ${{ github.workspace }}/target
           REVIEW_BASE_SHA: ${{ inputs.base_sha }}

@@ -40,6 +40,7 @@ export function createGitHubReviewTool(contextRoot: string) {
       const message = outputPath
         ? await writeFile(outputPath, `${JSON.stringify(params, null, 2)}\n`).then(() => `Review staged: ${outputPath}`)
         : await publishGitHubReview(contextRoot, params);
+      console.log(`[agentic-review] ${outputPath ? 'Staged' : 'Published'} Review with ${params.comments.length} inline comment(s)`);
       submitted = true;
       return { content: [{ type: 'text', text: message }], details: {} };
     },
