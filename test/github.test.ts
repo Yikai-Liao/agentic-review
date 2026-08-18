@@ -54,6 +54,10 @@ test('deterministic Review preserves overview, notes, failures, and every findin
   assert.match(review.body, /\[BUG-7\] 相关路径变化但当前行为不变。/);
   assert.match(review.body, /`test-quality` 执行失败，审查范围不完整。/);
   assert.equal(review.comments.length, 1);
+  assert.deepEqual(
+    { path: review.comments[0]!.path, side: review.comments[0]!.side, startLine: review.comments[0]!.startLine, line: review.comments[0]!.line },
+    { path: 'src/a.ts', side: 'RIGHT', startLine: undefined, line: 1 },
+  );
   assert.match(review.comments[0]!.body, /\*\*P1 · 租户过滤被移除\*\*/);
   assert.match(review.comments[0]!.body, /\*\*类别：\*\* authorization/);
   assert.match(review.comments[0]!.body, /\*\*证据：\*\* 查询不再使用 tenantId。/);

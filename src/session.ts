@@ -197,6 +197,7 @@ export async function runAggregator(options: {
     label: 'Submit aggregation',
     description: 'Partition every finding ID into same-root-cause groups exactly once.',
     parameters: Type.Object({
+      // ponytail: one bounded GitHub Review supports 30 groups; add explicit overflow publishing only if real reviews hit this ceiling.
       groups: Type.Array(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), { maxItems: 30 }),
     }, { additionalProperties: false }),
     execute: async (_id, params) => {
