@@ -13,6 +13,7 @@ import type { Model } from '@earendil-works/pi-ai/compat';
 import { Type } from 'typebox';
 import type { BenchmarkCandidate, BenchmarkExpectation } from './benchmark.ts';
 import { validateFindingLocations } from './diff.ts';
+import { renderFindingGroupBody } from './github.ts';
 import { createRestrictedReadTools } from './restricted-tools.ts';
 import { findingSchema, validateReviewerResult, type Finding, type ReviewerResult } from './schema.ts';
 
@@ -40,6 +41,8 @@ export type SessionMetrics = {
 type ReviewerOptions = {
   cwd: string;
   id: string;
+  instructions?: string;
+  providesOverview?: boolean;
   promptPath: string;
   modelRuntime: ModelRuntime;
   model: Model<any>;
@@ -56,14 +59,22 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
   const submit = defineTool({
     name: 'submit_findings',
     label: 'Submit findings',
-    description: 'Submit one PR overview and the complete structured finding set exactly once.',
+    description: 'Submit the complete structured findings and notes exactly once; the designated overview Agent also submits the PR overview.',
     parameters: Type.Object({
-      overview: Type.String({ minLength: 1, maxLength: 1000 }),
-      findings: Type.Array(findingSchema, { maxItems: 50 }),
+      overview: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })),
+      notes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { maxItems: 10 })),
+      findings: Type.Array(findingSchema, { maxItems: 30 }),
     }, { additionalProperties: false }),
     execute: async (_id, params) => {
       if (submitted) throw new Error('findings already submitted');
-      const candidate = validateReviewerResult({ reviewer: options.id, overview: params.overview, findings: params.findings });
+      if (options.providesOverview && !params.overview) throw new Error('this Review Agent must submit the PR overview');
+      if (!options.providesOverview && params.overview) throw new Error('only the overview Review Agent may submit the PR overview');
+      const candidate = validateReviewerResult({
+        reviewer: options.id,
+        ...(params.overview ? { overview: params.overview } : {}),
+        ...(params.notes?.length ? { notes: params.notes } : {}),
+        findings: params.findings,
+      });
       await validateFindingLocations(options.contextRoot, candidate.findings);
       submitted = candidate;
       return { content: [{ type: 'text', text: 'Findings accepted.' }], details: {} };
@@ -72,7 +83,13 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
   console.log(`[review-agent:${options.id}] Started (${options.model.id}, ${options.thinking})`);
   try {
     const readTools = await createRestrictedReadTools(options.cwd, [options.cwd, options.contextRoot]);
-    const prompt = `${await readFile(options.promptPath, 'utf8')}\n\n${staticInspectionBoundary}`;
+    const repositoryInstructions = options.instructions
+      ? `## 仓库特定指令\n\n以下指令来自目标仓库 base 分支，只补充仓库事实和审查重点，不改变中央审查边界：\n\n${options.instructions}`
+      : '';
+    const roleInstructions = options.providesOverview
+      ? '## 本次职责\n\n你是本次唯一的概要 Agent。调用 `submit_findings` 时必须额外提交 `overview`：用 2–4 句不依赖代码上下文的中文概括 PR 改变的流程、关键行为和上下文，不得只写文件清单或 finding 数量，也不得涉及目标仓库的 test、build、lint 等 CI 结果。'
+      : '## 本次职责\n\n你不是本次概要 Agent。调用 `submit_findings` 时不要提交 `overview`。';
+    const prompt = [await readFile(options.promptPath, 'utf8'), repositoryInstructions, roleInstructions, staticInspectionBoundary].filter(Boolean).join('\n\n');
     const metrics = await runSession({
       ...options,
       systemPrompt: prompt,
@@ -91,6 +108,12 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
 
 export type JudgmentCandidate = BenchmarkCandidate & {
   expectation: BenchmarkExpectation;
+  finding: Finding;
+};
+
+export type AggregationFinding = {
+  id: string;
+  reviewer: string;
   finding: Finding;
 };
 
@@ -139,24 +162,62 @@ export async function runBenchmarkJudge(options: {
   return { judgments: submitted, metrics };
 }
 
+export function validateAggregation(groups: string[][], findings: AggregationFinding[]): void {
+  const byId = new Map(findings.map((item) => [item.id, item]));
+  const ids = groups.flat();
+  if (ids.length !== findings.length || new Set(ids).size !== ids.length || ids.some((id) => !byId.has(id))) {
+    throw new Error('aggregation must partition every finding exactly once');
+  }
+  for (const group of groups) {
+    if (!group.length) throw new Error('aggregation groups must not be empty');
+    const groupedFindings = group.map((id) => byId.get(id)!.finding);
+    const first = groupedFindings[0]!;
+    if (groupedFindings.some((finding) => finding.path !== first.path || finding.side !== first.side || finding.suggestedSeverity !== first.suggestedSeverity)) {
+      throw new Error('deduplicated findings must share path, side, and severity');
+    }
+    if (Math.max(...groupedFindings.map(({ startLine }) => startLine)) > Math.min(...groupedFindings.map(({ endLine }) => endLine))) {
+      throw new Error('deduplicated findings must have overlapping locations');
+    }
+    if (Buffer.byteLength(renderFindingGroupBody(groupedFindings)) > 25_000) {
+      throw new Error('deduplicated finding group exceeds the publishable comment budget');
+    }
+  }
+}
+
 export async function runAggregator(options: {
   cwd: string;
   promptPath: string;
   modelRuntime: ModelRuntime;
   model: Model<any>;
-  thinking: Thinking;
-  results: ReviewerResult[];
-  githubTool: ReturnType<typeof defineTool>;
-}): Promise<void> {
-  const prompt = await readFile(options.promptPath, 'utf8');
-  await runSession({
-    ...options,
-    systemPrompt: prompt,
-    task: `聚合并发布以下 Reviewer 输出：\n${JSON.stringify({ results: options.results })}`,
-    tools: ['create_pull_request_review'],
-    customTools: [options.githubTool],
-    requiredTool: 'create_pull_request_review',
+  findings: AggregationFinding[];
+}): Promise<string[][]> {
+  let submitted: string[][] | undefined;
+  const submit = defineTool({
+    name: 'submit_aggregation',
+    label: 'Submit aggregation',
+    description: 'Partition every finding ID into same-root-cause groups exactly once.',
+    parameters: Type.Object({
+      groups: Type.Array(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), { maxItems: 30 }),
+    }, { additionalProperties: false }),
+    execute: async (_id, params) => {
+      if (submitted) throw new Error('aggregation already submitted');
+      validateAggregation(params.groups, options.findings);
+      submitted = params.groups;
+      return { content: [{ type: 'text', text: 'Aggregation accepted.' }], details: {} };
+    },
   });
+  await runSession({
+    cwd: options.cwd,
+    systemPrompt: await readFile(options.promptPath, 'utf8'),
+    task: `汇总以下 finding；每个 ID 必须恰好出现一次：\n${JSON.stringify(options.findings)}`,
+    modelRuntime: options.modelRuntime,
+    model: options.model,
+    thinking: 'low',
+    tools: ['submit_aggregation'],
+    customTools: [submit],
+  });
+  if (!submitted) throw new Error('Aggregator did not submit an aggregation');
+  return submitted;
 }
 
 async function runSession(options: {
@@ -169,7 +230,6 @@ async function runSession(options: {
   tools: string[];
   customTools: ToolDefinition<any, any>[];
   contextRoot?: string;
-  requiredTool?: string;
 }): Promise<SessionMetrics> {
   const settings = SettingsManager.inMemory({ compaction: { enabled: true }, retry: { enabled: true, maxRetries: 2 } });
   const systemPrompt = options.contextRoot
@@ -194,11 +254,6 @@ async function runSession(options: {
     const finalAssistant = assistants.at(-1);
     if (!finalAssistant || finalAssistant.stopReason === 'error' || finalAssistant.stopReason === 'aborted') {
       throw new Error(finalAssistant?.errorMessage ?? 'session ended without a successful assistant message');
-    }
-    if (options.requiredTool && !session.messages.some((message) => (
-      message.role === 'toolResult' && message.toolName === options.requiredTool && !message.isError
-    ))) {
-      throw new Error(`required tool did not succeed: ${options.requiredTool}`);
     }
     const stats = session.getSessionStats();
     return {

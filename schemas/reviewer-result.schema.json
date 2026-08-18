@@ -2,18 +2,28 @@
   "type": "object",
   "required": [
     "reviewer",
-    "overview",
     "findings"
   ],
   "properties": {
     "reviewer": {
       "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
       "pattern": "^[a-z0-9][a-z0-9-]*$"
     },
     "overview": {
       "type": "string",
       "minLength": 1,
       "maxLength": 1000
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "maxItems": 10
     },
     "findings": {
       "type": "array",
@@ -22,6 +32,7 @@
         "required": [
           "category",
           "path",
+          "side",
           "startLine",
           "endLine",
           "title",
@@ -42,6 +53,18 @@
           "path": {
             "type": "string",
             "minLength": 1
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "LEFT"
+              },
+              {
+                "type": "string",
+                "const": "RIGHT"
+              }
+            ]
           },
           "startLine": {
             "type": "integer",
@@ -121,7 +144,7 @@
         },
         "additionalProperties": false
       },
-      "maxItems": 50
+      "maxItems": 30
     }
   },
   "additionalProperties": false

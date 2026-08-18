@@ -3,6 +3,7 @@
   "required": [
     "category",
     "path",
+    "side",
     "startLine",
     "endLine",
     "title",
@@ -23,6 +24,18 @@
     "path": {
       "type": "string",
       "minLength": 1
+    },
+    "side": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "LEFT"
+        },
+        {
+          "type": "string",
+          "const": "RIGHT"
+        }
+      ]
     },
     "startLine": {
       "type": "integer",

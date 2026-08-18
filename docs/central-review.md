@@ -55,12 +55,12 @@ repository_id + pull_request_number + base_sha + head_sha
 
 ## 下游规则
 
-Engine 默认只从 base SHA 的 `spec/review` 读取仓库规则，因此 PR 不能修改本次审查规则。后续可增加同样从 base SHA 读取的 `.agentic-review.json`，用于选择 Reviewer 和组织批准的上下文别名；配置不能直接提供 Token、API 地址或扩大 GitHub/Lark 权限。
+Engine 从 base SHA 的 `spec/review` 读取仓库规则，并从 base SHA 的 `.agentic-review.yml` 读取 Review Agent 选择、overview Agent、required 状态和 Agent-specific instructions；文件缺失时使用中央默认配置。因此 PR 不能修改自己的本次审查范围。配置不能直接提供 Token、API 地址或扩大 GitHub/Lark 权限。
 
 ## 可信边界
 
 - 目标 PR 代码只作为静态数据读取，绝不执行测试、构建、依赖安装或项目代码。
 - Reviewer 没有 Bash，只有限定在目标工作区和 Review context 内的静态 read/grep/find/ls 工具。
 - GitHub/Lark 能力由可信采集器或窄化工具提供，不向 Reviewer 暴露真实 CLI 凭证。
-- Review 与 Publisher 运行在不同 GitHub Actions job；Publisher 从本次 Workflow 的同一控制仓库 commit 重新检出代码和目标 head，并重新校验 schema、文件大小、RIGHT-side diff 行及提交 SHA。
+- Review 与 Publisher 运行在不同 GitHub Actions job；Publisher 从本次 Workflow 的同一控制仓库 commit 重新检出代码和目标 head，并重新校验 schema、文件大小、LEFT/RIGHT diff 行及提交 SHA。
 - `agentic-review` 自审时，可信 Workflow 从实时 PR 读取 synthetic merge commit，并验证其父提交后才作为候选 Engine；不存在该 commit 时审查失败。候选 job 不能接触 Publisher token。
