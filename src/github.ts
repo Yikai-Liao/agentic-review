@@ -78,6 +78,7 @@ export function renderFindingGroupBody(group: Finding[]): string {
   if (!first) throw new Error('Finding group must not be empty');
   return [
     `**${first.suggestedSeverity} · ${first.title}**`,
+    renderMergedField('类别', group.map(({ category }) => category)),
     renderMergedField('相关结论', group.map(({ title }) => title)),
     renderMergedField('证据', group.map(({ evidence }) => evidence)),
     renderMergedField('触发条件', group.map(({ trigger }) => trigger)),

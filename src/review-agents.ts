@@ -19,13 +19,16 @@ export type ReviewConfiguration = Static<typeof configurationSchema>;
 export type ReviewAgent = ReviewConfiguration['reviewAgents'][number];
 const validator = Compile(configurationSchema);
 
-export async function loadReviewAgents(engineRoot: string, repositoryConfigPath?: string): Promise<ReviewConfiguration> {
+export async function loadReviewAgents(
+  engineRoot: string,
+  repositoryConfigPath?: string,
+  defaultConfigPath = path.join(engineRoot, '.agentic-review.yml'),
+): Promise<ReviewConfiguration> {
   const repositoryConfiguration = repositoryConfigPath
     ? await loadConfiguration(repositoryConfigPath, true)
     : undefined;
-  const configuration = repositoryConfiguration
-    ?? await loadConfiguration(path.join(engineRoot, '.agentic-review.yml'));
-  if (!configuration) throw new Error('Missing central .agentic-review.yml');
+  const configuration = repositoryConfiguration ?? await loadConfiguration(defaultConfigPath);
+  if (!configuration) throw new Error('Missing trusted default .agentic-review.yml');
   const ids = configuration.reviewAgents.map(({ id }) => id);
   if (new Set(ids).size !== ids.length) throw new Error('Duplicate Review Agent id in .agentic-review.yml');
   const overviewAgent = configuration.reviewAgents.find(({ id }) => id === configuration.overviewAgent);

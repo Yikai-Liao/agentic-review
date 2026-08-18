@@ -16,7 +16,11 @@ const context = await prepareContext(cwd, baseSha, headSha);
 await materializeBasePolicy(context.root, process.env.REVIEW_POLICY_ROOT ?? 'spec/review');
 const { runtime, model } = await createReviewModel(context.root);
 const thinking = (process.env.REVIEW_AGENT_THINKING ?? 'high') as 'low' | 'medium' | 'high' | 'xhigh';
-const { overviewAgent, reviewAgents } = await loadReviewAgents(engineRoot, `${context.root}/base/.agentic-review.yml`);
+const { overviewAgent, reviewAgents } = await loadReviewAgents(
+  engineRoot,
+  `${context.root}/base/.agentic-review.yml`,
+  process.env.REVIEW_DEFAULT_CONFIG_PATH,
+);
 console.log(`[agentic-review] Review Agents: ${reviewAgents.map(({ id, required }) => `${id}${required ? ' (required)' : ''}`).join(', ')}`);
 
 const results = await Promise.allSettled(

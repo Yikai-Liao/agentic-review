@@ -55,6 +55,7 @@ test('deterministic Review preserves overview, notes, failures, and every findin
   assert.match(review.body, /`test-quality` 执行失败，审查范围不完整。/);
   assert.equal(review.comments.length, 1);
   assert.match(review.comments[0]!.body, /\*\*P1 · 租户过滤被移除\*\*/);
+  assert.match(review.comments[0]!.body, /\*\*类别：\*\* authorization/);
   assert.match(review.comments[0]!.body, /\*\*证据：\*\* 查询不再使用 tenantId。/);
   assert.match(review.comments[0]!.body, /\*\*触发条件：\*\* 租户 A 查询资源。/);
   assert.match(review.comments[0]!.body, /\*\*Base：\*\* 只查询租户 A。/);

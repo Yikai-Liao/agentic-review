@@ -42,6 +42,16 @@ reviewAgents:
     assert.equal(configured.overviewAgent, 'performance');
     assert.equal(configured.reviewAgents[0]!.instructions, 'repository facts');
     assert.equal(configured.reviewAgents[1]!.required, false);
+
+    const trustedDefaults = path.join(root, 'trusted-defaults.yml');
+    await writeFile(trustedDefaults, defaults);
+    assert.deepEqual(await loadReviewAgents(root, path.join(root, 'missing.yml'), trustedDefaults), {
+      overviewAgent: 'production-semantics',
+      reviewAgents: [
+        { id: 'production-semantics', required: true },
+        { id: 'test-quality', required: false },
+      ],
+    });
   } finally {
     await rm(root, { recursive: true });
   }

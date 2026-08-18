@@ -203,6 +203,7 @@ jobs:
         working-directory: ${{ needs.start.outputs.engine_ref != '' && 'candidate' || 'engine' }}
         env:
           REVIEW_REPOSITORY_PATH: ${{ github.workspace }}/target
+          REVIEW_DEFAULT_CONFIG_PATH: ${{ github.workspace }}/engine/.agentic-review.yml
           REVIEW_BASE_SHA: ${{ inputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
