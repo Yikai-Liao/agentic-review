@@ -28,10 +28,17 @@ test('Aggregator 必须完整分组且只能合并同 side、等级和重叠位�
   assert.doesNotThrow(() => validateAggregation([['production-semantics:0', 'test-quality:0']], inputs));
   assert.throws(() => validateAggregation([['production-semantics:0']], inputs), /partition every finding/);
   assert.throws(() => validateAggregation([['production-semantics:0'], ['production-semantics:0']], inputs), /partition every finding/);
-  assert.throws(() => validateAggregation([['production-semantics:0', 'test-quality:0']], [
-    inputs[0]!,
-    { ...inputs[1]!, finding: { ...inputs[1]!.finding, side: 'LEFT' } },
-  ]), /share path, side, and severity/);
+  for (const changed of [
+    { path: 'src/b.ts' },
+    { suggestedSeverity: 'P2' as const },
+    { startLine: 20, endLine: 20 },
+    { side: 'LEFT' as const },
+  ]) {
+    assert.throws(() => validateAggregation([['production-semantics:0', 'test-quality:0']], [
+      inputs[0]!,
+      { ...inputs[1]!, finding: { ...inputs[1]!.finding, ...changed } },
+    ]), /share path, side, and severity|overlapping locations/);
+  }
 
   const large = {
     ...finding,

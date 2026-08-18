@@ -45,6 +45,7 @@ export function collectDiffSideLines(diff: string): DiffSideLines {
     } else if (text.startsWith('-')) {
       lines.LEFT.get(file)?.add(leftLine++);
     } else if (text.startsWith(' ')) {
+      lines.RIGHT.get(file)?.add(rightLine);
       leftLine++;
       rightLine++;
     } else {

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
+import { collectDiffSideLines } from '../src/diff.ts';
 import { addDiffContext, buildPullRequestReview, publishGitHubReview, validatePullRequestReview } from '../src/github.ts';
 
 const originalFetch = globalThis.fetch;
@@ -27,6 +28,7 @@ test('trusted publisher requires an Agentic Review overview', () => {
   }).comments, []);
   assert.throws(() => validatePullRequestReview({ body: '', comments: [] }), /Invalid pull request review/);
   assert.throws(() => validatePullRequestReview({ body: 'No issues.', comments: [] }), /Invalid pull request review/);
+  assert.throws(() => validatePullRequestReview({ body: '## ✅ Agentic Review\n   ', comments: [] }), /overview/);
 });
 
 test('deterministic Review preserves overview, notes, failures, and every finding field', () => {
@@ -53,6 +55,7 @@ test('deterministic Review preserves overview, notes, failures, and every findin
   assert.match(review.body, /`test-quality` 执行失败，审查范围不完整。/);
   assert.equal(review.comments.length, 1);
   assert.match(review.comments[0]!.body, /\*\*P1 · 租户过滤被移除\*\*/);
+  assert.match(review.comments[0]!.body, /\*\*证据：\*\* 查询不再使用 tenantId。/);
   assert.match(review.comments[0]!.body, /\*\*触发条件：\*\* 租户 A 查询资源。/);
   assert.match(review.comments[0]!.body, /\*\*Base：\*\* 只查询租户 A。/);
   assert.match(review.comments[0]!.body, /\*\*Head：\*\* 查询所有租户。/);
@@ -60,15 +63,26 @@ test('deterministic Review preserves overview, notes, failures, and every findin
   assert.match(review.comments[0]!.body, /\*\*影响：\*\* 跨租户数据泄漏。/);
 });
 
-test('final Review expands readable context on the selected LEFT or RIGHT side', () => {
+test('final Review expands real RIGHT context while LEFT stays on deleted lines', () => {
+  const lines = collectDiffSideLines([
+    'diff --git a/src/a.ts b/src/a.ts',
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -8,3 +8,3 @@',
+    ' context-before',
+    '-old',
+    '+new',
+    ' context-after',
+  ].join('\n'));
   const expanded = addDiffContext({
     body: '## ⚠️ Agentic Review\n\n发现问题。',
-    comments: [{ path: 'src/a.ts', line: 10, side: 'LEFT', body: 'Problem' }],
-  }, {
-    LEFT: new Map([['src/a.ts', new Set([8, 9, 10, 11, 12])]]),
-    RIGHT: new Map([['src/a.ts', new Set([10])]]),
-  });
-  assert.deepEqual(expanded.comments[0], { path: 'src/a.ts', startLine: 8, line: 12, side: 'LEFT', body: 'Problem' });
+    comments: [
+      { path: 'src/a.ts', line: 9, side: 'RIGHT', body: 'Added problem' },
+      { path: 'src/a.ts', line: 9, side: 'LEFT', body: 'Deleted guard' },
+    ],
+  }, lines);
+  assert.deepEqual(expanded.comments[0], { path: 'src/a.ts', startLine: 8, line: 10, side: 'RIGHT', body: 'Added problem' });
+  assert.deepEqual(expanded.comments[1], { path: 'src/a.ts', line: 9, side: 'LEFT', body: 'Deleted guard' });
 });
 
 test('trusted publisher revalidates the current head before posting', async () => {

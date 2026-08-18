@@ -23,6 +23,7 @@ const reviewValidator = Compile(pullRequestReviewSchema);
 
 export function validatePullRequestReview(value: unknown): PullRequestReview {
   if (!reviewValidator.Check(value)) throw new Error(`Invalid pull request review: ${JSON.stringify(reviewValidator.Errors(value))}`);
+  if (!value.body.replace(/^## (✅|⚠️) Agentic Review/, '').trim()) throw new Error('Agentic Review overview is required');
   return value;
 }
 

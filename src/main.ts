@@ -46,7 +46,6 @@ const aggregationFindings = reviewerResults.flatMap((result) => result.findings.
   reviewer: result.reviewer,
   finding,
 })));
-if (aggregationFindings.length > 30) throw new Error(`Review has ${aggregationFindings.length} findings; maximum publishable count is 30`);
 const notes = [...new Set(reviewerResults.flatMap((result) => result.notes ?? []))];
 if (notes.reduce((length, note) => length + note.length, 0) > 3500) throw new Error('Reviewer notes exceed the publishable body budget');
 const failedReviewers = failures.map(({ reviewer }) => reviewer);
