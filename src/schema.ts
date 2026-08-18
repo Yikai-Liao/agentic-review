@@ -15,6 +15,7 @@ export const findingSchema = Type.Object(
   {
     category: Type.String({ minLength: 1, maxLength: 80 }),
     path: Type.String({ minLength: 1 }),
+    side: Type.Union([Type.Literal('LEFT'), Type.Literal('RIGHT')]),
     startLine: Type.Integer({ minimum: 1 }),
     endLine: Type.Integer({ minimum: 1 }),
     title: Type.String({ minLength: 1, maxLength: 160 }),
@@ -31,13 +32,10 @@ export const findingSchema = Type.Object(
 
 export const reviewerResultSchema = Type.Object(
   {
-    reviewer: Type.Union([
-      Type.Literal('production-semantics'),
-      Type.Literal('test-quality'),
-      Type.Literal('performance'),
-      Type.Literal('design-quality'),
-    ]),
-    findings: Type.Array(findingSchema, { maxItems: 50 }),
+    reviewer: Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z0-9][a-z0-9-]*$' }),
+    overview: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })),
+    notes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { maxItems: 10 })),
+    findings: Type.Array(findingSchema),
   },
   { additionalProperties: false },
 );

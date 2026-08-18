@@ -35,7 +35,6 @@ type PullRequestPayload = {
     draft: boolean;
     base: { sha: string };
     head: { sha: string };
-    merge_commit_sha?: string | null;
   };
 };
 
@@ -155,9 +154,6 @@ async function dispatchReview(payload: PullRequestPayload, env: Env, config: Dep
   });
   const { token } = await tokenResponse.json() as { token: string };
   const pr = payload.pull_request;
-  const engineRef = payload.repository.full_name.toLowerCase() === config.controlFullName.toLowerCase()
-    ? pr.merge_commit_sha ?? ''
-    : '';
   await githubFetch(`/repos/${config.controlFullName}/actions/workflows/agentic-review.yml/dispatches`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
@@ -169,7 +165,6 @@ async function dispatchReview(payload: PullRequestPayload, env: Env, config: Dep
         pull_number: String(pr.number),
         base_sha: pr.base.sha,
         head_sha: pr.head.sha,
-        engine_ref: engineRef,
       },
     }),
   });

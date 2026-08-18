@@ -65,6 +65,7 @@ function finding(file: string, line: number): Finding {
   return {
     category: 'Code Defect',
     path: file,
+    side: 'RIGHT',
     startLine: line,
     endLine: line,
     title: 'finding',

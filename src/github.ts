@@ -1,20 +1,19 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type, type Static } from 'typebox';
 import { Compile } from 'typebox/compile';
-import { assertRightSideRange, collectRightSideLines } from './diff.ts';
+import { assertDiffRange, collectDiffSideLines, type DiffSideLines } from './diff.ts';
+import type { Finding } from './schema.ts';
 
 export const pullRequestReviewSchema = Type.Object({
-  body: Type.String({ maxLength: 1000 }),
+  body: Type.String({ minLength: 1, maxLength: 10_000, pattern: '^## (✅|⚠️) Agentic Review' }),
   comments: Type.Array(
     Type.Object({
       path: Type.String({ minLength: 1 }),
       line: Type.Integer({ minimum: 1 }),
       startLine: Type.Optional(Type.Integer({ minimum: 1 })),
-      side: Type.Literal('RIGHT'),
-      body: Type.String({ minLength: 1, maxLength: 5000 }),
+      side: Type.Union([Type.Literal('LEFT'), Type.Literal('RIGHT')]),
+      body: Type.String({ minLength: 1, maxLength: 25_000 }),
     }, { additionalProperties: false }),
-    { minItems: 1, maxItems: 30 },
   ),
 }, { additionalProperties: false });
 
@@ -23,27 +22,103 @@ const reviewValidator = Compile(pullRequestReviewSchema);
 
 export function validatePullRequestReview(value: unknown): PullRequestReview {
   if (!reviewValidator.Check(value)) throw new Error(`Invalid pull request review: ${JSON.stringify(reviewValidator.Errors(value))}`);
+  if (!value.body.replace(/^## (✅|⚠️) Agentic Review/, '').trim()) throw new Error('Agentic Review overview is required');
   return value;
 }
 
-export function createGitHubReviewTool(contextRoot: string) {
-  let submitted = false;
-  return defineTool({
-    name: 'create_pull_request_review',
-    label: 'Create pull request review',
-    description: 'Create at most one COMMENT review containing all accepted inline findings.',
-    parameters: pullRequestReviewSchema,
-    execute: async (_id, params) => {
-      if (submitted) throw new Error('a review was already submitted');
-      await validateLocations(contextRoot, params);
-      const outputPath = process.env.REVIEW_OUTPUT_PATH;
-      const message = outputPath
-        ? await writeFile(outputPath, `${JSON.stringify(params, null, 2)}\n`).then(() => `Review staged: ${outputPath}`)
-        : await publishGitHubReview(contextRoot, params);
-      submitted = true;
-      return { content: [{ type: 'text', text: message }], details: {} };
-    },
+export type ReviewExpectations = {
+  overview: string;
+  notes: string[];
+  findingGroups: Finding[][];
+  failedReviewers: string[];
+};
+
+export function buildPullRequestReview(expected: ReviewExpectations): PullRequestReview {
+  const warning = expected.findingGroups.length > 0 || expected.failedReviewers.length > 0;
+  const sections = [
+    `## ${warning ? '⚠️' : '✅'} Agentic Review`,
+    expected.overview,
+    expected.findingGroups.length
+      ? `### 审查结果\n\n发现 ${expected.findingGroups.length} 个需要处理的问题，详见行内评论。`
+      : '### 审查结果\n\n未发现需要处理的问题。',
+    expected.notes.length ? `### 审查说明\n\n${expected.notes.map((note) => `- ${note}`).join('\n')}` : '',
+    expected.failedReviewers.length
+      ? `### 审查范围\n\n${expected.failedReviewers.map((reviewer) => `- \`${reviewer}\` 执行失败，审查范围不完整。`).join('\n')}`
+      : '',
+  ].filter(Boolean);
+  const review = validatePullRequestReview({
+    body: sections.join('\n\n'),
+    comments: expected.findingGroups.map((group) => {
+      const first = group[0];
+      if (!first) throw new Error('Finding group must not be empty');
+      if (group.some((finding) => finding.path !== first.path || finding.side !== first.side || finding.suggestedSeverity !== first.suggestedSeverity)) {
+        throw new Error('Finding group must share path, side, and severity');
+      }
+      if (Math.max(...group.map(({ startLine }) => startLine)) > Math.min(...group.map(({ endLine }) => endLine))) {
+        throw new Error('Finding group locations must overlap');
+      }
+      const startLine = Math.min(...group.map((finding) => finding.startLine));
+      const endLine = Math.max(...group.map((finding) => finding.endLine));
+      return {
+        path: first.path,
+        line: endLine,
+        ...(startLine < endLine ? { startLine } : {}),
+        side: first.side,
+        body: renderFindingGroupBody(group),
+      };
+    }),
   });
+  if (Buffer.byteLength(JSON.stringify(review)) > 190 * 1024) throw new Error('Review request exceeds the staged artifact budget');
+  return review;
+}
+
+export function renderFindingGroupBody(group: Finding[]): string {
+  const first = group[0];
+  if (!first) throw new Error('Finding group must not be empty');
+  return [
+    `**${first.suggestedSeverity} · ${first.title}**`,
+    renderMergedField('类别', group.map(({ category }) => category)),
+    renderMergedField('相关结论', group.map(({ title }) => title)),
+    renderMergedField('证据', group.map(({ evidence }) => evidence)),
+    renderMergedField('触发条件', group.map(({ trigger }) => trigger)),
+    renderMergedField('Base', group.map(({ baseBehavior }) => baseBehavior)),
+    renderMergedField('Head', group.map(({ headBehavior }) => headBehavior)),
+    renderMergedField('违反约束', group.map(({ violatedConstraint }) => violatedConstraint)),
+    renderMergedField('影响', group.map(({ impact }) => impact)),
+  ].join('\n\n');
+}
+
+function renderMergedField(label: string, values: string[]): string {
+  const unique = [...new Set(values)];
+  return `**${label}：** ${unique.length === 1 ? unique[0] : `\n${unique.map((value) => `- ${value}`).join('\n')}`}`;
+}
+
+export function addDiffContext(review: PullRequestReview, sideLines: DiffSideLines, radius = 2): PullRequestReview {
+  return {
+    ...review,
+    comments: review.comments.map((comment) => {
+      const valid = sideLines[comment.side].get(comment.path);
+      let startLine = comment.startLine ?? comment.line;
+      let endLine = comment.line;
+      for (let count = 0; count < radius && valid?.has(startLine - 1); count++) startLine--;
+      for (let count = 0; count < radius && valid?.has(endLine + 1); count++) endLine++;
+      const { startLine: _originalStartLine, ...rest } = comment;
+      return {
+        ...rest,
+        line: endLine,
+        ...(startLine < endLine ? { startLine } : {}),
+      };
+    }),
+  };
+}
+
+export async function submitPullRequestReview(contextRoot: string, review: PullRequestReview): Promise<void> {
+  review = addDiffContext(validatePullRequestReview(review), collectDiffSideLines(await readFile(`${contextRoot}/pr.diff`, 'utf8')));
+  await validateLocations(contextRoot, review);
+  const outputPath = process.env.REVIEW_OUTPUT_PATH;
+  if (outputPath) await writeFile(outputPath, `${JSON.stringify(review, null, 2)}\n`);
+  else await publishGitHubReview(contextRoot, review);
+  console.log(`[agentic-review] ${outputPath ? 'Staged' : 'Published'} Review with ${review.comments.length} inline comment(s)`);
 }
 
 export async function publishGitHubReview(contextRoot: string, review: PullRequestReview): Promise<string> {
@@ -73,7 +148,7 @@ export async function publishGitHubReview(contextRoot: string, review: PullReque
         line,
         side,
         body,
-        ...(startLine ? { start_line: startLine, start_side: 'RIGHT' } : {}),
+        ...(startLine ? { start_line: startLine, start_side: side } : {}),
       })),
     }),
   });
@@ -96,9 +171,9 @@ async function githubRequest(path: string, token: string): Promise<Response> {
 
 async function validateLocations(contextRoot: string, review: PullRequestReview): Promise<void> {
   const changedFiles = new Set((await readFile(`${contextRoot}/changed-files.txt`, 'utf8')).split('\n').filter(Boolean));
-  const rightSideLines = collectRightSideLines(await readFile(`${contextRoot}/pr.diff`, 'utf8'));
+  const sideLines = collectDiffSideLines(await readFile(`${contextRoot}/pr.diff`, 'utf8'));
   for (const comment of review.comments) {
-    assertRightSideRange(changedFiles, rightSideLines, comment.path, comment.startLine ?? comment.line, comment.line);
+    assertDiffRange(changedFiles, sideLines, comment.path, comment.side, comment.startLine ?? comment.line, comment.line);
   }
 }
 
