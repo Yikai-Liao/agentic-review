@@ -28,6 +28,12 @@ test('Aggregator 必须完整分组且只能合并同 side、等级和重叠位�
   assert.doesNotThrow(() => validateAggregation([['production-semantics:0', 'test-quality:0']], inputs));
   assert.throws(() => validateAggregation([['production-semantics:0']], inputs), /partition every finding/);
   assert.throws(() => validateAggregation([['production-semantics:0'], ['production-semantics:0']], inputs), /partition every finding/);
+  const many = Array.from({ length: 31 }, (_, index) => ({
+    id: `reviewer:${index}`,
+    reviewer: 'reviewer',
+    finding: { ...finding, path: `src/${index}.ts` },
+  }));
+  assert.doesNotThrow(() => validateAggregation(many.map(({ id }) => [id]), many));
   for (const changed of [
     { path: 'src/b.ts' },
     { suggestedSeverity: 'P2' as const },

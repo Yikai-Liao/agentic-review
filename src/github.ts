@@ -14,7 +14,6 @@ export const pullRequestReviewSchema = Type.Object({
       side: Type.Union([Type.Literal('LEFT'), Type.Literal('RIGHT')]),
       body: Type.String({ minLength: 1, maxLength: 25_000 }),
     }, { additionalProperties: false }),
-    { maxItems: 30 },
   ),
 }, { additionalProperties: false });
 

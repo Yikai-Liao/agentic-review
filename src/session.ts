@@ -63,7 +63,7 @@ export async function runReviewerWithMetrics(options: ReviewerOptions): Promise<
     parameters: Type.Object({
       overview: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })),
       notes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { maxItems: 10 })),
-      findings: Type.Array(findingSchema, { maxItems: 30 }),
+      findings: Type.Array(findingSchema),
     }, { additionalProperties: false }),
     execute: async (_id, params) => {
       if (submitted) throw new Error('findings already submitted');
@@ -197,8 +197,7 @@ export async function runAggregator(options: {
     label: 'Submit aggregation',
     description: 'Partition every finding ID into same-root-cause groups exactly once.',
     parameters: Type.Object({
-      // ponytail: one bounded GitHub Review supports 30 groups; add explicit overflow publishing only if real reviews hit this ceiling.
-      groups: Type.Array(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), { maxItems: 30 }),
+      groups: Type.Array(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
     }, { additionalProperties: false }),
     execute: async (_id, params) => {
       if (submitted) throw new Error('aggregation already submitted');

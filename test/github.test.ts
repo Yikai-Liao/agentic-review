@@ -29,6 +29,10 @@ test('trusted publisher requires an Agentic Review overview', () => {
   assert.throws(() => validatePullRequestReview({ body: '', comments: [] }), /Invalid pull request review/);
   assert.throws(() => validatePullRequestReview({ body: 'No issues.', comments: [] }), /Invalid pull request review/);
   assert.throws(() => validatePullRequestReview({ body: '## ✅ Agentic Review\n   ', comments: [] }), /overview/);
+  assert.equal(validatePullRequestReview({
+    body: '## ⚠️ Agentic Review\n\n发现问题。',
+    comments: Array.from({ length: 31 }, (_, index) => ({ path: `src/${index}.ts`, line: 1, side: 'RIGHT', body: 'Problem' })),
+  }).comments.length, 31);
 });
 
 test('deterministic Review preserves overview, notes, failures, and every finding field', () => {

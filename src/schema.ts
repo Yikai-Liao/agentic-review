@@ -35,7 +35,7 @@ export const reviewerResultSchema = Type.Object(
     reviewer: Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z0-9][a-z0-9-]*$' }),
     overview: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })),
     notes: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 500 }), { maxItems: 10 })),
-    findings: Type.Array(findingSchema, { maxItems: 30 }),
+    findings: Type.Array(findingSchema),
   },
   { additionalProperties: false },
 );
