@@ -2,88 +2,101 @@
 
 ## 当前阶段
 
-Review Engine 的最小纵切面和 sealed benchmark 已完成并推送到 `main`。真实模型已回放 5 个外部 defect 样本和 1 个 clean 样本，但尚未在真实 GitHub PR 上验证发布路径，因此当前不能视为可迁移到 Orchestra 的生产版本。
+中央 Review MVP 已部署，当前主线 `main@406d6cb` 已完成真实 GitHub Review 发布、required Check 和 Review thread 门禁的基础纵切面。当前版本仍需完成本文件的 P0 验收，完成前不推广到 Orchestra 全量仓库。
 
-## 已完成
+## 当前已实现
 
-- 一个 reusable GitHub Actions job，只安装一次 pnpm、Node.js 和 Pi SDK。
-- 分别检出被审仓库 PR head 与固定 commit 的 Review Engine。
-- 准备 base 完整快照、`base...head` diff、变更文件列表和运行元数据。
-- 仓库专用 Review 规则只从 base 快照读取，PR head 不能削弱本次审查规则。
-- 使用共享 `ModelRuntime` 并发运行独立 Reviewer session。
-- 已提供生产语义、测试质量、性能和设计质量四类 Reviewer prompt；当前默认只启用生产语义和测试质量。
-- Reviewer 只有内置 Bash 和 `submit_findings`；Prompt 限制 Bash 只做静态读取和搜索，禁止测试、构建、安装依赖、执行项目代码、修改文件和访问网络。
-- finding 使用 TypeBox schema 校验，包含触发条件、base/head 行为、违反约束、影响和建议等级。
-- Aggregator 看不到仓库、diff、base 或 policy，只把全部 finding ID 完整分组并合并明显同根因项；可信代码保留各组全部结构化事实、扩展 LEFT/RIGHT diff 上下文并确定性渲染，Publisher 再校验后一次性发布。
-- GitHub 工具限制每次运行最多创建一个 `COMMENT` Review，并验证 inline comment 的文件和 LEFT/RIGHT diff 行。
-- 全部说明文档和 prompt 使用中文，代码标识符、schema 字段和第三方 API 名称保留英文。
-- 已建立 evaluator-only corpus：5 个经人工筛选的 AACR-Bench TypeScript 缺陷样本和 1 个 SWRench clean 样本；Reviewer context 不包含 expectation。
-- 已实现 fail-closed Benchmark runner：隔离回放仓库、独立语义 Judge、manifest expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 thinking level 报告。
-- 正式 Benchmark 在 Reviewer 启动前删除本地 benchmark、历史结果文档和 Engine Git 元数据；finding 仍必须通过共享 LEFT/RIGHT diff 定位校验。
-- 已完成首次真实模型 baseline：命中 4/5 个 manifest expectation，发现 4 个经独立代码路径复核的额外问题，1 个 clean 样本无 finding；详见 [`benchmark-baseline-2026-08-14.md`](benchmark-baseline-2026-08-14.md)。
-- `pnpm install --frozen-lockfile`、`pnpm check` 和 8 个单元测试通过。
+- Cloudflare Dispatcher Worker 验证 GitHub webhook 签名、过滤事件，并通过 Durable Object 原子去重 delivery。
+- 中央 GitHub Actions Workflow 负责 Review Engine、Aggregator 和 Publisher；Dispatcher 不持有模型或 Lark 凭证。
+- Review Engine 并发运行独立 Reviewer session，Reviewer 只能使用路径受限的 `review_read`、`review_grep`、`review_find`、`review_ls` 和一次 `submit_findings`。
+- 默认启用 `production-semantics`（required、负责 overview）和 `test-quality`；另有 `performance`、`design-quality` prompt。
+- Reviewer 配置只从目标 PR 的 base 快照读取，PR head 不能修改本次审查配置。
+- Aggregator 只能完整分组 finding；可信代码确定性渲染 overview、evidence、trigger、base/head、constraint 和 impact，Publisher 在新 runner 上重新验证 schema、SHA 和 diff 位置后发布。
+- 支持 RIGHT 新增/上下文行和 LEFT 删除行；同一次运行最多发布一条 GitHub Review。
+- clean 审查也发布 `✅ Agentic Review` overview；有 finding 或 optional Agent 失败时发布 `⚠️`；required Agent、模型或 Publisher 失败时 required Check 失败并 fail closed。
+- 当前 TypeScript 检查和 25 个单元测试通过：`pnpm check`、`pnpm test`。
+- Benchmark corpus 含 5 个 defect 和 1 个 clean 样本，固定 SHA 已验证可获取；历史 baseline 见 [`benchmark-baseline-2026-08-14.md`](benchmark-baseline-2026-08-14.md)。
 
-## 当前明确边界
+## 当前部署与仓库状态
 
-- 已在 sealed external PR replay 中调用真实模型；尚未向真实实验 PR 发布 Review。
-- 尚未处理已有 Review thread 的读取、匹配、回复、关闭和重新打开。
-- 尚未实现大 diff 的上下文预算、裁剪或分片。
-- 尚未实现 Benchmark 版本对比。
-- 性能 Reviewer 尚无自动路由；设计质量 Reviewer 尚未默认启用。
-- 当前只有 schema、base policy、diff 行、benchmark expectation 隔离、manifest 与计分逻辑的单元测试，没有模型和 GitHub API 集成测试。
-- 当前生产语义 Reviewer 失败会中止；其他 Reviewer 的失败会写入 `failures.json`，最终失败策略仍需通过实验确定。
+- `main` 干净并与远端一致，PR #15 已合并，当前无开放 PR 或 Issue。
+- GitHub Ruleset 要求 Agentic Review / `audit` Check 成功，并要求所有 Review thread resolved。
+- Worker 已部署在 `https://agentic-review.daqiyin.com`，GET 返回预期的 405。
+- 尚无正式 release tag，package version 仍为 `0.1.0`。
+- `dev` 曾落后 main；后续开发必须以最新 main 为基线，不从过期分支继续分叉。
 
-## TODO
+## P0：真实纵切面验收
 
-### P0：跑通真实纵切面
+### PR 1：文档修正 + self-review clean
 
-- [ ] 在一个实验仓库添加 caller workflow，配置 `AGENTIC_REVIEW_TOKEN`、`REVIEW_AGENT_API_KEY`、`REVIEW_AGENT_MODEL` 和 `REVIEW_AGENT_BASE_URL`。
-- [ ] 创建一个无问题 PR，确认 Reviewer 可以返回零 finding，且不会发布空 Review。
-- [ ] 创建一个含明确语义缺陷的 PR，确认只发布一个 Review，路径和行号正确。
-- [ ] 人工核对 Reviewer 输出、聚合后输出和 GitHub 最终内容，记录耗时、token、费用和噪声。
-- [ ] 验证 Reviewer 超时、结构化提交缺失、模型 API 失败和 GitHub API 失败不会被误判为 clean。
+本 PR 只修改本文件，并用于验证候选 Engine 的自审路径。必须确认：
 
-验收：同一实验仓库至少完成一次 clean PR 和一次 defect PR；没有额外 Action 评论；失败状态可观察且不会产生错误 clean 结论。
+- self-review 针对 `agentic-review` PR 检出 candidate Engine；
+- candidate Engine 的 synthetic merge commit 恰好有两个 parent，且分别等于 PR base SHA 与 head SHA；
+- candidate Engine 成功安装并执行；
+- 最终只发布一条 Review，正文包含 `✅ Agentic Review`；
+- clean 结果没有 inline finding；
+- required Check 成功；
+- 没有额外 Action 评论或重复 Review。
 
-### P1：建立可回归的评估闭环
+### PR 2：实验仓库 defect
 
-- [x] 从固定 commit 的 AACR-Bench 选取 5 个 TypeScript Defect/Security 样本，并逐个验证 base/head SHA 可获取。
-- [x] 定义 evaluator-only expectation manifest，避免 Reviewer prompt 泄漏答案。
-- [x] 实现最小 benchmark runner，记录 expectation 命中/漏检、未匹配 finding、clean noise、耗时、token、模型和 reasoning level。
-- [x] 完成一次固定 Engine/模型/thinking 的真实 baseline 并裁决 unmatched finding。
-- [ ] 扩充 clean/noise 样本，并加入公司内部历史缺陷和 seeded PR。
-- [ ] 按 `docs/规则演化.md` 执行同一 judge 成对比较、退化回滚和两个人工确认门。
+创建新的、不是历史固定 head 的实验 PR，并人工确认：
 
-验收：任何 prompt、模型、thinking level 或聚合规则变更都能用同一 sealed corpus 比较前后结果。
+- 同一 PR 同时包含一个 RIGHT 新增行缺陷和一个 LEFT 删除行缺陷；
+- 两个 finding 的文件、side、行范围和上下文均正确；
+- 只发布一条 Review，overview 为 `⚠️`；
+- inline finding thread 阻止合并；
+- 修复后创建新的 head 并重新运行，不再产生错误 finding，且不会因复用旧 head 的幂等逻辑而误判。
 
-### P1：完成 Review 生命周期
+### P0 验收记录
 
-- [ ] 从 GitHub 读取现有 Review comments 和 thread 状态。
-- [ ] 为 finding 设计稳定、不可伪造的关联标识，替代脆弱的自然语言前缀匹配。
-- [ ] 只在状态变化时回复已有 thread；每个 thread 每轮最多更新一次。
-- [ ] 处理 reopen/resolve 的部分失败，避免先回复成功、后状态修改失败造成不一致。
+- [ ] PR 1 clean self-review：candidate checkout、双 parent、安装和执行成功。
+- [ ] PR 1 只产生一条 `✅ Agentic Review`，无 finding、无额外评论，Check 成功。
+- [ ] PR 2 正确产生 `⚠️` overview、RIGHT/LEFT finding 和阻止合并的 thread。
+- [ ] PR 2 修复后的新 head 不再产生错误 finding。
+- [ ] required Agent、模型 API 或 Publisher 失败时不会发布 false-clean，且 Check failure 可观察。
 
-验收：重复运行不会重复发同一 finding；修复、重新引入和扩大问题能够更新原 thread。
+验收完成前，不推广到 Orchestra 全量仓库。
 
-### P2：扩展 Reviewer
+## P1：验收后的稳定性与评估
 
-- [ ] 根据 diff 文件和代码特征确定性路由性能 Reviewer。
-- [ ] 使用独立正例、负例和 holdout 对性能规则做对抗演化。
-- [ ] 使用真实后续变更成本样本校准设计质量 Reviewer。
-- [ ] 只有在设计质量 Reviewer 证明具有独立真阳性且噪声受控后才默认启用。
+- [ ] 用 PR #15 后的 Engine、prompt、schema、模型和 thinking level 重跑 sealed benchmark，记录新的 baseline。
+- [ ] 为每个 Reviewer 记录耗时、token、重试和失败摘要。
+- [ ] 对超大 diff 设置明确上限和可观察降级，不能静默截断后报告 clean。
+- [ ] 增加最小 mock 模型和 mock GitHub API 集成测试。
+- [ ] 将 `P0`–`P3` priority 与 `TEST`、`DESIGN`、`PERF` 工作流标签拆开。
 
-### P2：运行稳定性
+## P1：Review thread 生命周期
 
-- [ ] 增加每个 Reviewer 的耗时、token、重试和失败摘要。
-- [ ] 为超大 diff 设置明确上限和可观察的降级结果，不能静默截断后报告 clean。
-- [ ] 增加 mock 模型和 mock GitHub API 的最小集成测试。
-- [ ] 固定 Engine、prompt、schema、模型和 reasoning level 版本并写入运行结果。
-- [ ] 在三个实验仓库完成代表性 PR replay 后，再讨论迁移 Orchestra。
+- [ ] 为 finding 设计稳定且不可伪造的关联标识。
+- [ ] 读取历史 Review comments 和 thread 状态，避免每个新 head 重复创建相同 finding。
+- [ ] 只在 finding 状态变化时回复、resolve 或 reopen；每个 thread 每轮最多更新一次。
+- [ ] 处理回复成功但状态变更失败等部分失败，保持 Check fail closed。
 
-## 建议执行顺序
+## P2：Reviewer 扩展
 
-1. 先完成 P0 的两个真实 PR，不继续扩展架构。
-2. 修掉纵切面暴露的运行问题。
-3. 建立最小 benchmark runner 和 sealed corpus。
-4. 再实现 thread 生命周期。
-5. 最后校准并逐步开启性能、设计质量 Reviewer。
+- [ ] 依据 diff 文件和代码特征确定性路由 performance Reviewer。
+- [ ] 用独立正例、负例和 holdout 校准 performance Reviewer。
+- [ ] 用真实后续变更成本样本校准 design-quality Reviewer。
+- [ ] 只有在真阳性独立、噪声受控后才默认启用 design-quality。
+- [ ] 在代表性实验仓库完成 replay 后，再讨论 Orchestra canary。
+
+## 明确边界
+
+- 目标仓库的测试、构建和 lint 不属于本项目职责。
+- 普通下游仓库只作静态读取；self-review 会安装并执行 candidate Engine，因此 self-review 是可信维护者的回归保护，不是对恶意候选的独立安全边界。
+- 当前尚未实现历史 thread 匹配、大 diff 分片、只读 GitHub/CI context、自动性能路由和 Lark 试运行。
+
+## 建议顺序
+
+```text
+P0 两个真实 PR 与受控失败
+→ 修复验收暴露的问题
+→ 新 sealed benchmark baseline
+→ priority schema 与最小集成测试
+→ Review thread 生命周期
+→ Reviewer 灰度扩展
+→ 单仓库 canary
+→ 再考虑 Orchestra 全量推广
+```
