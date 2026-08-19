@@ -68,6 +68,7 @@ jobs:
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.name }}
           permission-checks: write
+          permission-contents: read
           permission-pull-requests: read
 
       - name: Validate PR snapshot
