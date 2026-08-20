@@ -122,6 +122,7 @@ jobs:
 
       - name: Find last reviewed head
         id: review-checkpoint
+        uses: actions/github-script@v9
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
@@ -131,7 +132,11 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
-        run: node control/scripts/find-review-checkpoint.mjs
+        with:
+          github-token: ${{ steps.read-token.outputs.token }}
+          script: |
+            const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-checkpoint.ts`);
+            await main();
 
       - name: Prepare review diffs
         id: review-diffs
