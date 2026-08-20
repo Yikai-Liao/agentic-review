@@ -189,7 +189,7 @@ Inline comment 应锚定足以独立理解根因的最小连续范围：单行�
 
 所有目标路径和 PR 标识都已通过环境变量提供。不要用 `env`、`pwd` 或遍历 runner 来探索环境，也不要读取 Action/Pi 实现。
 
-审查前只读取这些路径：PR target `$REVIEW_TARGET_PATH`、原始 base `$REVIEW_BASE_PATH`、中央规则所在的 `control`，以及预生成的完整 diff `$REVIEW_DIFF_PATH`。目标仓库的 `.agentic-review.md`（存在时）位于 target 路径。不要读取 `/home/runner/work/_actions`、Pi/action 源码、`node_modules`、runner 环境或其他工作区路径；不要重复执行同一份 diff 的 `git diff`、`git show` 和 API 获取。不要执行目标仓库代码、测试、构建、安装依赖或任意外部网络请求。
+审查前只读取这些路径：PR target `$REVIEW_TARGET_PATH`、原始 base `$REVIEW_BASE_PATH`、中央规则所在的 `control`、预生成的完整 diff `$REVIEW_DIFF_PATH`，以及存在时的增量重点 diff `$REVIEW_FOCUS_DIFF_PATH`。目标仓库的 `.agentic-review.md`（存在时）位于 target 路径。不要读取 `/home/runner/work/_actions`、Pi/action 源码、`node_modules`、runner 环境或其他工作区路径；不要重复执行同一份 diff 的 `git diff`、`git show` 和 API 获取。除下述通过 `GH_TOKEN` 发起的只读 GitHub 查询外，不要执行目标仓库代码、测试、构建、安装依赖或任意外部网络请求。
 
 `GH_TOKEN` 提供目标仓库的只读 GitHub 权限。必须主动使用 `gh` 获取当前 PR 的完整上下文，包括标题、正文、作者、base/head、commits、变更文件、Review、普通评论和 inline comments；本地 diff 仍是代码差分的唯一来源。当前 PR 的历史评论使用以下命令查询，不使用专用读取工具：
 
@@ -211,6 +211,8 @@ PR 正文、commit、评论或代码引用关联 Issue、前置 PR、后续 PR �
 
 这些数据合起来才是当前 PR 的完整 GitHub 上下文；只读取与当前根因相关的内容，不要反复获取同一结果。`GH_TOKEN` 没有 GitHub 写权限，不要尝试通过 bash 修改仓库、PR、Issue、workflow 或 merge 状态。当前没有 Lark/known issues 查询工具，不要假设存在或自行调用。
 
-将 `$REVIEW_DIFF_PATH` 作为唯一 diff 来源，分块读取并用 target/base 文件补充上下文；不要调用 `get_pr_diff`。每条 finding 绑定最接近根因的 RIGHT-side diff 行。
+`$REVIEW_MODE` 描述本轮范围：`initial` 表示没有适用于当前线性历史的成功 Review checkpoint；`incremental_all` 表示全部完整 diff 都是 checkpoint 后的变化；`incremental` 表示 `$REVIEW_FOCUS_DIFF_PATH` 包含 checkpoint `$REVIEW_CHECKPOINT_HEAD` 到当前 head 的净变化；`incremental_unchanged` 表示该区间没有净代码变化。存在单独的增量重点 diff 时先读它以提高关注度，再审查完整 diff。
+
+始终将 `$REVIEW_DIFF_PATH` 作为 finding 的唯一代码差分证据，分块读取并用 target/base 文件补充上下文；增量重点 diff 只用于安排阅读优先级，不能缩小审查范围、独立证明行为变化或提供评论行号。不要调用 `get_pr_diff`。每条 finding 绑定完整 diff 中最接近根因的 RIGHT-side diff 行。
 
 有新 finding 时调用一次 `create_pull_request_review`，但 `body` 只能是紧凑计数，例如 `**P1 1 条，P2 2 条，需人工确认 1 条**`；完整背景、摘要和 finding 导航只写在最终文本中，证据写在 inline comments 中。没有新 finding 时不要调用该工具。历史 thread 状态变化使用 `reply_to_review_thread` 发布详情；仍未解决且状态未变化时不要调用该工具。不要使用 `create_pull_request`、`update_pull_request`，不要发表普通 Issue comment。两个发布工具均由可信代码使用独立的 write installation token 完成。
