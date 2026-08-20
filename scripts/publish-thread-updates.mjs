@@ -60,6 +60,13 @@ async function reviewComments(fetchImpl, api, token, repository, pullNumber) {
   throw new Error('Too many review comments');
 }
 
+async function assertPullSnapshot(fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha) {
+  const pull = await github(fetchImpl, api, token, `/repos/${repository}/pulls/${pullNumber}`);
+  if (pull.base?.sha !== expectedBaseSha || pull.head?.sha !== expectedHeadSha) {
+    throw new Error('Pull request changed since review started');
+  }
+}
+
 async function reviewThreads(fetchImpl, api, token, repository, pullNumber) {
   const [owner, repo] = repository.split('/');
   const threads = [];
@@ -91,14 +98,13 @@ export async function publishThreadUpdates({
     throw new Error('Invalid review snapshot');
   }
 
-  const [pull, comments, threads] = await Promise.all([
-    github(fetchImpl, api, token, `/repos/${repository}/pulls/${pullNumber}`),
+  await assertPullSnapshot(
+    fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha,
+  );
+  const [comments, threads] = await Promise.all([
     reviewComments(fetchImpl, api, token, repository, pullNumber),
     reviewThreads(fetchImpl, api, token, repository, pullNumber),
   ]);
-  if (pull.base?.sha !== expectedBaseSha || pull.head?.sha !== expectedHeadSha) {
-    throw new Error('Pull request changed since review started');
-  }
   const urls = [];
   for (const update of updates) {
     const root = comments.find(
@@ -122,6 +128,9 @@ export async function publishThreadUpdates({
       .at(-1)?.body;
     const statusWasPublished = previousStatus?.startsWith(status);
     if (!statusWasPublished) {
+      await assertPullSnapshot(
+        fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha,
+      );
       const reply = await github(
         fetchImpl,
         api,
@@ -142,6 +151,9 @@ export async function publishThreadUpdates({
         ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
         : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}';
     if (resolutionMutation) {
+      await assertPullSnapshot(
+        fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha,
+      );
       const resolution = await github(fetchImpl, api, token, '/graphql', {
         method: 'POST',
         body: JSON.stringify({

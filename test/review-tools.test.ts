@@ -25,16 +25,20 @@ type ReviewComment = {
 function publisherFetch({
   comments = [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } }] as ReviewComment[],
   isResolved = true,
-  currentHead = headSha,
+  currentHeads = [headSha],
 } = {}) {
   const requests: Array<{ url: string; body: string }> = [];
+  let snapshot = 0;
   return {
     requests,
     fetchImpl: async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const body = String(init?.body ?? '');
       requests.push({ url, body });
-      if (url.endsWith('/pulls/7')) return Response.json({ base: { sha: baseSha }, head: { sha: currentHead } });
+      if (url.endsWith('/pulls/7')) {
+        const sha = currentHeads[Math.min(snapshot++, currentHeads.length - 1)];
+        return Response.json({ base: { sha: baseSha }, head: { sha } });
+      }
       if (url.includes('/comments?')) return Response.json(comments);
       if (url.endsWith('/graphql') && body.includes('reviewThreads')) {
         return Response.json({
@@ -104,6 +108,7 @@ test('publisher replies, reopens, and rejects another bot root', async () => {
   assert.deepEqual(await publish([update], fetchImpl as typeof fetch), ['https://github.test/thread#reply']);
   assert.match(requests.find(({ url }) => url.endsWith('/comments/123/replies'))!.body, /问题重现/);
   assert.match(requests.at(-1)!.body, /unresolveReviewThread/);
+  assert.equal(requests.filter(({ url }) => url.endsWith('/pulls/7')).length, 3);
 
   await assert.rejects(
     publishThreadUpdates({
@@ -139,10 +144,20 @@ test('publisher resolves a fixed thread and retries a missing transition without
   assert.match(requests.at(-1)!.body, /unresolveReviewThread/);
 });
 
-test('publisher rejects a changed PR snapshot', async () => {
-  const { requests, fetchImpl } = publisherFetch({ currentHead: 'c'.repeat(40) });
-  await assert.rejects(publish([update], fetchImpl as typeof fetch), /changed since review started/);
-  assert.equal(requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+test('publisher rechecks the snapshot before every side effect', async () => {
+  const changed = 'c'.repeat(40);
+  const stale = publisherFetch({ currentHeads: [changed] });
+  await assert.rejects(publish([update], stale.fetchImpl as typeof fetch), /changed since review started/);
+  assert.equal(stale.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+
+  const beforeReply = publisherFetch({ currentHeads: [headSha, changed] });
+  await assert.rejects(publish([update], beforeReply.fetchImpl as typeof fetch), /changed since review started/);
+  assert.equal(beforeReply.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+
+  const beforeReopen = publisherFetch({ currentHeads: [headSha, headSha, changed] });
+  await assert.rejects(publish([update], beforeReopen.fetchImpl as typeof fetch), /changed since review started/);
+  assert.equal(beforeReopen.requests.some(({ url }) => url.endsWith('/comments/123/replies')), true);
+  assert.equal(beforeReopen.requests.some(({ body }) => body.includes('unresolveReviewThread')), false);
 });
 
 test('rejects inherited status names before publication', () => {
