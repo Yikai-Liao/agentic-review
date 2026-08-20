@@ -65,9 +65,10 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           version: 11.4.0
+          install: false
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -178,9 +179,10 @@ jobs:
           read -r _ first second extra <<< "$(git rev-list --parents -n 1 HEAD)"
           [[ "$first" == "$BASE_SHA" && "$second" == "$HEAD_SHA" && -z "$extra" ]]
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           version: 11.4.0
+          install: false
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -269,9 +271,10 @@ jobs:
           path: target
           persist-credentials: false
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           version: 11.4.0
+          install: false
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -296,7 +299,7 @@ jobs:
         continue-on-error: true
         working-directory: control
         env:
-          TARGET_REPOSITORY_TOKEN: ${{ steps.target-token.outputs.token }}
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ inputs.repository }}
           REVIEW_REPOSITORY_PATH: ${{ github.workspace }}/target
           REVIEW_BASE_SHA: ${{ inputs.base_sha }}

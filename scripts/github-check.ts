@@ -8,16 +8,11 @@ else throw new Error('usage: github-check.ts <start|complete>');
 async function start(): Promise<void> {
   const repository = required('GITHUB_REPOSITORY');
   const taskId = required('REVIEW_TASK_ID');
-  let checks: ExistingCheck[] = [];
-  try {
-    const existingResponse = await request(
-      `/repos/${repository}/commits/${required('REVIEW_HEAD_SHA')}/check-runs?check_name=${encodeURIComponent('Agentic Review / audit')}&filter=all`,
-      { method: 'GET' },
-    );
-    checks = (await existingResponse.json() as { check_runs: ExistingCheck[] }).check_runs;
-  } catch (error) {
-    if (!(error instanceof Error && error.message.startsWith('GitHub check failed: 404'))) throw error;
-  }
+  const existingResponse = await request(
+    `/repos/${repository}/commits/${required('REVIEW_HEAD_SHA')}/check-runs?check_name=${encodeURIComponent('Agentic Review / audit')}&filter=all`,
+    { method: 'GET' },
+  );
+  const checks = (await existingResponse.json() as { check_runs: ExistingCheck[] }).check_runs;
   const appSlug = required('REVIEW_APP_SLUG');
   const selected = selectExistingCheck(checks, appSlug, taskId);
   const output = required('GITHUB_OUTPUT');

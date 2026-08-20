@@ -29,9 +29,10 @@ jobs:
           persist-credentials: false
 
       - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           version: 11.4.0
+          install: false
 
       - name: 安装 Node.js
         uses: actions/setup-node@v6
