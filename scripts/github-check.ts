@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { selectExistingCheck, type ExistingCheck } from '../src/check.ts';
 
 const command = process.argv[2];
@@ -15,9 +14,9 @@ async function start(): Promise<void> {
       `/repos/${repository}/commits/${required('REVIEW_HEAD_SHA')}/check-runs?check_name=${encodeURIComponent('Agentic Review / audit')}&filter=all`,
       { method: 'GET' },
     );
-    checks = (existingResponse as { check_runs: ExistingCheck[] }).check_runs;
+    checks = (await existingResponse.json() as { check_runs: ExistingCheck[] }).check_runs;
   } catch (error) {
-    if (!(error instanceof Error && error.message.includes('HTTP 404'))) throw error;
+    if (!(error instanceof Error && error.message.startsWith('GitHub check failed: 404'))) throw error;
   }
   const appSlug = required('REVIEW_APP_SLUG');
   const selected = selectExistingCheck(checks, appSlug, taskId);
@@ -38,7 +37,7 @@ async function start(): Promise<void> {
       output: { title: 'Agentic Review 正在审查', summary: '中央 Review Engine 已开始处理当前 PR head。' },
     }),
   });
-  const check = response as { id: number };
+  const check = await response.json() as { id: number };
   await appendOutputs(output, check.id, false);
 }
 
@@ -66,23 +65,18 @@ async function appendOutputs(path: string, checkId: number, duplicate: boolean):
   await appendFile(path, `check_id=${checkId}\nduplicate=${duplicate}\n`);
 }
 
-async function request(path: string, init: RequestInit): Promise<unknown> {
-  const apiHost = new URL(process.env.GITHUB_API_URL ?? 'https://api.github.com').hostname;
-  const args = [
-    'api', '--hostname', apiHost === 'api.github.com' ? 'github.com' : apiHost,
-    '--method', init.method ?? 'GET',
-    '-H', 'Accept: application/vnd.github+json',
-    '-H', 'X-GitHub-Api-Version: 2022-11-28',
-    path.replace(/^\//, ''),
-  ];
-  if (init.body) args.push('--input', '-');
-  const result = spawnSync('gh', args, {
-    encoding: 'utf8',
-    input: init.body?.toString(),
-    env: { ...process.env, GH_TOKEN: required('TARGET_REPOSITORY_TOKEN'), GITHUB_TOKEN: '' },
+async function request(path: string, init: RequestInit): Promise<Response> {
+  const response = await fetch(`${process.env.GITHUB_API_URL ?? 'https://api.github.com'}${path}`, {
+    ...init,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${required('GH_TOKEN')}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
   });
-  if (result.status !== 0) throw new Error(`GitHub check failed: ${result.stderr.trim()}`);
-  return JSON.parse(result.stdout);
+  if (!response.ok) throw new Error(`GitHub check failed: ${response.status} ${await response.text()}`);
+  return response;
 }
 
 function required(name: string): string {
