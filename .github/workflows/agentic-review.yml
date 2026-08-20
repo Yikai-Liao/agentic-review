@@ -25,7 +25,8 @@ permissions:
 
 concurrency:
   group: agentic-review-${{ inputs.repository }}-${{ inputs.pull_number }}-${{ inputs.head_sha }}
-  cancel-in-progress: true
+  # 同一快照串行执行，避免被取消的旧 run 在 always() 中覆盖新 run 的共享 Check。
+  cancel-in-progress: false
 
 jobs:
   review:
