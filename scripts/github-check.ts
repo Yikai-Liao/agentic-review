@@ -70,7 +70,7 @@ async function request(path: string, init: RequestInit): Promise<Response> {
     ...init,
     headers: {
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${required('GITHUB_TOKEN')}`,
+      Authorization: `Bearer ${required('TARGET_REPOSITORY_TOKEN')}`,
       'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2022-11-28',
     },

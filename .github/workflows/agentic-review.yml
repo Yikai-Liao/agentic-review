@@ -116,12 +116,12 @@ jobs:
       - name: Start required Check
         id: check
         env:
-          GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET_REPOSITORY_TOKEN: ${{ steps.target-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ inputs.repository }}
           REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_TASK_ID: ${{ inputs.repository_id }}:${{ inputs.pull_number }}:${{ inputs.base_sha }}:${{ inputs.head_sha }}
           REVIEW_APP_SLUG: ${{ steps.target-token.outputs.app-slug }}
-        run: node scripts/github-check.ts start
+        run: pnpm tsx scripts/github-check.ts start
 
   review:
     needs: start
@@ -295,7 +295,7 @@ jobs:
         continue-on-error: true
         working-directory: control
         env:
-          GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET_REPOSITORY_TOKEN: ${{ steps.target-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ inputs.repository }}
           REVIEW_REPOSITORY_PATH: ${{ github.workspace }}/target
           REVIEW_BASE_SHA: ${{ inputs.base_sha }}
@@ -308,11 +308,11 @@ jobs:
         if: always()
         working-directory: control
         env:
-          GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET_REPOSITORY_TOKEN: ${{ steps.target-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ inputs.repository }}
           REVIEW_CHECK_ID: ${{ needs.start.outputs.check_id }}
           REVIEW_CONCLUSION: ${{ needs.review.result == 'success' && steps.publish.outcome == 'success' && 'success' || 'failure' }}
-        run: node scripts/github-check.ts complete
+        run: pnpm tsx scripts/github-check.ts complete
 
       - name: Fail closed
         if: always() && (needs.review.result != 'success' || steps.publish.outcome != 'success')
