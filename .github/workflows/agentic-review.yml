@@ -24,8 +24,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.base_sha }}-${{ inputs.head_sha }}
-  # 同一快照串行执行，避免被取消的旧 run 在 always() 中覆盖新 run 的共享 Check。
+  # 同一 PR 保留当前运行；新快照排队，后续快照自动替换尚未开始的旧队列项。
+  group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
   cancel-in-progress: false
 
 jobs:
@@ -101,24 +101,19 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
           HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_TASK_ID: ${{ inputs.repository_id }}:${{ inputs.pull_number }}:${{ inputs.base_sha }}:${{ inputs.head_sha }}
+          REVIEW_RUN_ID: ${{ github.run_id }}
         with:
           # 写 token 只在这个可信 workflow step 内使用，不进入 Agent shell。
           github-token: ${{ steps.review-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
             const name = 'Agentic Review / audit';
-            const existing = await github.paginate(github.rest.checks.listForRef, {
+            const response = await github.rest.checks.create({
               owner,
               repo,
-              ref: process.env.HEAD_SHA,
-              check_name: name,
-              filter: 'all',
-              per_page: 100,
-            });
-            const data = {
               name,
               head_sha: process.env.HEAD_SHA,
-              external_id: process.env.REVIEW_TASK_ID,
+              external_id: `${process.env.REVIEW_TASK_ID}:${process.env.REVIEW_RUN_ID}`,
               status: 'in_progress',
               started_at: new Date().toISOString(),
               details_url: `${process.env.GITHUB_SERVER_URL}/${process.env.REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
@@ -126,11 +121,7 @@ jobs:
                 title: 'Agentic Review 正在审查',
                 summary: '中央 Review Agent 已开始处理当前 PR。',
               },
-            };
-            const check = existing.find(({ external_id }) => external_id === process.env.REVIEW_TASK_ID);
-            const response = check
-              ? await github.rest.checks.update({ owner, repo, check_run_id: check.id, ...data })
-              : await github.rest.checks.create({ owner, repo, ...data });
+            });
             core.setOutput('check_id', String(response.data.id));
 
       # 两个版本分别放在明确目录，Agent 通过环境变量读取，不依赖工作区根目录。
@@ -267,12 +258,15 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
           CHECK_ID: ${{ steps.review-check.outputs.check_id }}
           REVIEW_CONCLUSION: ${{ steps.pi-review.outcome == 'success' && 'success' || 'failure' }}
+          RUN_CANCELLED: ${{ cancelled() }}
         with:
           # 同一个写 token 仅用于可信 workflow 的 Check 完成，不进入 Agent shell。
           github-token: ${{ steps.review-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
-            const conclusion = process.env.REVIEW_CONCLUSION;
+            const conclusion = process.env.RUN_CANCELLED === 'true'
+              ? 'neutral'
+              : process.env.REVIEW_CONCLUSION;
             await github.rest.checks.update({
               owner,
               repo,
@@ -281,9 +275,15 @@ jobs:
               conclusion,
               completed_at: new Date().toISOString(),
               output: {
-                title: conclusion === 'success' ? 'Agentic Review 已完成' : 'Agentic Review 执行失败',
+                title: conclusion === 'success'
+                  ? 'Agentic Review 已完成'
+                  : conclusion === 'neutral'
+                    ? 'Agentic Review 已取消'
+                    : 'Agentic Review 执行失败',
                 summary: conclusion === 'success'
                   ? '审查已完成。'
-                  : '审查未能可靠完成，当前提交保持不可合并。',
+                  : conclusion === 'neutral'
+                    ? '该审查已取消，结果不再代表当前 PR 快照。'
+                    : '审查未能可靠完成，当前提交保持不可合并。',
               },
             });
