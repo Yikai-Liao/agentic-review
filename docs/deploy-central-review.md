@@ -38,14 +38,14 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 - `Contents: read`；
 - `Pull requests: write`；
 - `Actions: read`；
-- `Checks: read`；
+- `Checks: write`；
 - `Metadata: read`（GitHub 默认权限）。
 
 中央仓库 Actions variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_PROVIDER`：例如 `openai`；
-- `REVIEW_AGENT_MODEL`：例如 `gpt-5.6-luna`。
+- `REVIEW_AGENT_MODEL`：例如 `gpt-5.6-luna-2`；当前 workflow 使用 OpenAI-compatible provider；
+- `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址。
 
 中央仓库 Actions secrets：
 

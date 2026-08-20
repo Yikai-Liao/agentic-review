@@ -173,6 +173,38 @@ jobs:
             echo REVIEW_PROMPT
           } >> "$GITHUB_OUTPUT"
 
+      # Pi 不会自动认识组织内的自定义模型；按 orchestra-backend 的可用配置注册它。
+      - name: Configure Pi model
+        env:
+          REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+        run: |
+          mkdir -p "$HOME/.pi/agent"
+          jq -n --arg model "$REVIEW_AGENT_MODEL" '{
+            providers: {
+              openai: {
+                models: [{
+                  id: $model,
+                  name: $model,
+                  api: "openai-responses",
+                  reasoning: true,
+                  input: ["text", "image"],
+                  contextWindow: 272000,
+                  maxTokens: 128000,
+                  thinkingLevelMap: {
+                    off: "none",
+                    minimal: null,
+                    low: "low",
+                    medium: "medium",
+                    high: "high",
+                    xhigh: "xhigh",
+                    max: "max"
+                  },
+                  compat: { supportsStrictMode: true }
+                }]
+              }
+            }
+          }' > "$HOME/.pi/agent/models.json"
+
       - name: Run Pi review
         id: pi-review
         uses: shaftoe/pi-coding-agent-action@v2.27.0
@@ -189,7 +221,7 @@ jobs:
           # 仅供 action 内部的 create_pull_request_review 使用；不注入 Agent shell。
           github_token: ${{ steps.review-token.outputs.token }}
           # 模型服务商和模型名称；均来自中央仓库配置。
-          provider: ${{ vars.REVIEW_AGENT_PROVIDER }}
+          provider: openai
           model: ${{ vars.REVIEW_AGENT_MODEL }}
           # OpenAI-compatible Azure gateway；不配置时模型会被发送到错误的默认端点。
           base_url: ${{ vars.REVIEW_AGENT_BASE_URL }}

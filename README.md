@@ -30,8 +30,8 @@ GitHub pull_request webhook
 Repository variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_PROVIDER`：模型服务商，必填；
-- `REVIEW_AGENT_MODEL`：模型名称，必填。
+- `REVIEW_AGENT_MODEL`：模型名称，必填；当前 workflow 使用 OpenAI-compatible provider；
+- `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址，必填。
 
 Repository secrets：
 
