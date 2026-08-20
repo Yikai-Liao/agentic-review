@@ -63,7 +63,7 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 | read token | checkout、shaftoe action、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`pull_requests: read`、`actions: read`、`checks: read` |
 | publication token | 隔离的可信 publish job | `contents: write`、`pull_requests: write`、`checks: write` |
 
-`publication token` 用于 Check Run，以及 Pi 结束后统一创建 Review、回复历史 thread 和 resolve/reopen。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；可信步骤重新校验结果和当前 PR 快照后才发布。Review footer 还会链接保留 30 天的工作稿 Actions artifact；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。当前不提供 Lark/known issues 查询工具，后续可单独增加只读 skill 和工具。
+`publication token` 用于 Check Run，以及 Pi 结束后统一创建 Review、回复历史 thread 和 resolve/reopen。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；可信步骤重新校验结果和当前 PR 快照后才发布。Review footer 还会链接保留 1 天的工作稿 Actions artifact；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。当前不提供 Lark/known issues 查询工具，后续可单独增加只读 skill 和工具。
 
 如果 Review 发布失败，先检查：
 
