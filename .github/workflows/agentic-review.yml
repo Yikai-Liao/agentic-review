@@ -257,16 +257,17 @@ jobs:
         env:
           REPOSITORY: ${{ inputs.repository }}
           CHECK_ID: ${{ steps.review-check.outputs.check_id }}
-          REVIEW_CONCLUSION: ${{ steps.pi-review.outcome == 'success' && 'success' || 'failure' }}
-          RUN_CANCELLED: ${{ cancelled() }}
+          PI_REVIEW_OUTCOME: ${{ steps.pi-review.outcome }}
         with:
           # 同一个写 token 仅用于可信 workflow 的 Check 完成，不进入 Agent shell。
           github-token: ${{ steps.review-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
-            const conclusion = process.env.RUN_CANCELLED === 'true'
-              ? 'neutral'
-              : process.env.REVIEW_CONCLUSION;
+            const conclusion = process.env.PI_REVIEW_OUTCOME === 'success'
+              ? 'success'
+              : process.env.PI_REVIEW_OUTCOME === 'cancelled'
+                ? 'neutral'
+                : 'failure';
             await github.rest.checks.update({
               owner,
               repo,
