@@ -10,9 +10,10 @@ GitHub pull_request webhook
   -> 中央仓库 workflow_dispatch
   -> 两个短期 installation token
        ├─ read：给 Pi 的 bash / gh
-       └─ write：只给 shaftoe/pi-coding-agent-action 的 review tool
+       └─ write：只给 shaftoe/pi-coding-agent-action 的 review tools
   -> Pi 读取目标 PR
-  -> create_pull_request_review 发布 Review
+  -> create_pull_request_review 发布新 finding
+  -> reply_to_review_thread 更新历史 finding 状态
 ```
 
 中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator、schema 或 benchmark。中央规则来自 `prompts/review-rules.md`；下游仓库的自定义规则放在 `.agentic-review.md`，用于补充中央规则。当前不接入 known issues 基线。
@@ -22,7 +23,7 @@ GitHub pull_request webhook
 每次任务用同一个 Review GitHub App 为当前目标仓库分别 mint 两个 installation token：
 
 - **read token**：`contents: read`、`pull_requests: read`、`actions: read`、`checks: read`，通过 `GH_TOKEN` 给 Agent 的 `gh` 和 checkout 使用；
-- **review token**：`contents: read`、`pull_requests: write`、`checks: write`，只在可信 workflow 的 Check Run 生命周期和 Action 的 `github_token` 中使用，不进入 Agent shell；Pi 只能通过 `create_pull_request_review` 发布 Review。
+- **review token**：`contents: read`、`pull_requests: write`、`checks: write`，用于可信 workflow 的 Check Run、Action 内置的 `create_pull_request_review` 和 Pi 结束后的 thread 发布步骤；自定义 `reply_to_review_thread` 工具只写待发布请求，不读取 token，可信步骤负责回复并 resolve/reopen。
 
 因此 Agent 即使被 PR 内容诱导执行 `gh pr comment`、`gh pr merge` 或写 API，也只有只读 token，GitHub 会拒绝写操作。
 ## 中央仓库配置
