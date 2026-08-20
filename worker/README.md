@@ -33,7 +33,7 @@ Deployment vars：
 | `CONTROL_WORKFLOW_REF` | `main` | 部署时选定的中央 Action branch 或 tag |
 | `ALLOWED_OWNER` | `example-org` | 允许进入审计队列的仓库 owner |
 
-Dispatcher App 只需安装到控制仓库，并仅授予 `Actions: read and write`。不要在 Worker 中加入模型、Review App、目标仓库或 Lark 凭证；外部上下文应由中央 Workflow 的可信 collector 获取并脱敏。
+Dispatcher App 只需安装到控制仓库，并仅授予 `Actions: read and write`。不要在 Worker 中加入模型、Review App、目标仓库或 Lark 凭证；目标仓库的 read/review installation token 由中央 Workflow 在每次任务中临时 mint。
 
 ## 部署配置
 
@@ -80,4 +80,4 @@ pnpm dlx wrangler@4.123.0 deploy --dry-run
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy --dry-run
 ```
 
-Webhook 签名、事件过滤与 delivery claim 行为覆盖在 `test/webhook.test.ts`。完整 GitHub App 配置见 [`../docs/deploy-central-review.md`](../docs/deploy-central-review.md)。
+Webhook 签名、事件过滤与 delivery claim 行为覆盖在 `test/webhook.test.ts`。Review 发布权限和两个 installation token 的分工见 [`../docs/deploy-central-review.md`](../docs/deploy-central-review.md)。

@@ -1,66 +1,50 @@
-# 中央 PR 审计协议
+# 中央 PR Review 协议
 
 ## 目标
 
-组织内仓库只安装 GitHub App，不复制 Workflow、不保存 Agent/GitHub/Lark 密钥，也不要求特定分支名称或合并顺序。`agentic-review` 根据每次 PR 的 base/head SHA 审查并把 Check 与 Review 写回原 PR。
+下游仓库只安装 Review GitHub App。Review workflow、模型 key 和 App private key 全部留在中央仓库；目标仓库的维护者不能通过修改自己的 workflow 获取中央凭证。
 
 ## 事件链
 
 ```text
-GitHub Review App webhook
+Review App pull_request webhook
   -> Cloudflare Worker
-  -> agentic-review workflow_dispatch
-  -> 中央 GitHub Actions
-  -> GitHub Review App Check + PR Review
+  -> 中央仓库 agentic-review.yml
+  -> shaftoe/pi-coding-agent-action
+  -> create_pull_request_review
 ```
 
-Cloudflare Worker 只验签、用 Durable Object 原子认领 delivery ID、过滤事件并触发中央 Workflow；模型、Lark 和目标仓库凭证只存在于 `agentic-review` 的受保护环境。
+Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 去重、用 Dispatcher App 触发中央 workflow。它不执行目标代码，也不持有模型或 Review App 凭证。
 
-### 接受的事件
+接受的事件是非 draft PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`。workflow_dispatch 携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open、非 draft 快照。
 
-仅处理 `pull_request` 的：
+## 发布 Review 的权限方案
 
-- `opened`
-- `reopened`
-- `synchronize`
-- `ready_for_review`
-
-忽略 draft PR。任务身份为：
+这是本项目最重要的权限边界。中央 workflow 用同一个 Review App 为当前目标仓库 mint 两个不同权限的 installation token：
 
 ```text
-repository_id + pull_request_number + base_sha + head_sha
+Review App private key（只在中央 Actions secret）
+  ├─ Token A: 当前仓库，contents/pull_requests/actions/checks read
+  │    -> checkout、GH_TOKEN、Pi bash 中的 gh
+  └─ Token B: 当前仓库，contents read、pull_requests write
+       -> shaftoe action 的 github_token
+          -> create_pull_request_review
 ```
 
-同一仓库、PR 和 head SHA 的重复任务会互相取消；不同 head 的任务可并行，但 Publisher 发布前会再次确认当前 PR head，旧任务不能向新版本写评论。所有检出、Check 和评论都绑定事件中的确切 base/head SHA；不读取或推断 `main`、`dev`、源分支类型及合并顺序。
+Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Agent shell，但它密码学上没有写权限；Token B 不进入 shell，只由 shaftoe action 的 GitHub provider 创建 structured tool 使用。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载 `create_pull_request_review`。
 
-## GitHub App 分权
+这解决了 PR 中“能不能写 Review”的问题：不是依赖 prompt 约束，也不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限。`create_pull_request_review` 调用 GitHub `pulls.createReview`，可以同时提交 summary 和 diff 行上的 inline comments。
 
-使用两个 App，避免给所有业务仓库授予中央 Actions 写权限：
+## Agent 工具
 
-1. **Review App**
-   - 安装到需要审查的仓库；
-   - 订阅 Pull request 事件；
-   - Metadata: read、Contents: read、Actions: read、Checks: write、Pull requests: write；
-   - 中央 Workflow 用其 installation token 读取目标 PR、读取 CI 上下文并发布结果。
-2. **Dispatcher App**
-   - 只安装到部署时配置的控制仓库；
-   - Actions: write；
-   - Cloudflare Worker 用它触发中央 Workflow。
+中央 workflow 只加载：
 
-## 合并门禁
+- Pi 内置静态工具：`read`、`grep`、`find`、`ls`、`bash`；
+- 只读 GitHub 工具：`get_pr_diff`、`get_issue_or_pr_thread`、`get_ci_status`、`get_workflow_run_logs`；
+- 发布工具：`create_pull_request_review`。
 
-目标仓库 Ruleset 要求指定 App 来源的 `Agentic Review / audit` Check。Check 尚未出现时 GitHub 保持 `Expected`，运行时为 `in_progress`，只有最新 head SHA 审查成功后才为 `success`；失败或 webhook/worker 故障均保持不可合并。
+`GH_TOKEN` 是 Token A，所以 Agent 可以执行只读 `gh` 查询，但不能评论、合并、修改文件或 workflow。当前不提供 Lark/known issues 查询工具；后续接入飞书表格时再增加独立的只读工具。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意外部请求。
 
-同时开启 `Require conversation resolution before merging`。Review 执行成功后 Check 可以通过，但每个 finding 必须是 inline review thread；未 Resolve 的 thread 继续阻止合并。
+## 可信输入
 
-## 下游规则
-
-Engine 从 base SHA 的 `spec/review` 读取仓库规则，并从 base SHA 的 `.agentic-review.yml` 读取 Review Agent 选择、overview Agent、required 状态和 Agent-specific instructions；文件缺失时使用中央默认配置。因此 PR 不能修改自己的本次审查范围。配置不能直接提供 Token、API 地址或扩大 GitHub/Lark 权限。
-
-## 可信边界
-
-- 目标 PR 代码只作为静态数据读取，绝不执行测试、构建、依赖安装或项目代码。
-- Reviewer 没有 Bash，只有限定在目标工作区和 Review context 内的静态 read/grep/find/ls 工具。
-- GitHub/Lark 能力由可信采集器或窄化工具提供，不向 Reviewer 暴露真实 CLI 凭证。
-- Review 与 Publisher 运行在不同 GitHub Actions job；Publisher 从本次 Workflow 的同一控制仓库 commit 重新检出代码和目标 head，并重新校验 schema、文件大小、LEFT/RIGHT diff 行及提交 SHA。
-- `agentic-review` 自审时，可信 Workflow 从实时 PR 读取 synthetic merge commit，并验证其父提交后才作为候选 Engine；不存在该 commit 时审查失败。候选 job 不能接触 Publisher token。
+目标 PR 的源码、PR 描述、评论、`AGENTS.md` 和目标仓库规则都可能包含 prompt injection。中央 prompt 和 tool allowlist 位于中央 workflow/checkout 中，不由目标 PR 提供。目标文件只作为静态审查输入。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。

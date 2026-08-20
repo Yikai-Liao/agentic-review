@@ -1,8 +1,6 @@
 # 文档
 
-- [当前状态与 TODO](当前状态与TODO.md)
-- [架构](架构.md)
-- [规则演化](规则演化.md)
-- [公共 Benchmark 数据源](公共基准数据源.md)
+- [中央 Review 协议](central-review.md)
+- [部署中央 Review](deploy-central-review.md)
 
-本仓库面向公司内部使用，所有说明性文档和代码注释统一使用中文；代码标识符、schema 字段及第三方 API 名称保留英文。
+Webhook 入口代码和 Cloudflare 配置见 [`../worker/`](../worker/)。
