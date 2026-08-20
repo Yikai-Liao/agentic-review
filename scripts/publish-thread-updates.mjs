@@ -62,7 +62,10 @@ async function reviewComments(fetchImpl, api, token, repository, pullNumber) {
 
 async function assertPullSnapshot(fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha) {
   const pull = await github(fetchImpl, api, token, `/repos/${repository}/pulls/${pullNumber}`);
-  if (pull.base?.sha !== expectedBaseSha || pull.head?.sha !== expectedHeadSha) {
+  if (
+    pull.state !== 'open' || pull.draft ||
+    pull.base?.sha !== expectedBaseSha || pull.head?.sha !== expectedHeadSha
+  ) {
     throw new Error('Pull request changed since review started');
   }
 }

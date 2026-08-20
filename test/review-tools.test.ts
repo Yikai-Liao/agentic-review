@@ -27,7 +27,16 @@ function publisherFetch({
   isResolved = true,
   currentResolved,
   currentHeads = [headSha],
-}: { comments?: ReviewComment[]; isResolved?: boolean; currentResolved?: boolean; currentHeads?: string[] } = {}) {
+  pullState = 'open',
+  draft = false,
+}: {
+  comments?: ReviewComment[];
+  isResolved?: boolean;
+  currentResolved?: boolean;
+  currentHeads?: string[];
+  pullState?: string;
+  draft?: boolean;
+} = {}) {
   const requests: Array<{ url: string; body: string }> = [];
   const latestResolved = currentResolved ?? isResolved;
   let snapshot = 0;
@@ -39,7 +48,7 @@ function publisherFetch({
       requests.push({ url, body });
       if (url.endsWith('/pulls/7')) {
         const sha = currentHeads[Math.min(snapshot++, currentHeads.length - 1)];
-        return Response.json({ base: { sha: baseSha }, head: { sha } });
+        return Response.json({ state: pullState, draft, base: { sha: baseSha }, head: { sha } });
       }
       if (url.includes('/comments?')) return Response.json(comments);
       if (url.endsWith('/graphql') && body.includes('reviewThreads')) {
@@ -154,9 +163,14 @@ test('publisher resolves a fixed thread and retries a missing transition without
 
 test('publisher rechecks the snapshot before every side effect', async () => {
   const changed = 'c'.repeat(40);
-  const stale = publisherFetch({ currentHeads: [changed] });
-  await assert.rejects(publish([update], stale.fetchImpl as typeof fetch), /changed since review started/);
-  assert.equal(stale.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+  for (const stale of [
+    publisherFetch({ currentHeads: [changed] }),
+    publisherFetch({ pullState: 'closed' }),
+    publisherFetch({ draft: true }),
+  ]) {
+    await assert.rejects(publish([update], stale.fetchImpl as typeof fetch), /changed since review started/);
+    assert.equal(stale.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+  }
 
   const beforeReply = publisherFetch({ currentHeads: [headSha, changed] });
   await assert.rejects(publish([update], beforeReply.fetchImpl as typeof fetch), /changed since review started/);
