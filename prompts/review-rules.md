@@ -144,7 +144,7 @@ GH_TOKEN="$GH_TOKEN" gh api --paginate \
   "repos/$GITHUB_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
 ```
 
-第一条是普通 PR 评论，第二条是 inline 评论及回复，第三条是 Review 摘要。只读取与当前根因相关的评论，不要一次把全部历史内容反复读入。`GH_TOKEN` 没有 GitHub 写权限，不要尝试修改仓库、PR、Issue、workflow 或 merge 状态。当前没有 Lark/known issues 查询工具，不要假设存在或自行调用。
+第一条虽然使用 `/issues` 路径，但 GitHub 的 PR 同时也是 Issue；它读取的是 PR 页面顶部的普通 conversation 评论，不是另一个独立 Issue。第二条是 inline diff 评论及回复，第三条是 Review 摘要。三者合起来才是当前 PR 的完整历史讨论；只读取与当前根因相关的评论，不要一次把全部历史内容反复读入。`GH_TOKEN` 没有 GitHub 写权限，不要尝试修改仓库、PR、Issue、workflow 或 merge 状态。当前没有 Lark/known issues 查询工具，不要假设存在或自行调用。
 
 将 `$REVIEW_DIFF_PATH` 作为唯一 diff 来源，分块读取并用 target/base 文件补充上下文；不要调用 `get_pr_diff`。每条 finding 绑定最接近根因的 RIGHT-side diff 行。
 
