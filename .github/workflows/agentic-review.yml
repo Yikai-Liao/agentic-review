@@ -24,9 +24,9 @@ permissions:
   contents: read
 
 concurrency:
-  # 同一 PR 保留当前运行；新快照排队，后续快照自动替换尚未开始的旧队列项。
+  # 同一 PR 只审查最新快照；新快照到达后立即取消旧运行。
   group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   review:
