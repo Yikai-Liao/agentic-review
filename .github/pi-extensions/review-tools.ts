@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 type ExtensionAPI = {
@@ -38,7 +38,7 @@ export default function reviewTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: 'reply_to_review_thread',
     label: 'Reply to review thread',
-    description: 'Post a detailed status change to an existing inline review thread. Cannot resolve a thread.',
+    description: 'Queue a detailed status change for trusted publication to an existing inline review thread.',
     parameters: {
       type: 'object',
       properties: {
@@ -77,51 +77,24 @@ export default function reviewTools(pi: ExtensionAPI) {
         throw new Error('the requested thread status has not changed');
       }
 
-      const token = process.env.INPUT_GITHUB_TOKEN;
-      const repository = process.env.GITHUB_REPOSITORY;
-      const pullNumber = process.env.REVIEW_PULL_NUMBER;
-      if (!token || !repository || !pullNumber) throw new Error('GitHub review context is unavailable');
-
-      const headers = {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      };
-      const api = process.env.GITHUB_API_URL ?? 'https://api.github.com';
-      const response = await fetch(
-        `${api}/repos/${repository}/pulls/${pullNumber}/comments/${params.root_comment_id}/replies`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            body: `**Pi thread 状态更新：${statusLabels[status]}**\n\n${params.evidence}`,
-          }),
-        },
-      );
-      if (!response.ok) throw new Error(`GitHub reply failed: ${response.status} ${await response.text()}`);
-
-      const result = (await response.json()) as { html_url: string };
-      updatedThreads.add(params.root_comment_id);
-      const shouldReopen = thread.isResolved && status !== 'suggest_resolve';
-      if (shouldReopen) {
-        const reopenResponse = await fetch(`${api}/graphql`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            query: 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}',
-            variables: { thread: thread.id },
-          }),
-        });
-        const reopenResult = (await reopenResponse.json()) as { errors?: Array<{ message: string }> };
-        if (!reopenResponse.ok || reopenResult.errors?.length) {
-          throw new Error(`GitHub reopen failed: ${reopenResponse.status} ${JSON.stringify(reopenResult.errors)}`);
-        }
+      const updatesPath = process.env.REVIEW_THREAD_UPDATES_PATH;
+      if (!updatesPath || !path.isAbsolute(updatesPath)) {
+        throw new Error('Review thread update path is unavailable');
       }
+      await appendFile(
+        updatesPath,
+        `${JSON.stringify({
+          root_comment_id: params.root_comment_id,
+          status,
+          evidence: params.evidence,
+        })}\n`,
+        { encoding: 'utf8', mode: 0o600 },
+      );
+      updatedThreads.add(params.root_comment_id);
 
       return {
-        content: [{ type: 'text', text: `Thread updated${shouldReopen ? ' and reopened' : ''}: ${result.html_url}` }],
-        details: { status, reopened: shouldReopen, url: result.html_url },
+        content: [{ type: 'text', text: 'Thread status update queued for trusted publication.' }],
+        details: { status, queued: true },
       };
     },
   });

@@ -156,6 +156,7 @@ jobs:
             --find-renames --find-copies --unified=20 \
             "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
 
+      # 这份快照只供 Agent 判断历史状态，不作为最终授权依据；Pi 后的发布步骤会查询 GitHub 重新校验。
       - name: Prepare review threads
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
@@ -245,8 +246,12 @@ jobs:
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
           REVIEW_DISCUSSION_PATH: ${{ runner.temp }}/review-discussion
+          # 自定义 thread 工具只向该文件追加无凭证请求；文件内容始终按不可信输入处理。
+          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
         with:
-          # 仅供 action 内部的 create_pull_request_review 使用；不注入 Agent shell。
+          # shaftoe action 内置的 create_pull_request_review 需要该 write token。
+          # GitHub Action input 仍属于 shaftoe 进程环境；彻底隔离需上游把 Agent 放入清理环境的子进程。
+          # 本次只保证自定义 reply_to_review_thread 不读取 INPUT_GITHUB_TOKEN，而是写待发布请求。
           github_token: ${{ steps.review-token.outputs.token }}
           # 模型服务商和模型名称；均来自中央仓库配置。
           provider: openai
@@ -262,9 +267,9 @@ jobs:
           # 覆盖常规大型 PR；超大 diff 仍需 Agent 按相关文件和路径审查，避免上下文失控。
           diff_max_lines: 10000
           diff_max_bytes: 1000000
-          # 中央扩展只允许在已有 inline thread 中发布状态变化详情。
+          # 中央扩展只校验并排队已有 inline thread 的状态变化，不直接调用 GitHub 写 API。
           extensions: control/.github/pi-extensions/review-tools.ts
-          # Agent 可用工具：前七项只读；后两项是受约束的 Review 发布出口。
+          # Agent 可用工具：前七项对 GitHub 只读；后两项分别发布新 finding、排队历史状态更新。
           loaded_tools: |
             read
             grep
@@ -278,22 +283,39 @@ jobs:
           # 从中央 checkout 加载单一 Prompt；不要在 workflow 中重复规则。
           prompt: ${{ steps.prompt.outputs.prompt }}
 
+      # Pi 成功后才进入可信发布边界。队列可能被 Agent shell 篡改，因此发布脚本会限制 schema、
+      # 数量和状态，并从 GitHub 实时确认 root comment 属于当前 PR、状态确有变化后再回复。
+      - name: Publish review thread updates
+        id: publish-thread-updates
+        if: steps.pi-review.outcome == 'success'
+        env:
+          # 该步骤单独注入 write token；发布脚本不信任 Pi 产生的队列内容。
+          GH_TOKEN: ${{ steps.review-token.outputs.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+          # 只允许中央 Review App 创建的 root finding 被自动 resolve/reopen。
+          REVIEW_BOT_LOGIN: ${{ steps.review-token.outputs.app-slug }}[bot]
+          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
+        run: node control/scripts/publish-thread-updates.mjs
+
       - name: Complete Agentic Review check
         if: always() && steps.review-check.outputs.check_id != ''
         uses: actions/github-script@v9
         env:
           REPOSITORY: ${{ inputs.repository }}
           CHECK_ID: ${{ steps.review-check.outputs.check_id }}
+          # Pi 或可信 thread 发布任一失败，required Check 都必须 fail closed。
           PI_REVIEW_OUTCOME: ${{ steps.pi-review.outcome }}
+          THREAD_UPDATES_OUTCOME: ${{ steps.publish-thread-updates.outcome }}
         with:
           # 同一个写 token 仅用于可信 workflow 的 Check 完成，不进入 Agent shell。
           github-token: ${{ steps.review-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
-            const conclusion = process.env.PI_REVIEW_OUTCOME === 'success'
-              ? 'success'
-              : process.env.PI_REVIEW_OUTCOME === 'cancelled'
-                ? 'neutral'
+            const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled'
+              ? 'neutral'
+              : process.env.PI_REVIEW_OUTCOME === 'success' && process.env.THREAD_UPDATES_OUTCOME === 'success'
+                ? 'success'
                 : 'failure';
             await github.rest.checks.update({
               owner,

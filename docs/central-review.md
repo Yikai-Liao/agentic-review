@@ -28,14 +28,13 @@ Review App private key（只在中央 Actions secret）
   │    -> checkout、GH_TOKEN、Pi bash 中的 gh
   └─ Token B: 当前仓库，contents read、pull_requests/checks write
        ├─ 可信 workflow 的 PR Check Run（details_url 指向当前 Action Run）
-       └─ shaftoe action 的 github_token
-          ├─ create_pull_request_review
-          └─ reply_to_review_thread
+       ├─ shaftoe action 的 github_token -> create_pull_request_review
+       └─ Pi 结束后的可信步骤 -> 发布 reply_to_review_thread 请求
 ```
 
-Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Agent shell，但它密码学上没有写权限；Token B 不进入 shell，只由可信 workflow 的 Check Run 步骤和 shaftoe action 的 GitHub provider 使用。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载两个受约束的 Review 发布工具。
+Token 默认约一小时过期，并且只允许当前目标仓库。Token A 通过 `GH_TOKEN` 进入 Agent shell，且密码学上没有写权限。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载两个受约束的 Review 出口。
 
-这解决了 PR 中“能不能写 Review”的问题：不是依赖 prompt 约束，也不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限；同一个 token 的 `checks: write` 只用于可信 workflow 的 PR Check 生命周期。`create_pull_request_review` 发布新 finding；`reply_to_review_thread` 只回复当前 PR 已存在的 inline thread，并在已解决问题重新出现或扩大时重新打开 thread。
+这解决了 PR 中“能不能写 Review”的问题：不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限；同一个 token 的 `checks: write` 只用于可信 workflow 的 PR Check 生命周期。Action 内置的 `create_pull_request_review` 发布新 finding；自定义 `reply_to_review_thread` 只写入经过初步校验的请求，Pi 结束后由可信步骤重新校验当前 PR thread、发布详情并 resolve/reopen。
 
 ## Agent 工具
 

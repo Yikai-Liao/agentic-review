@@ -173,7 +173,7 @@ Inline comment 应锚定足以独立理解根因的最小连续范围：单行�
 - 影响范围或严重度扩大：必须调用 `reply_to_review_thread`，状态为 `severity_increased`，详细说明相对原 finding 新增的触发路径和影响；最终总结只写 `⚠️ 风险升级` 和链接；
 - 已解决的问题重新出现：必须调用 `reply_to_review_thread`，状态为 `reintroduced`，详细说明重新引入问题的当前改动和可达路径；最终总结只写 `🔁 问题重现` 和链接。
 
-`reply_to_review_thread` 的 `root_comment_id` 必须是原 inline thread 的首条评论 ID；每个 thread 每轮最多更新一次。调用前检查该 thread 最新一条 `Pi thread 状态更新`，状态没有变化时不要重复调用。该工具不会自动 resolve `suggest_resolve` thread；风险升级或问题重现发生在已 resolved thread 时，工具会重新打开该 thread。
+`reply_to_review_thread` 的 `root_comment_id` 必须是原 inline thread 的首条评论 ID；每个 thread 每轮最多更新一次。调用前检查该 thread 最新一条 `Pi thread 状态更新`，状态没有变化时不要重复调用。工具请求会在 Pi 结束后由可信步骤发布：`suggest_resolve` 会先回复详情再 resolve thread；风险升级或问题重现发生在已 resolved thread 时，会先回复详情再重新打开 thread。
 
 ## 中央运行时要求
 
@@ -185,7 +185,7 @@ Inline comment 应锚定足以独立理解根因的最小连续范围：单行�
 - `bash`：执行只读的 `git`、`gh`、`jq` 等查询；
 - `get_ci_status`、`get_workflow_run_logs`：按需读取 CI 状态和失败日志；
 - `create_pull_request_review`：一次性发布本轮新 finding；
-- `reply_to_review_thread`：向已有 inline thread 发布状态变化详情。
+- `reply_to_review_thread`：提交已有 inline thread 的状态变化详情，由可信步骤发布并 resolve/reopen。
 
 所有目标路径和 PR 标识都已通过环境变量提供。不要用 `env`、`pwd` 或遍历 runner 来探索环境，也不要读取 Action/Pi 实现。
 
