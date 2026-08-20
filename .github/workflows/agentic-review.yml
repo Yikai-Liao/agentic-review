@@ -154,6 +154,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Prepare review diff
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
+        run: |
+          git -C review-target diff --no-ext-diff --no-textconv \
+            --find-renames --find-copies --unified=20 \
+            "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
+
       # Checkout after the target: checkout cleans its own root, so the
       # trusted control checkout cannot be removed as an untracked directory.
       - name: Checkout control-plane rules
@@ -214,9 +224,11 @@ jobs:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           # 让 action 和 gh 知道当前审查的目标仓库；不改变 token 权限。
           GITHUB_REPOSITORY: ${{ inputs.repository }}
+          REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
+          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
         with:
           # 仅供 action 内部的 create_pull_request_review 使用；不注入 Agent shell。
           github_token: ${{ steps.review-token.outputs.token }}
@@ -234,15 +246,13 @@ jobs:
           # 覆盖常规大型 PR；超大 diff 仍需 Agent 按相关文件和路径审查，避免上下文失控。
           diff_max_lines: 10000
           diff_max_bytes: 1000000
-          # Agent 可用工具：前九项只读；最后一项是唯一的 Review 发布出口。
+          # Agent 可用工具：前七项只读；最后一项是唯一的 Review 发布出口。
           loaded_tools: |
             read
             grep
             find
             ls
             bash
-            get_pr_diff
-            get_issue_or_pr_thread
             get_ci_status
             get_workflow_run_logs
             create_pull_request_review
