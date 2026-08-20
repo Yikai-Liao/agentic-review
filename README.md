@@ -29,11 +29,48 @@ GitHub pull_request webhook
 
 因此 Agent 即使被 PR 内容诱导执行 `gh pr comment`、`gh pr merge` 或写 API，也只有只读 token，GitHub 会拒绝写操作。
 
-## 下游 known issue 说明
+## 编写下游 `.agentic-review.md`
 
-下游仓库可以直接在 `.agentic-review.md` 中用自然语言说明哪些缺陷、历史 Review、GitHub Issue、开发计划或外部记录属于 known issue，以及相关仓库地址和项目状态的含义；不要求固定 schema。例如可以说明“前后端跨仓库问题还需查询 `Qiyin-Tech/orchestra-frontend` 的 Issue 和 PR”。Review 按 PR head 理解预期合并后生效的项目语义；只有新增私有跨仓库读取范围仍要求 merge base 已有说明，避免当前 PR 自行扩大 Agent 的数据访问范围。
+下游仓库可以在仓库根目录创建 `.agentic-review.md`，用自然语言补充**只有本项目知道、且会改变审查判断**的规则。它不是配置 schema，也不需要复制中央 Review 规则。
 
-中央 `known-issues` skill 统一规定因果关联、状态证据和去重方式；GitHub 等来源 skill 只规定如何高效查询。Agent 先完成当前 diff 的独立分析，再按候选 finding 追溯 commit 来源 PR 或使用强关键词定向搜索，不会全量读取关联仓库。
+适合写入：
+
+- 业务不变量和高风险边界，例如状态转换、租户归属、金额、业务日期、幂等和兼容性要求；
+- 代码难以直接推断的调用关系、消费者、生成文件和不可执行区域；
+- 真实的数据规模、批大小、并发、分页或延迟上限，供性能审查恢复契约；
+- 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，以及项目状态字段的实际含义；
+- 需要联动查询的 GitHub 仓库完整地址，以及什么代码路径或业务对象出现时才需要查询。
+
+写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。中央安全、证据、严重度和发布规则仍然生效，下游规则只能补充，不能覆盖。
+
+下面是一个自然语言示例；标题和组织方式可以按项目调整：
+
+```markdown
+# 本仓库 Review 规则
+
+## 业务约束
+
+- 订单从 `paid` 进入 `refunded` 前必须已经写入支付平台退款单号；检查所有修改该状态的入口和补偿任务。
+- `tenant_id` 来自登录身份，重试和冲突恢复不能改用请求载荷中的租户字段。
+
+## 性能边界
+
+- 批量导入单次最多 10,000 条；修改逐项数据库或远程调用时，按该规模检查往返次数和内存峰值。
+
+## Known issues
+
+- 本仓库带 `known-issue` 或 `qa-acceptance` 标签的 GitHub Issue，以及 Issue 中链接的验收记录，属于 known issue 来源。
+- 修改退款状态、退款事件或对应 API 时，按需查询 `Qiyin-Tech/payment-service` 的相关 Issue、PR 和代码；其他变更不查询该仓库。
+- 项目字段“已排期”只表示计划中；只有记录中的明确验收结论才能证明问题已修复。
+
+## 仓库约定
+
+- `src/generated/` 由 schema 生成；审查 schema 和生成结果的一致性，不要求直接修改生成文件。
+```
+
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+
+相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
 
 ## 中央仓库配置
 
