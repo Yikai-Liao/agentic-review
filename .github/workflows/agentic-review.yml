@@ -175,7 +175,7 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
-        uses: shaftoe/pi-coding-agent-action@v2.9.1
+        uses: shaftoe/pi-coding-agent-action@v2.27.0
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
@@ -191,6 +191,8 @@ jobs:
           # 模型服务商和模型名称；均来自中央仓库配置。
           provider: ${{ vars.REVIEW_AGENT_PROVIDER }}
           model: ${{ vars.REVIEW_AGENT_MODEL }}
+          # OpenAI-compatible Azure gateway；不配置时模型会被发送到错误的默认端点。
+          base_url: ${{ vars.REVIEW_AGENT_BASE_URL }}
           # 模型 API 凭证；不与 GitHub installation token 混用。
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
