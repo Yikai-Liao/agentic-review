@@ -121,6 +121,7 @@ test('trusted publisher revalidates the current head before posting', async () =
     assert.equal(message, 'Review created: https://github.com/review/1');
     assert.equal(calls.length, 2);
     assert.match(calls[0]!.url, /\/pulls\/7$/);
+    assert.equal((calls[0]!.init?.headers as Record<string, string>).Authorization, 'Bearer token');
     assert.match(calls[1]!.url, /\/pulls\/7\/reviews$/);
     assert.equal((calls[1]!.init?.headers as Record<string, string>).Authorization, 'Bearer token');
     assert.equal(JSON.parse(String(calls[1]!.init?.body)).commit_id, 'head');
