@@ -25,9 +25,11 @@ type ReviewComment = {
 function publisherFetch({
   comments = [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } }] as ReviewComment[],
   isResolved = true,
+  currentResolved,
   currentHeads = [headSha],
-} = {}) {
+}: { comments?: ReviewComment[]; isResolved?: boolean; currentResolved?: boolean; currentHeads?: string[] } = {}) {
   const requests: Array<{ url: string; body: string }> = [];
+  const latestResolved = currentResolved ?? isResolved;
   let snapshot = 0;
   return {
     requests,
@@ -57,6 +59,9 @@ function publisherFetch({
             },
           },
         });
+      }
+      if (url.endsWith('/graphql') && body.includes('query($thread:ID!)')) {
+        return Response.json({ data: { node: { id: 'thread-id', isResolved: latestResolved } } });
       }
       if (url.endsWith('/comments/123/replies')) return Response.json({ html_url: 'https://github.test/thread#reply' });
       return Response.json({ data: {} });
@@ -132,6 +137,9 @@ test('publisher resolves a fixed thread and retries a missing transition without
   await publish([resolved], first.fetchImpl as typeof fetch);
   assert.match(first.requests.at(-1)!.body, /resolveReviewThread/);
 
+  const changedByAnotherActor = publisherFetch({ isResolved: false, currentResolved: true });
+  await publish([update], changedByAnotherActor.fetchImpl as typeof fetch);
+  assert.match(changedByAnotherActor.requests.at(-1)!.body, /unresolveReviewThread/);
 
   const { requests, fetchImpl } = publisherFetch({
     comments: [

@@ -67,6 +67,19 @@ async function assertPullSnapshot(fetchImpl, api, token, repository, pullNumber,
   }
 }
 
+async function reviewThreadState(fetchImpl, api, token, threadId) {
+  const result = await github(fetchImpl, api, token, '/graphql', {
+    method: 'POST',
+    body: JSON.stringify({
+      query: 'query($thread:ID!){node(id:$thread){... on PullRequestReviewThread{id isResolved}}}',
+      variables: { thread: threadId },
+    }),
+  });
+  if (result.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(result.errors)}`);
+  if (!result.data.node) throw new Error(`${threadId} is no longer a review thread`);
+  return result.data.node;
+}
+
 async function reviewThreads(fetchImpl, api, token, repository, pullNumber) {
   const [owner, repo] = repository.split('/');
   const threads = [];
@@ -145,12 +158,11 @@ export async function publishThreadUpdates({
     }
 
     const shouldResolve = update.status === 'suggest_resolve';
-    const resolutionMutation = thread.isResolved === shouldResolve
-      ? undefined
-      : shouldResolve
+    const currentThread = await reviewThreadState(fetchImpl, api, token, thread.id);
+    if (currentThread.isResolved !== shouldResolve) {
+      const resolutionMutation = shouldResolve
         ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
         : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}';
-    if (resolutionMutation) {
       await assertPullSnapshot(
         fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha,
       );

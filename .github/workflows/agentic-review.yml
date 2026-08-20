@@ -32,6 +32,11 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      owner: ${{ steps.target.outputs.owner }}
+      name: ${{ steps.target.outputs.name }}
+      check_id: ${{ steps.review-check.outputs.check_id }}
+      pi_outcome: ${{ steps.pi-review.outcome }}
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -258,34 +263,84 @@ jobs:
           # 从中央 checkout 加载单一 Prompt；不要在 workflow 中重复规则。
           prompt: ${{ steps.prompt.outputs.prompt }}
 
-      # Pi 成功后才进入可信发布边界。队列可能被 Agent shell 篡改，因此发布脚本会限制 schema、
-      # 数量和状态，并确认 PR 仍是本次审查的 base/head 后再从 GitHub 实时校验并发布。
-      - name: Publish review thread updates
-        id: publish-thread-updates
+      # 只把无凭证队列传给新的 runner；队列始终按不可信输入处理。
+      - name: Prepare thread update artifact
         if: steps.pi-review.outcome == 'success'
         env:
-          # 该步骤单独注入 write token；发布脚本不信任 Pi 产生的队列内容。
+          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
+          ARTIFACT_PATH: ${{ runner.temp }}/thread-update-artifact/review-thread-updates.ndjson
+        run: |
+          mkdir -p "$(dirname "$ARTIFACT_PATH")"
+          if [[ -f "$REVIEW_THREAD_UPDATES_PATH" ]]; then
+            cp "$REVIEW_THREAD_UPDATES_PATH" "$ARTIFACT_PATH"
+          else
+            : > "$ARTIFACT_PATH"
+          fi
+
+      - name: Upload thread update artifact
+        if: steps.pi-review.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-thread-updates-${{ github.run_id }}
+          path: ${{ runner.temp }}/thread-update-artifact/review-thread-updates.ndjson
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: review
+    if: always() && needs.review.outputs.check_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Mint trusted publication token
+        id: review-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.AGENTIC_REVIEW_CLIENT_ID }}
+          private-key: ${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}
+          owner: ${{ needs.review.outputs.owner }}
+          repositories: ${{ needs.review.outputs.name }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-checks: write
+
+      - name: Checkout trusted publisher
+        if: needs.review.outputs.pi_outcome == 'success'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download thread update artifact
+        if: needs.review.outputs.pi_outcome == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: review-thread-updates-${{ github.run_id }}
+          path: ${{ runner.temp }}/thread-update-artifact
+
+      # 新 runner 中才注入 write token；发布器校验 schema、当前 SHA、root comment 和 bot 身份。
+      - name: Publish review thread updates
+        id: publish-thread-updates
+        if: needs.review.outputs.pi_outcome == 'success'
+        env:
           GH_TOKEN: ${{ steps.review-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
-          # 只允许中央 Review App 创建的 root finding 被自动 resolve/reopen。
           REVIEW_BOT_LOGIN: ${{ steps.review-token.outputs.app-slug }}[bot]
-          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
-        run: node control/scripts/publish-thread-updates.mjs
+          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/thread-update-artifact/review-thread-updates.ndjson
+        run: node scripts/publish-thread-updates.mjs
 
       - name: Complete Agentic Review check
-        if: always() && steps.review-check.outputs.check_id != ''
+        if: always()
         uses: actions/github-script@v9
         env:
           REPOSITORY: ${{ inputs.repository }}
-          CHECK_ID: ${{ steps.review-check.outputs.check_id }}
-          # Pi 或可信 thread 发布任一失败，required Check 都必须 fail closed。
-          PI_REVIEW_OUTCOME: ${{ steps.pi-review.outcome }}
+          CHECK_ID: ${{ needs.review.outputs.check_id }}
+          PI_REVIEW_OUTCOME: ${{ needs.review.outputs.pi_outcome }}
           THREAD_UPDATES_OUTCOME: ${{ steps.publish-thread-updates.outcome }}
         with:
-          # 同一个写 token 仅用于可信 workflow 的 Check 完成，不进入 Agent shell。
           github-token: ${{ steps.review-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
