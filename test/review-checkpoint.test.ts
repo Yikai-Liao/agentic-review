@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 // @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
-import { findReviewCheckpoint } from '../scripts/find-review-checkpoint.mjs';
+import { findReviewCheckpoint, findReviewCheckpointSafely } from '../scripts/find-review-checkpoint.mjs';
 // @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
 import { finalizeReviewFocus } from '../scripts/finalize-review-focus.mjs';
 
@@ -68,7 +68,21 @@ test('returns no checkpoint when no successful review exists', async () => {
     const sha = /commits\/([0-9a-f]{40})\/check-runs/.exec(String(input))![1];
     return Response.json({ check_runs: [check(sha, { external_id: `1:7:${'e'.repeat(40)}:${sha}:99` })] });
   }), null);
-  await assert.rejects(find(async () => new Response(null, { status: 500 })), /check lookup failed: 500/);
+});
+
+test('continues without a checkpoint when GitHub lookup fails', async () => {
+  const warnings: string[] = [];
+  assert.equal(await findReviewCheckpointSafely({
+    commits: [current],
+    repository: 'owner/repo',
+    repositoryId: '1',
+    pullNumber: '7',
+    baseSha: base,
+    appSlug: 'review-app',
+    token: 'read-token',
+    fetchImpl: async () => new Response(null, { status: 500 }),
+  }, (warning: string) => warnings.push(warning)), null);
+  assert.deepEqual(warnings, ['Review checkpoint lookup skipped: GitHub check lookup failed: 500']);
 });
 
 test('keeps only a distinct non-empty focus diff', async () => {

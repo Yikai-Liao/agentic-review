@@ -46,6 +46,15 @@ export async function findReviewCheckpoint({
   return null;
 }
 
+export async function findReviewCheckpointSafely(options, warn = console.warn) {
+  try {
+    return await findReviewCheckpoint(options);
+  } catch (error) {
+    warn(`Review checkpoint lookup skipped: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 async function main() {
   const {
     REVIEW_TARGET_PATH: targetPath,
@@ -76,7 +85,7 @@ async function main() {
   if (!shaPattern.test(mergeBase)) throw new Error('Invalid merge base');
   const { stdout } = await exec('git', ['-C', targetPath, 'rev-list', '--topo-order', headSha, `^${mergeBase}`]);
   const commits = stdout.trim() ? stdout.trim().split('\n') : [];
-  let checkpoint = await findReviewCheckpoint({
+  let checkpoint = await findReviewCheckpointSafely({
     commits,
     repository,
     repositoryId,
