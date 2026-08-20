@@ -20,10 +20,11 @@ GitHub pull_request webhook
 
 ## 权限边界
 
-每次任务用同一个 Review GitHub App 为当前目标仓库分别 mint 两个 installation token：
+每次任务用同一个 Review GitHub App 为当前目标仓库分别 mint 三个 installation token：
 
 - **read token**：`contents: read`、`pull_requests: read`、`actions: read`、`checks: read`，通过 `GH_TOKEN` 给 Agent 的 `gh` 和 checkout 使用；
-- **review token**：`contents: read`、`pull_requests: write`、`checks: write`，用于可信 workflow 的 Check Run、Action 内置的 `create_pull_request_review` 和 Pi 结束后的 thread 发布步骤；自定义 `reply_to_review_thread` 工具只写待发布请求，不读取 token，可信步骤负责回复并 resolve/reopen。
+- **review token（review job）**：`contents: read`、`pull_requests: write`，仅供 Action 内置的 `create_pull_request_review`；
+- **review token（publish job）**：`contents: write`、`pull_requests: write`、`checks: write`，仅进入隔离的可信发布 job，用于 Check Run、thread 回复和 resolve/reopen。`contents: write` 是 GitHub GraphQL 执行 `resolveReviewThread`/`unresolveReviewThread` 的实际权限要求。
 
 因此 Agent 即使被 PR 内容诱导执行 `gh pr comment`、`gh pr merge` 或写 API，也只有只读 token，GitHub 会拒绝写操作。
 ## 中央仓库配置

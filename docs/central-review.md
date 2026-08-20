@@ -22,21 +22,21 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 ## 发布 Review 的权限方案
 
-这是本项目最重要的权限边界。中央 workflow 用同一个 Review App 为当前目标仓库 mint 两个不同权限的 installation token：
+这是本项目最重要的权限边界。中央 workflow 用同一个 Review App 为当前目标仓库 mint 三个不同权限的 installation token：
 
 ```text
 Review App private key（只在中央 Actions secret）
   ├─ Token A: 当前仓库，contents/pull_requests/actions/checks read
   │    -> checkout、GH_TOKEN、Pi bash 中的 gh
-  └─ Token B: 当前仓库，contents read、pull_requests/checks write
-       ├─ 可信 workflow 的 PR Check Run（details_url 指向当前 Action Run）
-       ├─ shaftoe action 的 github_token -> create_pull_request_review
-       └─ Pi 结束后的可信步骤 -> 发布 reply_to_review_thread 请求
+  ├─ Token B: 当前仓库，contents read、pull_requests write
+  │    -> shaftoe action 的 github_token -> create_pull_request_review
+  └─ Token C: 当前仓库，contents/pull_requests/checks write
+       -> 隔离的可信 publish job：Check Run、thread 回复和 resolve/reopen
 ```
 
 Token 默认约一小时过期，并且只允许当前目标仓库。Token A 通过 `GH_TOKEN` 进入 Agent shell，且密码学上没有写权限。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载两个受约束的 Review 出口。
 
-这解决了 PR 中“能不能写 Review”的问题：不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限；同一个 token 的 `checks: write` 只用于可信 workflow 的 PR Check 生命周期。Action 内置的 `create_pull_request_review` 发布新 finding；自定义 `reply_to_review_thread` 只写入经过初步校验的请求，Pi 结束后由可信步骤重新校验当前 PR thread、发布详情并 resolve/reopen。
+这解决了 PR 中“能不能写 Review”的问题：不是使用长期 PAT，而是给不同发布 API 单独 mint 最小权限的 installation token。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job；Agent shell 始终只能看到 Token A。Action 内置的 `create_pull_request_review` 发布新 finding；自定义 `reply_to_review_thread` 只写入经过初步校验的请求，Pi 结束后由可信步骤重新校验当前 PR thread、发布详情并 resolve/reopen。任何发布失败仍会使 Review Check 失败。
 
 ## Agent 工具
 
