@@ -108,7 +108,7 @@ Review 环境仅做静态审查。不要安装依赖，也不要运行 lint、ty
 
 两类都必须形成绑定 diff 行的 Review conversation；不要把应确认的风险只写进总结。若两类均不存在，允许零条输出。
 
-完整总结由 Action 的最终文本发布，必须先用不依赖代码上下文的语言说明本 PR 改变的业务流程、关键行为路径和审查证据边界，再提供 finding 导航；最终文本必须以以下标题之一开头：有新 finding 使用 `## 自动代码审查 ⬆️`，无新 finding 使用 `## 自动代码审查 ✅`，仍有未解决历史问题使用 `## 自动代码审查 ❌`。存在未解决历史 thread 时，必须增加 `### 历史 thread 状态变化`，逐条使用 `⏳ 仍未解决：` 加标题和链接；新 head 使风险升级使用 `⚠️ 风险升级：`，问题重新出现使用 `🔁 问题重现：`，建议关闭使用 `✅ 建议关闭：`。没有状态变化时不要增加该段。不要在 Review API 的 `body` 中重复这段总结。
+完整总结由 Action 的最终文本发布，必须先用不依赖代码上下文的语言说明本 PR 改变的业务流程、关键行为路径和审查证据边界，再提供 finding 导航；最终文本必须以以下标题之一开头：有新 finding 使用 `## 自动代码审查 ⬆️`，无新 finding 使用 `## 自动代码审查 ✅`，仍有未解决历史问题使用 `## 自动代码审查 ❌`。存在历史 thread 时增加 `### 历史 thread 状态`：仍未解决使用 `⏳ 仍未解决：`，风险升级使用 `⚠️ 风险升级：`，问题重新出现使用 `🔁 问题重现：`，建议关闭使用 `✅ 建议关闭：`，每项只写标题和 thread 链接。不要在 Review API 的 `body` 中重复这段总结；状态变化的详细证据必须回复到原 thread。
 
 每条 finding（包括 `[需人工确认]`）必须能够独立阅读，不假设读者已经看过 PR、diff 或其他评论，并用最短完整表述同时包含：
 
@@ -125,7 +125,14 @@ Review 环境仅做静态审查。不要安装依赖，也不要运行 lint、ty
 
 开始审查前必须读取当前 PR 的全部已有普通评论和 inline Review comments。相同根因在同一个 PR 内只保留一条 finding；本轮内部也只保留一条最接近根因的 finding。
 
-如果已有评论已经完整指出同一根因，不要再次报告。只有新的 head 明确改变了触发条件、影响范围或严重度时，才允许重新报告，并在新评论中说明变化。修复后不应因为历史评论仍存在而重新报告。
+如果已有评论已经完整指出同一根因，不要创建新的 inline finding。逐条比较原 thread 与当前 head：
+
+- 仍未解决且触发条件、影响范围和严重度未变化：不要回复叠楼，只在最终总结中简要列为 `⏳ 仍未解决`；
+- 已修复：必须调用 `reply_to_review_thread`，状态为 `suggest_resolve`，详细说明修改位置、修复机制，以及为什么原触发路径不再成立；最终总结只写 `✅ 建议关闭` 和链接；
+- 影响范围或严重度扩大：必须调用 `reply_to_review_thread`，状态为 `severity_increased`，详细说明相对原 finding 新增的触发路径和影响；最终总结只写 `⚠️ 风险升级` 和链接；
+- 已解决的问题重新出现：必须调用 `reply_to_review_thread`，状态为 `reintroduced`，详细说明重新引入问题的当前改动和可达路径；最终总结只写 `🔁 问题重现` 和链接。
+
+`reply_to_review_thread` 的 `root_comment_id` 必须是原 inline thread 的首条评论 ID；每个 thread 每轮最多更新一次。调用前检查该 thread 最新一条 `Pi thread 状态更新`，状态没有变化时不要重复调用。该工具不会自动 resolve `suggest_resolve` thread；风险升级或问题重现发生在已 resolved thread 时，工具会重新打开该 thread。
 
 ## 中央运行时要求
 
@@ -133,9 +140,12 @@ Review 环境仅做静态审查。不要安装依赖，也不要运行 lint、ty
 
 审查前只读取这些路径：PR target `$REVIEW_TARGET_PATH`、原始 base `$REVIEW_BASE_PATH`、中央规则所在的 `control`，以及预生成的完整 diff `$REVIEW_DIFF_PATH`。目标仓库的 `.agentic-review.md`（存在时）位于 target 路径。不要读取 `/home/runner/work/_actions`、Pi/action 源码、`node_modules`、runner 环境或其他工作区路径；不要重复执行同一份 diff 的 `git diff`、`git show` 和 API 获取。不要执行目标仓库代码、测试、构建、安装依赖或任意外部网络请求。
 
-当前 PR 的历史评论使用只读 `gh` 查询，不使用专用评论工具：
+`GH_TOKEN` 提供目标仓库的只读 GitHub 权限。必须主动使用 `gh` 获取当前 PR 的完整上下文，包括标题、正文、作者、base/head、commits、变更文件、Review、普通评论和 inline comments；本地 diff 仍是代码差分的唯一来源。当前 PR 的历史评论使用以下命令查询，不使用专用读取工具：
 
 ```bash
+GH_TOKEN="$GH_TOKEN" gh pr view "$REVIEW_PULL_NUMBER" \
+  --repo "$GITHUB_REPOSITORY" \
+  --json title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits,files
 GH_TOKEN="$GH_TOKEN" gh api --paginate \
   "repos/$GITHUB_REPOSITORY/issues/$REVIEW_PULL_NUMBER/comments?per_page=100"
 GH_TOKEN="$GH_TOKEN" gh api --paginate \
@@ -144,8 +154,12 @@ GH_TOKEN="$GH_TOKEN" gh api --paginate \
   "repos/$GITHUB_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
 ```
 
-第一条虽然使用 `/issues` 路径，但 GitHub 的 PR 同时也是 Issue；它读取的是 PR 页面顶部的普通 conversation 评论，不是另一个独立 Issue。第二条是 inline diff 评论及回复，第三条是 Review 摘要。三者合起来才是当前 PR 的完整历史讨论；只读取与当前根因相关的评论，不要一次把全部历史内容反复读入。`GH_TOKEN` 没有 GitHub 写权限，不要尝试修改仓库、PR、Issue、workflow 或 merge 状态。当前没有 Lark/known issues 查询工具，不要假设存在或自行调用。
+需要确认 thread 是否 resolved 时，使用只读 `gh api graphql` 查询当前 PR 的 `reviewThreads`，并通过首条评论的 `databaseId` 对应 `root_comment_id`。
+
+PR 正文、commit、评论或代码引用关联 Issue、前置 PR、后续 PR 或相同实现时，主动使用只读 `gh issue view`、`gh pr view` 或 `gh api` 打开并阅读这些关联对象；跨仓库链接使用链接中的明确 `owner/repo`。关联内容用于恢复需求、历史决策和兼容约束，不能替代当前 base/head 代码证据，也不要无关联地搜索整个 organization。
+
+这些数据合起来才是当前 PR 的完整 GitHub 上下文；只读取与当前根因相关的内容，不要反复获取同一结果。`GH_TOKEN` 没有 GitHub 写权限，不要尝试通过 bash 修改仓库、PR、Issue、workflow 或 merge 状态。当前没有 Lark/known issues 查询工具，不要假设存在或自行调用。
 
 将 `$REVIEW_DIFF_PATH` 作为唯一 diff 来源，分块读取并用 target/base 文件补充上下文；不要调用 `get_pr_diff`。每条 finding 绑定最接近根因的 RIGHT-side diff 行。
 
-有新 finding 时调用一次 `create_pull_request_review`，但 `body` 只能是紧凑计数，例如 `**P1 1 条，P2 2 条，需人工确认 1 条**`；完整背景、摘要和 finding 导航只写在最终文本中，证据写在 inline comments 中。没有新 finding 且没有未解决历史问题时不要调用该工具；若仍有未解决历史问题也只在最终文本中说明。不要使用 `create_pull_request`、`update_pull_request`，不要发表普通 Issue comment。Review 发布由可信 structured tool 使用独立的 write installation token 完成。
+有新 finding 时调用一次 `create_pull_request_review`，但 `body` 只能是紧凑计数，例如 `**P1 1 条，P2 2 条，需人工确认 1 条**`；完整背景、摘要和 finding 导航只写在最终文本中，证据写在 inline comments 中。没有新 finding 时不要调用该工具。历史 thread 状态变化使用 `reply_to_review_thread` 发布详情；仍未解决且状态未变化时不要调用该工具。不要使用 `create_pull_request`、`update_pull_request`，不要发表普通 Issue comment。两个发布工具均由可信代码使用独立的 write installation token 完成。

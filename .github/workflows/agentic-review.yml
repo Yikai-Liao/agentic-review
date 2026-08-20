@@ -96,7 +96,7 @@ jobs:
       # workflow_dispatch 不会自动挂到目标 PR；显式创建关联 Check，并链接当前 Action Run。
       - name: Start Agentic Review check
         id: review-check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           REPOSITORY: ${{ inputs.repository }}
           HEAD_SHA: ${{ inputs.head_sha }}
@@ -155,6 +155,29 @@ jobs:
           git -C review-target diff --no-ext-diff --no-textconv \
             --find-renames --find-copies --unified=20 \
             "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
+
+      - name: Prepare review threads
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+          REVIEW_DISCUSSION_PATH: ${{ runner.temp }}/review-discussion
+        run: |
+          mkdir -p "$REVIEW_DISCUSSION_PATH"
+          owner="${REPOSITORY%%/*}"
+          repo="${REPOSITORY#*/}"
+          gh api graphql --paginate --slurp \
+            -f query='query($owner:String!,$repo:String!,$pull:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$pull){reviewThreads(first:100,after:$endCursor){nodes{id isResolved comments(first:1){nodes{databaseId}}}pageInfo{hasNextPage endCursor}}}}}' \
+            -F owner="$owner" -F repo="$repo" -F pull="$PULL_NUMBER" \
+            | jq -c '.[] | .data.repository.pullRequest.reviewThreads.nodes[] | {
+                id, isResolved,
+                rootCommentId: (.comments.nodes[0].databaseId // null)
+              }' > "$REVIEW_DISCUSSION_PATH/threads.ndjson"
+          gh api --paginate --slurp \
+            "repos/$REPOSITORY/pulls/$PULL_NUMBER/comments?per_page=100" \
+            | jq -c '.[][] | {
+                id, inReplyToId: .in_reply_to_id, body
+              }' > "$REVIEW_DISCUSSION_PATH/review-comments.ndjson"
 
       # Checkout after the target: checkout cleans its own root, so the
       # trusted control checkout cannot be removed as an untracked directory.
@@ -221,6 +244,7 @@ jobs:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
+          REVIEW_DISCUSSION_PATH: ${{ runner.temp }}/review-discussion
         with:
           # 仅供 action 内部的 create_pull_request_review 使用；不注入 Agent shell。
           github_token: ${{ steps.review-token.outputs.token }}
@@ -238,7 +262,9 @@ jobs:
           # 覆盖常规大型 PR；超大 diff 仍需 Agent 按相关文件和路径审查，避免上下文失控。
           diff_max_lines: 10000
           diff_max_bytes: 1000000
-          # Agent 可用工具：前七项只读；最后一项是唯一的 Review 发布出口。
+          # 中央扩展只允许在已有 inline thread 中发布状态变化详情。
+          extensions: control/.github/pi-extensions/review-tools.ts
+          # Agent 可用工具：前七项只读；后两项是受约束的 Review 发布出口。
           loaded_tools: |
             read
             grep
@@ -248,12 +274,13 @@ jobs:
             get_ci_status
             get_workflow_run_logs
             create_pull_request_review
+            reply_to_review_thread
           # 从中央 checkout 加载单一 Prompt；不要在 workflow 中重复规则。
           prompt: ${{ steps.prompt.outputs.prompt }}
 
       - name: Complete Agentic Review check
         if: always() && steps.review-check.outputs.check_id != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           REPOSITORY: ${{ inputs.repository }}
           CHECK_ID: ${{ steps.review-check.outputs.check_id }}

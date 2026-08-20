@@ -11,7 +11,7 @@ Review App pull_request webhook
   -> Cloudflare Worker
   -> 中央仓库 agentic-review.yml
   -> shaftoe/pi-coding-agent-action
-  -> create_pull_request_review
+  -> create_pull_request_review / reply_to_review_thread
 ```
 
 Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 去重、用 Dispatcher App 触发中央 workflow。它不执行目标代码，也不持有模型或 Review App 凭证。
@@ -29,20 +29,21 @@ Review App private key（只在中央 Actions secret）
   └─ Token B: 当前仓库，contents read、pull_requests/checks write
        ├─ 可信 workflow 的 PR Check Run（details_url 指向当前 Action Run）
        └─ shaftoe action 的 github_token
-          -> create_pull_request_review
+          ├─ create_pull_request_review
+          └─ reply_to_review_thread
 ```
 
-Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Agent shell，但它密码学上没有写权限；Token B 不进入 shell，只由可信 workflow 的 Check Run 步骤和 shaftoe action 的 GitHub provider 使用。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载 `create_pull_request_review`。
+Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Agent shell，但它密码学上没有写权限；Token B 不进入 shell，只由可信 workflow 的 Check Run 步骤和 shaftoe action 的 GitHub provider 使用。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载两个受约束的 Review 发布工具。
 
-这解决了 PR 中“能不能写 Review”的问题：不是依赖 prompt 约束，也不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限；同一个 token 的 `checks: write` 只用于可信 workflow 的 PR Check 生命周期。`create_pull_request_review` 调用 GitHub `pulls.createReview`，可以同时提交 summary 和 diff 行上的 inline comments。
+这解决了 PR 中“能不能写 Review”的问题：不是依赖 prompt 约束，也不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限；同一个 token 的 `checks: write` 只用于可信 workflow 的 PR Check 生命周期。`create_pull_request_review` 发布新 finding；`reply_to_review_thread` 只回复当前 PR 已存在的 inline thread，并在已解决问题重新出现或扩大时重新打开 thread。
 
 ## Agent 工具
 
 中央 workflow 只加载：
 
 - Pi 内置静态工具：`read`、`grep`、`find`、`ls`、`bash`；
-- 只读 GitHub 工具：`get_pr_diff`、`get_issue_or_pr_thread`、`get_ci_status`、`get_workflow_run_logs`；
-- 发布工具：`create_pull_request_review`。
+- 只读 GitHub 工具：`get_ci_status`、`get_workflow_run_logs`；
+- 发布工具：`create_pull_request_review`、`reply_to_review_thread`。
 
 `GH_TOKEN` 是 Token A，所以 Agent 可以执行只读 `gh` 查询，但不能评论、合并、修改文件或 workflow。当前不提供 Lark/known issues 查询工具；后续接入飞书表格时再增加独立的只读工具。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意外部请求。
 

@@ -63,7 +63,7 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 | read token | checkout、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`pull_requests: read`、`actions: read`、`checks: read` |
 | review token | 可信 workflow 的 Check Run、shaftoe action 的 `github_token` | `contents: read`、`pull_requests: write`、`checks: write` |
 
-`review token` 不作为环境变量传给 Pi；它只在可信 workflow 的 Check Run 创建/完成步骤和 shaftoe action 的 Octokit provider 中使用。Agent 最终通过 `create_pull_request_review` 调用 `pulls.createReview`，所以不需要 PAT，也不依赖普通 comment 权限。Check Run 的 `details_url` 指向当前 `${GITHUB_RUN_ID}`，因此 PR Checks 可以直接进入对应 Action。当前不提供 Lark/known issues 查询工具，后续接入飞书表格时再单独增加只读工具。
+`review token` 不作为环境变量传给 Pi；它只在可信 workflow 的 Check Run 创建/完成步骤和 shaftoe action 的 GitHub provider 中使用。Agent 通过 `create_pull_request_review` 发布新 finding，通过中央 `reply_to_review_thread` 扩展回复已有 inline thread；两者都依赖 `Pull requests: write`，不需要 PAT。Check Run 的 `details_url` 指向当前 `${GITHUB_RUN_ID}`，因此 PR Checks 可以直接进入对应 Action。当前不提供 Lark/known issues 查询工具，后续接入飞书表格时再单独增加只读工具。
 
 如果 Review 发布失败，先检查：
 
