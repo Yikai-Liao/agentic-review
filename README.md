@@ -8,8 +8,9 @@
 GitHub pull_request webhook
   -> Cloudflare Worker（验签、过滤、去重）
   -> 中央仓库 workflow_dispatch
-  -> 两个短期 installation token
+  -> 三个短期 installation token
        ├─ read：给 Pi、Action 和只读 gh
+       ├─ check：在 Pi 启动前创建关联 Check，不传给 Agent
        └─ publication：只给隔离的可信发布 job
   -> Pi 按中央 skills 审查，并在隔离工作区维护工作稿
   -> submit_review 封存最终 review-result.json
@@ -20,10 +21,11 @@ GitHub pull_request webhook
 
 ## 权限边界
 
-每次任务用同一个 Review GitHub App 为当前目标仓库分别 mint 两个 installation token：
+每次任务用同一个 Review GitHub App 为当前目标仓库分别 mint 三个 installation token：
 
 - **read token**：`contents: read`、`pull_requests: read`、`actions: read`、`checks: read`，给 checkout、Action 和 Agent 的只读 `gh` 使用；
-- **publication token**：`contents: write`、`pull_requests: write`、`checks: write`，仅进入隔离的可信发布 job，用于创建 Review、Check Run、thread 回复和 resolve/reopen。`contents: write` 是 GitHub GraphQL 执行 `resolveReviewThread`/`unresolveReviewThread` 的实际权限要求。
+- **check token**：仅有 `checks: write`，在 Agent 启动前创建关联当前 Action Run 的 Check，不传给 Agent；
+- **publication token**：`contents: write`、`pull_requests: write`、`checks: write`，仅进入隔离的可信发布 job，用于创建 Review、完成 Check、thread 回复和 resolve/reopen。`contents: write` 是 GitHub GraphQL 执行 `resolveReviewThread`/`unresolveReviewThread` 的实际权限要求。
 
 因此 Agent 即使被 PR 内容诱导执行 `gh pr comment`、`gh pr merge` 或写 API，也只有只读 token，GitHub 会拒绝写操作。
 ## 中央仓库配置

@@ -24,17 +24,19 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 ## 发布 Review 的权限方案
 
-这是本项目最重要的权限边界。中央 workflow 用同一个 Review App 为当前目标仓库 mint 两个不同权限的 installation token：
+这是本项目最重要的权限边界。中央 workflow 用同一个 Review App 为当前目标仓库 mint 三个不同权限的 installation token：
 
 ```text
 Review App private key（只在中央 Actions secret）
   ├─ Token A: 当前仓库，contents/pull_requests/actions/checks read
   │    -> checkout、shaftoe action、GH_TOKEN、Pi bash 中的 gh
-  └─ Token B: 当前仓库，contents/pull_requests/checks write
-       -> 隔离的可信 publish job：Review、Check Run、thread 回复和 resolve/reopen
+  ├─ Token B: 当前仓库，checks write
+  │    -> Agent 启动前创建关联当前 Action Run 的 Check，不传给 Agent
+  └─ Token C: 当前仓库，contents/pull_requests/checks write
+       -> 隔离的可信 publish job：Review、完成 Check、thread 回复和 resolve/reopen
 ```
 
-Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Action 和 Agent shell，且密码学上没有写权限。`loaded_tools` 不加载任何内置 GitHub 写工具；`write` 只用于隔离 Review 工作区，`submit_review` 只封存该工作区内的最终 JSON 文件。
+Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Action 和 Agent shell，且密码学上没有写权限；Token B 只供 Agent 启动前的可信 workflow step 使用。`loaded_tools` 不加载任何内置 GitHub 写工具；`write` 只用于隔离 Review 工作区，`submit_review` 只封存该工作区内的最终 JSON 文件。
 
 Pi 结束后，可信 publisher 将自由 Markdown `body` 和 inline `comments` 合并为一个 GitHub Review，再处理已有 thread 的状态变化。它会重新校验 schema、PR base/head 快照、root comment 和 bot 身份。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。任何发布失败仍会使 Review Check 失败。
 
