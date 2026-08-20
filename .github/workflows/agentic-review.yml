@@ -118,16 +118,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Prepare review diff
-        env:
-          BASE_SHA: ${{ inputs.base_sha }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
-        run: |
-          git -C review-target diff --no-ext-diff --no-textconv \
-            --find-renames --find-copies --unified=20 \
-            "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
-
       # Checkout after the target: checkout cleans its own root, so the
       # trusted control checkout cannot be removed as an untracked directory.
       - name: Checkout control-plane rules
@@ -136,6 +126,39 @@ jobs:
           ref: ${{ github.sha }}
           path: control
           persist-credentials: false
+
+      - name: Find last reviewed head
+        id: review-checkpoint
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          REPOSITORY_ID: ${{ inputs.repository_id }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+        run: node control/scripts/find-review-checkpoint.mjs
+
+      - name: Prepare review diffs
+        id: review-diffs
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          CHECKPOINT_HEAD: ${{ steps.review-checkpoint.outputs.head_sha }}
+          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
+          REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
+        run: |
+          git -C review-target diff --no-ext-diff --no-textconv \
+            --find-renames --find-copies --unified=20 \
+            "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
+
+          if [[ -n "$CHECKPOINT_HEAD" ]]; then
+            git -C review-target diff --no-ext-diff --no-textconv \
+              --find-renames --find-copies --unified=20 \
+              "$CHECKPOINT_HEAD" "$HEAD_SHA" > "$REVIEW_FOCUS_DIFF_PATH.tmp"
+          fi
+          node control/scripts/finalize-review-focus.mjs
 
       - name: Load review prompt
         id: prompt
@@ -193,6 +216,9 @@ jobs:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
+          REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
+          REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
+          REVIEW_CHECKPOINT_HEAD: ${{ steps.review-diffs.outputs.checkpoint_head }}
           # 自定义 thread 工具只向该文件追加无凭证请求；文件内容始终按不可信输入处理。
           REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
         with:
