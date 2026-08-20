@@ -3,8 +3,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-// @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
-import { findReviewCheckpoint, findReviewCheckpointSafely } from '../scripts/find-review-checkpoint.mjs';
+import { findReviewCheckpoint, findReviewCheckpointSafely } from '../scripts/find-review-checkpoint.ts';
 // @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
 import { finalizeReviewFocus } from '../scripts/finalize-review-focus.mjs';
 
@@ -16,12 +15,17 @@ const base = 'd'.repeat(40);
 function check(headSha: string, overrides: Record<string, unknown> = {}) {
   return {
     name: 'Agentic Review / audit',
-    app: { slug: 'review-app' },
-    status: 'completed',
-    conclusion: 'success',
-    head_sha: headSha,
-    external_id: `1:7:${base}:${headSha}:99`,
+    status: 'COMPLETED',
+    conclusion: 'SUCCESS',
+    externalId: `1:7:${base}:${headSha}:99`,
     ...overrides,
+  };
+}
+
+function commit(headSha: string, runs: Record<string, unknown>[] = [], appSlug = 'review-app') {
+  return {
+    oid: headSha,
+    checkSuites: { nodes: runs.length ? [{ app: { slug: appSlug }, checkRuns: { nodes: runs } }] : [] },
   };
 }
 
@@ -34,40 +38,77 @@ async function find(fetchImpl: typeof fetch) {
     baseSha: base,
     appSlug: 'review-app',
     token: 'read-token',
-    api: 'https://api.github.test',
+    graphql: 'https://api.github.test/graphql',
     fetchImpl,
   });
 }
 
-test('uses only the newest successful check from this app and pull request', async () => {
-  const requested: string[] = [];
-  const fetchImpl = async (input: string | URL | Request) => {
-    const url = String(input);
-    requested.push(url);
-    const sha = /commits\/([0-9a-f]{40})\/check-runs/.exec(url)![1];
-    const checkRuns = sha === current
-      ? [check(current, { app: { slug: 'another-app' } })]
-      : sha === cancelled
-        ? [check(cancelled, { conclusion: 'neutral' })]
-        : [
-          check(reviewed, { external_id: `1:8:${base}:${reviewed}:98` }),
-          check(reviewed, { external_id: `1:7:${'e'.repeat(40)}:${reviewed}:98` }),
-          check(reviewed),
-        ];
-    return Response.json({ check_runs: checkRuns });
+test('finds the newest valid checkpoint in one GraphQL request', async () => {
+  const requested: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+    requested.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+    return Response.json({
+      data: {
+        repository: {
+          c0: commit(current, [check(current)], 'another-app'),
+          c1: commit(cancelled, [check(cancelled, { conclusion: 'NEUTRAL' })]),
+          c2: commit(reviewed, [
+            check(reviewed, { externalId: `1:8:${base}:${reviewed}:98` }),
+            check(reviewed, { externalId: `1:7:${'e'.repeat(40)}:${reviewed}:98` }),
+            check(reviewed),
+          ]),
+        },
+      },
+    });
   };
 
   assert.equal(await find(fetchImpl as typeof fetch), reviewed);
-  assert.equal(requested.length, 3);
-  assert.equal(new URL(requested[0]).searchParams.get('check_name'), 'Agentic Review / audit');
+  assert.equal(requested.length, 1);
+  assert.equal(requested[0].url, 'https://api.github.test/graphql');
+  assert.match(String(requested[0].body.query), /checkSuites/);
+  assert.deepEqual(requested[0].body.variables, {
+    owner: 'owner', name: 'repo', oid0: current, oid1: cancelled, oid2: reviewed,
+  });
+});
+
+test('queries at most 100 commits per GraphQL request', async () => {
+  const commits = Array.from({ length: 101 }, (_, index) => index.toString(16).padStart(40, '0'));
+  let requests = 0;
+  const fetchImpl = async (_input: string | URL | Request, init?: RequestInit) => {
+    requests += 1;
+    const { variables } = JSON.parse(String(init?.body)) as { variables: Record<string, string> };
+    const repository = Object.fromEntries(Object.entries(variables)
+      .filter(([key]) => key.startsWith('oid'))
+      .map(([key, sha]) => [key.replace('oid', 'c'), commit(
+        sha,
+        sha === commits.at(-1) ? [check(sha)] : [],
+      )]));
+    return Response.json({ data: { repository } });
+  };
+
+  assert.equal(await findReviewCheckpoint({
+    commits,
+    repository: 'owner/repo',
+    repositoryId: '1',
+    pullNumber: '7',
+    baseSha: base,
+    appSlug: 'review-app',
+    token: 'read-token',
+    fetchImpl: fetchImpl as typeof fetch,
+  }), commits.at(-1));
+  assert.equal(requests, 2);
 });
 
 test('returns no checkpoint when no successful review exists', async () => {
-  assert.equal(await find(async () => Response.json({ check_runs: [] })), null);
-  assert.equal(await find(async (input) => {
-    const sha = /commits\/([0-9a-f]{40})\/check-runs/.exec(String(input))![1];
-    return Response.json({ check_runs: [check(sha, { external_id: `1:7:${'e'.repeat(40)}:${sha}:99` })] });
-  }), null);
+  assert.equal(await find(async () => Response.json({
+    data: {
+      repository: {
+        c0: commit(current),
+        c1: commit(cancelled),
+        c2: commit(reviewed, [check(reviewed, { externalId: `1:7:${'e'.repeat(40)}:${reviewed}:99` })]),
+      },
+    },
+  })), null);
 });
 
 test('continues without a checkpoint when GitHub lookup fails', async () => {
@@ -82,7 +123,7 @@ test('continues without a checkpoint when GitHub lookup fails', async () => {
     token: 'read-token',
     fetchImpl: async () => new Response(null, { status: 500 }),
   }, (warning: string) => warnings.push(warning)), null);
-  assert.deepEqual(warnings, ['Review checkpoint lookup skipped: GitHub check lookup failed: 500']);
+  assert.deepEqual(warnings, ['Review checkpoint lookup skipped: GitHub GraphQL checkpoint lookup failed: 500']);
 });
 
 test('keeps only a distinct non-empty focus diff', async () => {
