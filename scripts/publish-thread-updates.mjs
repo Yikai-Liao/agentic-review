@@ -80,16 +80,25 @@ async function reviewThreads(fetchImpl, api, token, repository, pullNumber) {
   return threads;
 }
 
-export async function publishThreadUpdates({ updates, repository, pullNumber, botLogin, token, api, fetchImpl = fetch }) {
+export async function publishThreadUpdates({
+  updates, repository, pullNumber, botLogin, token, expectedBaseSha, expectedHeadSha, api, fetchImpl = fetch,
+}) {
   if (!updates.length) return [];
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)) throw new Error('Invalid repository');
   if (!Number.isInteger(pullNumber) || pullNumber < 1) throw new Error('Invalid pull number');
   if (!/^[A-Za-z0-9-]+\[bot\]$/.test(botLogin)) throw new Error('Invalid review bot login');
+  if (!/^[0-9a-f]{40}$/.test(expectedBaseSha) || !/^[0-9a-f]{40}$/.test(expectedHeadSha)) {
+    throw new Error('Invalid review snapshot');
+  }
 
-  const [comments, threads] = await Promise.all([
+  const [pull, comments, threads] = await Promise.all([
+    github(fetchImpl, api, token, `/repos/${repository}/pulls/${pullNumber}`),
     reviewComments(fetchImpl, api, token, repository, pullNumber),
     reviewThreads(fetchImpl, api, token, repository, pullNumber),
   ]);
+  if (pull.base?.sha !== expectedBaseSha || pull.head?.sha !== expectedHeadSha) {
+    throw new Error('Pull request changed since review started');
+  }
   const urls = [];
   for (const update of updates) {
     const root = comments.find(
@@ -102,9 +111,7 @@ export async function publishThreadUpdates({ updates, repository, pullNumber, bo
     if (root.user?.login?.toLowerCase() !== botLogin.toLowerCase()) {
       throw new Error(`${update.root_comment_id} was not created by ${botLogin}`);
     }
-    if (thread.isResolved && update.status === 'suggest_resolve') {
-      throw new Error(`${update.root_comment_id} is already resolved`);
-    }
+    const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
     const previousStatus = comments
       .filter(
         (comment) =>
@@ -113,29 +120,27 @@ export async function publishThreadUpdates({ updates, repository, pullNumber, bo
           comment.body.startsWith('**Pi thread 状态更新：'),
       )
       .at(-1)?.body;
-    if (previousStatus?.startsWith(`**Pi thread 状态更新：${statusLabels[update.status]}**`)) {
-      throw new Error(`${update.root_comment_id} status has not changed`);
+    const statusWasPublished = previousStatus?.startsWith(status);
+    if (!statusWasPublished) {
+      const reply = await github(
+        fetchImpl,
+        api,
+        token,
+        `/repos/${repository}/pulls/${pullNumber}/comments/${update.root_comment_id}/replies`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ body: `${status}\n\n${update.evidence}` }),
+        },
+      );
+      urls.push(reply.html_url);
     }
 
-    const reply = await github(
-      fetchImpl,
-      api,
-      token,
-      `/repos/${repository}/pulls/${pullNumber}/comments/${update.root_comment_id}/replies`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          body: `**Pi thread 状态更新：${statusLabels[update.status]}**\n\n${update.evidence}`,
-        }),
-      },
-    );
-    urls.push(reply.html_url);
-
-    const resolutionMutation = update.status === 'suggest_resolve'
-      ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
-      : thread.isResolved
-        ? 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
-        : undefined;
+    const shouldResolve = update.status === 'suggest_resolve';
+    const resolutionMutation = thread.isResolved === shouldResolve
+      ? undefined
+      : shouldResolve
+        ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}'
+        : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}';
     if (resolutionMutation) {
       const resolution = await github(fetchImpl, api, token, '/graphql', {
         method: 'POST',
@@ -156,7 +161,11 @@ async function main() {
   const pullNumber = Number(process.env.PULL_NUMBER);
   const botLogin = process.env.REVIEW_BOT_LOGIN;
   const token = process.env.GH_TOKEN;
-  if (!queue || !repository || !botLogin || !token) throw new Error('Missing publication environment');
+  const expectedBaseSha = process.env.BASE_SHA;
+  const expectedHeadSha = process.env.HEAD_SHA;
+  if (!queue || !repository || !botLogin || !token || !expectedBaseSha || !expectedHeadSha) {
+    throw new Error('Missing publication environment');
+  }
 
   let text;
   try {
@@ -171,6 +180,8 @@ async function main() {
     pullNumber,
     botLogin,
     token,
+    expectedBaseSha,
+    expectedHeadSha,
     api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
   });
   for (const url of urls) console.log(`Published thread update: ${url}`);

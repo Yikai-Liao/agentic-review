@@ -156,30 +156,6 @@ jobs:
             --find-renames --find-copies --unified=20 \
             "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
 
-      # 这份快照只供 Agent 判断历史状态，不作为最终授权依据；Pi 后的发布步骤会查询 GitHub 重新校验。
-      - name: Prepare review threads
-        env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          REPOSITORY: ${{ inputs.repository }}
-          PULL_NUMBER: ${{ inputs.pull_number }}
-          REVIEW_DISCUSSION_PATH: ${{ runner.temp }}/review-discussion
-        run: |
-          mkdir -p "$REVIEW_DISCUSSION_PATH"
-          owner="${REPOSITORY%%/*}"
-          repo="${REPOSITORY#*/}"
-          gh api graphql --paginate --slurp \
-            -f query='query($owner:String!,$repo:String!,$pull:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$pull){reviewThreads(first:100,after:$endCursor){nodes{id isResolved comments(first:1){nodes{databaseId}}}pageInfo{hasNextPage endCursor}}}}}' \
-            -F owner="$owner" -F repo="$repo" -F pull="$PULL_NUMBER" \
-            | jq -c '.[] | .data.repository.pullRequest.reviewThreads.nodes[] | {
-                id, isResolved,
-                rootCommentId: (.comments.nodes[0].databaseId // null)
-              }' > "$REVIEW_DISCUSSION_PATH/threads.ndjson"
-          gh api --paginate --slurp \
-            "repos/$REPOSITORY/pulls/$PULL_NUMBER/comments?per_page=100" \
-            | jq -c '.[][] | {
-                id, inReplyToId: .in_reply_to_id, body
-              }' > "$REVIEW_DISCUSSION_PATH/review-comments.ndjson"
-
       # Checkout after the target: checkout cleans its own root, so the
       # trusted control checkout cannot be removed as an untracked directory.
       - name: Checkout control-plane rules
@@ -245,7 +221,6 @@ jobs:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
-          REVIEW_DISCUSSION_PATH: ${{ runner.temp }}/review-discussion
           # 自定义 thread 工具只向该文件追加无凭证请求；文件内容始终按不可信输入处理。
           REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
         with:
@@ -284,7 +259,7 @@ jobs:
           prompt: ${{ steps.prompt.outputs.prompt }}
 
       # Pi 成功后才进入可信发布边界。队列可能被 Agent shell 篡改，因此发布脚本会限制 schema、
-      # 数量和状态，并从 GitHub 实时确认 root comment 属于当前 PR、状态确有变化后再回复。
+      # 数量和状态，并确认 PR 仍是本次审查的 base/head 后再从 GitHub 实时校验并发布。
       - name: Publish review thread updates
         id: publish-thread-updates
         if: steps.pi-review.outcome == 'success'
@@ -293,6 +268,8 @@ jobs:
           GH_TOKEN: ${{ steps.review-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
           # 只允许中央 Review App 创建的 root finding 被自动 resolve/reopen。
           REVIEW_BOT_LOGIN: ${{ steps.review-token.outputs.app-slug }}[bot]
           REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
