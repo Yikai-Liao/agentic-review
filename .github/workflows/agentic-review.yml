@@ -36,6 +36,11 @@ jobs:
       owner: ${{ steps.target.outputs.owner }}
       name: ${{ steps.target.outputs.name }}
       pi_outcome: ${{ steps.pi-review.outcome }}
+      duration_seconds: ${{ steps.pi-review.outputs.duration_seconds }}
+      input_tokens: ${{ steps.pi-review.outputs.input_tokens }}
+      output_tokens: ${{ steps.pi-review.outputs.output_tokens }}
+      cost: ${{ steps.pi-review.outputs.cost }}
+      workspace_url: ${{ steps.review-workspace.outputs.artifact-url }}
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -68,18 +73,6 @@ jobs:
           permission-pull-requests: read
           permission-actions: read
           permission-checks: read
-
-      - name: Mint review token
-        id: review-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.AGENTIC_REVIEW_CLIENT_ID }}
-          private-key: ${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}
-          owner: ${{ steps.target.outputs.owner }}
-          repositories: ${{ steps.target.outputs.name }}
-          permission-contents: read
-          # 仅供 action 内置的 create_pull_request_review。
-          permission-pull-requests: write
 
       - name: Validate current pull request
         env:
@@ -160,22 +153,15 @@ jobs:
           fi
           node control/scripts/finalize-review-focus.mjs
 
-      - name: Load review prompt
-        id: prompt
-        shell: bash
-        run: |
-          {
-            echo 'prompt<<REVIEW_PROMPT'
-            cat control/prompts/review-rules.md
-            echo REVIEW_PROMPT
-          } >> "$GITHUB_OUTPUT"
-
-      # Pi 不会自动认识组织内的自定义模型；按 orchestra-backend 的可用配置注册它。
-      - name: Configure Pi model
+      # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
+      - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+          REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
         run: |
-          mkdir -p "$HOME/.pi/agent"
+          mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
+          chmod 700 "$REVIEW_WORKSPACE_PATH"
+          cp -R control/.github/pi-skills/. "$HOME/.pi/agent/skills/"
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
               openai: {
@@ -209,8 +195,8 @@ jobs:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          # 让 action 和 gh 知道当前审查的目标仓库；不改变 token 权限。
-          GITHUB_REPOSITORY: ${{ inputs.repository }}
+          # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
+          REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
@@ -219,13 +205,12 @@ jobs:
           REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
           REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
           REVIEW_CHECKPOINT_HEAD: ${{ steps.review-diffs.outputs.checkpoint_head }}
-          # 自定义 thread 工具只向该文件追加无凭证请求；文件内容始终按不可信输入处理。
-          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
+          # Agent 只在隔离工作区写草稿；自定义工具将最终 JSON 封存到固定结果路径。
+          REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
+          REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
         with:
-          # shaftoe action 内置的 create_pull_request_review 需要该 write token。
-          # GitHub Action input 仍属于 shaftoe 进程环境；彻底隔离需上游把 Agent 放入清理环境的子进程。
-          # 本次只保证自定义 reply_to_review_thread 不读取 INPUT_GITHUB_TOKEN，而是写待发布请求。
-          github_token: ${{ steps.review-token.outputs.token }}
+          # Agent 和 action 都只持有目标仓库的只读 installation token。
+          github_token: ${{ steps.read-token.outputs.token }}
           # 模型服务商和模型名称；均来自中央仓库配置。
           provider: openai
           model: ${{ vars.REVIEW_AGENT_MODEL }}
@@ -235,47 +220,44 @@ jobs:
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
           thinking_level: high
-          # 让 action 获取并审查这个 PR，而不是默认上下文。
-          pr_number: ${{ inputs.pull_number }}
-          # 覆盖常规大型 PR；超大 diff 仍需 Agent 按相关文件和路径审查，避免上下文失控。
-          diff_max_lines: 10000
-          diff_max_bytes: 1000000
-          # 中央扩展只校验并排队已有 inline thread 的状态变化，不直接调用 GitHub 写 API。
+          # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
+          auto_compaction: true
+          # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
+          load_builtin_extensions: false
+          # 中央扩展只写完整 Review 结果，不直接调用 GitHub 写 API。
           extensions: control/.github/pi-extensions/review-tools.ts
-          # Agent 可用工具：前七项对 GitHub 只读；后两项分别发布新 finding、排队历史状态更新。
+          # write 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |
             read
+            write
             grep
             find
             ls
             bash
-            get_ci_status
-            get_workflow_run_logs
-            create_pull_request_review
-            reply_to_review_thread
-          # 从中央 checkout 加载单一 Prompt；不要在 workflow 中重复规则。
-          prompt: ${{ steps.prompt.outputs.prompt }}
+            submit_review
+          # 规则和 schema 保持在可重复读取的中央文件/skills，不灌入一次性 Prompt。
+          prompt: >-
+            执行目标 PR 的中央自动 Review；先完整读取并严格遵守
+            control/prompts/review-rules.md，进入每个阶段时加载其中指定的 skill。
 
-      # 只把无凭证队列传给新的 runner；队列始终按不可信输入处理。
-      - name: Prepare thread update artifact
-        if: steps.pi-review.outcome == 'success'
-        env:
-          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/review-thread-updates.ndjson
-          ARTIFACT_PATH: ${{ runner.temp }}/thread-update-artifact/review-thread-updates.ndjson
-        run: |
-          mkdir -p "$(dirname "$ARTIFACT_PATH")"
-          if [[ -f "$REVIEW_THREAD_UPDATES_PATH" ]]; then
-            cp "$REVIEW_THREAD_UPDATES_PATH" "$ARTIFACT_PATH"
-          else
-            : > "$ARTIFACT_PATH"
-          fi
-
-      - name: Upload thread update artifact
+      # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
+      - name: Upload review workspace
+        id: review-workspace
         if: steps.pi-review.outcome == 'success'
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: review-thread-updates-${{ github.run_id }}
-          path: ${{ runner.temp }}/thread-update-artifact/review-thread-updates.ndjson
+          name: review-workspace-${{ github.run_id }}
+          path: ${{ github.workspace }}/review-workspace
+          if-no-files-found: error
+          retention-days: 30
+
+      # 只把无凭证最终结果传给新的 runner；结果始终按不可信输入处理。
+      - name: Upload review result
+        if: steps.pi-review.outcome == 'success'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-result-${{ github.run_id }}
+          path: ${{ runner.temp }}/review-result.json
           if-no-files-found: error
           retention-days: 1
 
@@ -319,7 +301,7 @@ jobs:
               external_id: `${process.env.REVIEW_TASK_ID}:${process.env.REVIEW_RUN_ID}`,
               status: 'in_progress',
               started_at: new Date().toISOString(),
-              details_url: `${process.env.GITHUB_SERVER_URL}/${process.env.REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              details_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
               output: {
                 title: 'Agentic Review 正在审查',
                 summary: '中央 Review Agent 已完成分析，正在发布可信结果。',
@@ -334,16 +316,22 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Download thread update artifact
+      - name: Download review result
         if: needs.review.outputs.pi_outcome == 'success'
         uses: actions/download-artifact@v8.0.1
         with:
-          name: review-thread-updates-${{ github.run_id }}
-          path: ${{ runner.temp }}/thread-update-artifact
+          name: review-result-${{ github.run_id }}
+          path: ${{ runner.temp }}/review-result
+
+      - name: Set up Node.js for trusted publisher
+        if: needs.review.outputs.pi_outcome == 'success'
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
 
       # 新 runner 中才注入 write token；发布器校验 schema、当前 SHA、root comment 和 bot 身份。
-      - name: Publish review thread updates
-        id: publish-thread-updates
+      - name: Publish review
+        id: publish-review
         if: needs.review.outputs.pi_outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
@@ -352,8 +340,19 @@ jobs:
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_BOT_LOGIN: ${{ steps.publication-token.outputs.app-slug }}[bot]
-          REVIEW_THREAD_UPDATES_PATH: ${{ runner.temp }}/thread-update-artifact/review-thread-updates.ndjson
-        run: node scripts/publish-thread-updates.mjs
+          REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result/review-result.json
+          REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVIEW_WORKSPACE_URL: ${{ needs.review.outputs.workspace_url }}
+          REVIEW_MODEL: openai/${{ vars.REVIEW_AGENT_MODEL }}
+          REVIEW_THINKING_LEVEL: high
+          REVIEW_DURATION_SECONDS: ${{ needs.review.outputs.duration_seconds }}
+          REVIEW_INPUT_TOKENS: ${{ needs.review.outputs.input_tokens }}
+          REVIEW_OUTPUT_TOKENS: ${{ needs.review.outputs.output_tokens }}
+          REVIEW_COST: ${{ needs.review.outputs.cost }}
+          # 与上方固定的 shaftoe action 版本保持同步，用于保留原 action footer。
+          REVIEW_PI_VERSION: 0.82.1
+          REVIEW_ACTION_VERSION: 2.27.0
+        run: node scripts/publish-review.ts
 
       - name: Complete Agentic Review check
         if: always()
@@ -362,14 +361,14 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
           CHECK_ID: ${{ steps.review-check.outputs.check_id }}
           PI_REVIEW_OUTCOME: ${{ needs.review.outputs.pi_outcome }}
-          THREAD_UPDATES_OUTCOME: ${{ steps.publish-thread-updates.outcome }}
+          PUBLISH_REVIEW_OUTCOME: ${{ steps.publish-review.outcome }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
             const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled'
-              ? 'neutral'
-              : process.env.PI_REVIEW_OUTCOME === 'success' && process.env.THREAD_UPDATES_OUTCOME === 'success'
+              ? 'cancelled'
+              : process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success'
                 ? 'success'
                 : 'failure';
             await github.rest.checks.update({
@@ -382,13 +381,13 @@ jobs:
               output: {
                 title: conclusion === 'success'
                   ? 'Agentic Review 已完成'
-                  : conclusion === 'neutral'
+                  : conclusion === 'cancelled'
                     ? 'Agentic Review 已取消'
                     : 'Agentic Review 执行失败',
                 summary: conclusion === 'success'
                   ? '审查已完成。'
-                  : conclusion === 'neutral'
-                    ? '该审查已取消，结果不再代表当前 PR 快照。'
+                  : conclusion === 'cancelled'
+                    ? '该审查已取消，当前提交保持不可合并。'
                     : '审查未能可靠完成，当前提交保持不可合并。',
               },
             });

@@ -1,4 +1,4 @@
-import { appendFile } from 'node:fs/promises';
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 type ExtensionAPI = {
@@ -9,46 +9,51 @@ type ExtensionAPI = {
   }): void;
 };
 
-type Update = {
-  root_comment_id: number;
-  status: 'suggest_resolve' | 'severity_increased' | 'reintroduced';
-  evidence: string;
-};
-
 export default function reviewTools(pi: ExtensionAPI) {
-  const updatedThreads = new Set<number>();
+  let submitted = false;
 
   pi.registerTool({
-    name: 'reply_to_review_thread',
-    label: 'Reply to review thread',
-    description: 'Queue a detailed status change for trusted publication to an existing inline review thread.',
+    name: 'submit_review',
+    label: 'Submit review',
+    description: 'Submit a finalized review-result JSON file from the private review workspace.',
     parameters: {
       type: 'object',
       properties: {
-        root_comment_id: { type: 'integer', minimum: 1 },
-        status: {
+        path: {
           type: 'string',
-          enum: ['suggest_resolve', 'severity_increased', 'reintroduced'],
+          minLength: 1,
+          description: 'Path to the finalized JSON file inside REVIEW_WORKSPACE_PATH.',
         },
-        evidence: { type: 'string', minLength: 10, maxLength: 5000 },
       },
-      required: ['root_comment_id', 'status', 'evidence'],
+      required: ['path'],
       additionalProperties: false,
     } as any,
-    async execute(_toolCallId, params: Update) {
-      if (updatedThreads.has(params.root_comment_id)) {
-        throw new Error('this thread was already updated during the current review');
+    async execute(_toolCallId, { path: inputPath }: { path: string }) {
+      if (submitted) throw new Error('the review was already submitted');
+
+      const workspace = process.env.REVIEW_WORKSPACE_PATH;
+      const resultPath = process.env.REVIEW_RESULT_PATH;
+      if (!workspace || !path.isAbsolute(workspace) || !resultPath || !path.isAbsolute(resultPath)) {
+        throw new Error('Review paths are unavailable');
       }
-      const updatesPath = process.env.REVIEW_THREAD_UPDATES_PATH;
-      if (!updatesPath || !path.isAbsolute(updatesPath)) {
-        throw new Error('Review thread update path is unavailable');
+
+      const workspacePath = await realpath(workspace);
+      const reviewPath = await realpath(path.resolve(inputPath));
+      const relative = path.relative(workspacePath, reviewPath);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Review file must be inside REVIEW_WORKSPACE_PATH');
       }
-      await appendFile(updatesPath, `${JSON.stringify(params)}\n`, { encoding: 'utf8', mode: 0o600 });
-      updatedThreads.add(params.root_comment_id);
+
+      const info = await stat(reviewPath);
+      if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
+      const content = await readFile(reviewPath, 'utf8');
+      JSON.parse(content);
+      await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      submitted = true;
 
       return {
-        content: [{ type: 'text', text: 'Thread status update queued for trusted publication.' }],
-        details: { status: params.status, queued: true },
+        content: [{ type: 'text', text: 'Review queued for trusted publication.' }],
+        details: { queued: true, source: reviewPath },
       };
     },
   });

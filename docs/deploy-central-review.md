@@ -56,23 +56,22 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 
 ## 4. Review 发布权限验证
 
-每次中央 workflow 会为当前 `owner/name` mint 三个 installation token：
+每次中央 workflow 会为当前 `owner/name` mint 两个 installation token：
 
 | Token | 用途 | 权限 |
 |---|---|---|
-| read token | checkout、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`pull_requests: read`、`actions: read`、`checks: read` |
-| review token | shaftoe action 的 `github_token` | `contents: read`、`pull_requests: write` |
+| read token | checkout、shaftoe action、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`pull_requests: read`、`actions: read`、`checks: read` |
 | publication token | 隔离的可信 publish job | `contents: write`、`pull_requests: write`、`checks: write` |
 
-`publication token` 用于 Check Run 和 Pi 结束后的历史 thread 发布步骤。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入执行候选代码的 review job。自定义 `reply_to_review_thread` 扩展本身不读取 token，只写待发布请求；可信步骤重新校验请求属于当前 PR 的 root inline thread 后，才回复并 resolve/reopen。Check Run 的 `details_url` 指向当前 `${GITHUB_RUN_ID}`，因此 PR Checks 可以直接进入对应 Action。当前不提供 Lark/known issues 查询工具，后续接入飞书表格时再单独增加只读工具。
+`publication token` 用于 Check Run，以及 Pi 结束后统一创建 Review、回复历史 thread 和 resolve/reopen。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；可信步骤重新校验结果和当前 PR 快照后才发布。Review footer 还会链接保留 30 天的工作稿 Actions artifact；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。当前不提供 Lark/known issues 查询工具，后续可单独增加只读 skill 和工具。
 
 如果 Review 发布失败，先检查：
 
 1. Review App 是否安装到目标仓库；
 2. App 是否包含 `Pull requests: write` 和 `Contents: read and write`，且安装已接受最新权限；
 3. Actions secret 中的 private key 是否属于该 App；
-4. workflow 是否把 `github_token` 绑定到 `steps.review-token.outputs.token`，而不是只绑定只读 `GH_TOKEN`；
-5. `GITHUB_REPOSITORY` 和 `pr_number` 是否指向 webhook 携带的目标 PR。
+4. review job 的 `github_token` 是否仍绑定只读 token，且 write token 只进入 publish job；
+5. publisher 使用的 `repository`、`pull_number` 和 base/head SHA 是否来自 webhook dispatch input。
 
 ## 5. 验证
 
