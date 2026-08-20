@@ -22,7 +22,7 @@ GitHub pull_request webhook
 每次任务用同一个 Review GitHub App 为当前目标仓库分别 mint 两个 installation token：
 
 - **read token**：`contents: read`、`pull_requests: read`、`actions: read`、`checks: read`，通过 `GH_TOKEN` 给 Agent 的 `gh` 和 checkout 使用；
-- **review token**：`contents: read`、`pull_requests: write`，只作为 Action 的 `github_token`，由 Pi 的 `create_pull_request_review` structured tool 使用，不进入 Agent shell。
+- **review token**：`contents: read`、`pull_requests: write`、`checks: write`，只在可信 workflow 的 Check Run 生命周期和 Action 的 `github_token` 中使用，不进入 Agent shell；Pi 只能通过 `create_pull_request_review` 发布 Review。
 
 因此 Agent 即使被 PR 内容诱导执行 `gh pr comment`、`gh pr merge` 或写 API，也只有只读 token，GitHub 会拒绝写操作。
 ## 中央仓库配置
@@ -30,15 +30,15 @@ GitHub pull_request webhook
 Repository variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_PROVIDER`：可选，默认 `openai`；
-- `REVIEW_AGENT_MODEL`：可选，默认 `gpt-5.6-luna`。
+- `REVIEW_AGENT_PROVIDER`：模型服务商，必填；
+- `REVIEW_AGENT_MODEL`：模型名称，必填。
 
 Repository secrets：
 
 - `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
 - `REVIEW_AGENT_API_KEY`：模型 API key。
 
-Review App 必须安装到目标仓库，并拥有 `Contents: read`、`Pull requests: write`、`Actions: read`、`Checks: read`。Dispatcher App 只安装到中央仓库，拥有 `Actions: write`，由 Worker 使用。
+Review App 必须安装到目标仓库，并拥有 `Contents: read`、`Pull requests: write`、`Checks: write`、`Actions: read`。Dispatcher App 只安装到中央仓库，拥有 `Actions: write`，由 Worker 使用。
 
 ## 本地检查
 
