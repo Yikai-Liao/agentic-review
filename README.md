@@ -41,7 +41,7 @@ GitHub pull_request webhook
 - 真实的数据规模、批大小、并发、分页或延迟上限，供性能审查恢复契约；
 - 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，以及项目状态字段的实际含义；
 - 需要联动查询的 GitHub 仓库完整地址，以及什么代码路径或业务对象出现时才需要查询；
-- 需要查询的飞书文档/Wiki 完整 URL，或限定搜索范围的 folder token / space ID，以及触发查询的代码路径或业务对象。
+- 需要查询的飞书文档/Wiki/多维表格完整 URL，或限定搜索范围的 folder token / space ID，以及触发查询的代码路径或业务对象；多维表格同时写明 Issue 表、关键字段和状态语义。
 
 写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。中央安全、证据、严重度和发布规则仍然生效，下游规则只能补充，不能覆盖。
 
@@ -69,7 +69,7 @@ GitHub pull_request webhook
 - 本仓库带 `known-issue` 或 `qa-acceptance` 标签的 GitHub Issue，以及 Issue 中链接的验收记录，属于 known issue 来源。
 - 修改退款状态、退款事件或对应 API 时，按需查询 `Qiyin-Tech/payment-service` 的相关 Issue、PR 和代码；其他变更不查询该仓库。
 - 项目字段“已排期”只表示计划中；只有记录中的明确验收结论才能证明问题已修复。
-- 修改订单、支付或退款状态时，按需查询 PRD `https://example.feishu.cn/wiki/wikcnRefundPRD` 和验收记录 `https://example.feishu.cn/docx/doxcnRefundQA`；其他变更不查询这些文档。
+- 修改订单、支付或退款状态时，按需查询 PRD `https://example.feishu.cn/wiki/wikcnRefundPRD`、验收记录 `https://example.feishu.cn/docx/doxcnRefundQA` 和 Issue 表 `https://example.feishu.cn/base/bascnIssues?table=tblIssues`；Issue 表的“已排期”只表示计划中，“已验收”才表示修复完成。其他变更不查询这些来源。
 
 ## 仓库约定
 
@@ -82,9 +82,11 @@ Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head �
 
 ## 接入飞书文档
 
-中央管理员只需配置一个组织自建应用：在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，申请 `search:docs:read`、`docx:document:readonly`、`wiki:node:retrieve` 与 `drive:drive.metadata:readonly` 四个只读 scope，发布版本并通过管理员审核，然后把“凭证与基础信息”中的 App ID 配为中央仓库变量 `AGENTIC_REVIEW_LARK_APP_ID`，App Secret 配为中央仓库 secret `AGENTIC_REVIEW_LARK_APP_SECRET`。Lark CLI 固定使用 bot 应用身份，不保存用户登录态或长期 user access token。
+中央管理员只需配置一个组织自建应用：在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，申请 `search:docs:read`、`docx:document:readonly`、`wiki:node:retrieve`、`drive:drive.metadata:readonly`、`base:app:read`、`base:table:read`、`base:field:read` 与 `base:record:read` 八个只读 scope，发布版本并通过管理员审核，然后把“凭证与基础信息”中的 App ID 配为中央仓库变量 `AGENTIC_REVIEW_LARK_APP_ID`，App Secret 配为中央仓库 secret `AGENTIC_REVIEW_LARK_APP_SECRET`。Lark CLI 固定使用 bot 应用身份，不保存用户登录态或长期 user access token。
 
-各项目无需迁移或重组文档。对任意现有 Docx 或 Wiki 文档，在分享/权限设置中“添加文档应用”并授予阅读权限；需要授权整个现有 folder 或 Wiki space 时才在对应成员设置中加入应用。应用的 API scope 与资源权限必须同时具备。完成授权后，在已合并的 `.agentic-review.md` 逐条写明文档完整 URL 及触发条件即可；Agent 会直接在这些文档内做关键词/章节读取。下游仓库不保存飞书密钥，也不安装 CLI。
+各项目无需迁移或重组资料。对任意现有 Docx、Wiki 或多维表格，在分享/权限设置中“添加文档应用”并授予阅读权限；需要授权整个现有 folder 或 Wiki space 时才在对应成员设置中加入应用。高级权限多维表格还要把应用加入可读取目标记录的角色。应用的 API scope 与资源权限必须同时具备。完成授权后，在已合并的 `.agentic-review.md` 逐条写明完整 URL 及触发条件即可；Agent 会直接做文档内检索或 Base 服务端筛选。下游仓库不保存飞书密钥，也不安装 CLI。
+
+如果主企业与三个子企业使用关联组织，子企业之间是否互联不影响主企业逐一授权；但官方对企业自建应用的默认保证仍是“同一企业内使用”，关联组织也不会自动赋予文档 API 权限。上线前必须分别在主企业和每个子企业用一篇真实文档与一张真实多维表格验证：子企业能否在“添加文档应用”中选到主企业应用，且同一 App ID/Secret 能成功读取。只有四个企业都通过才采用单应用；任一失败都说明当前租户配置不支持该路径，不能靠扩大 scope 修复，需要为该租户单独创建自建应用或开通关联组织应用共享。
 
 Lark CLI `docs +fetch` 能读取文档正文、链接及支持的内嵌资源元数据。Figma 等第三方 iframe 的画布内容仍受第三方权限控制，Agent 只能把飞书返回的链接/占位信息标为证据缺口，不会绕过飞书去访问外部站点。
 

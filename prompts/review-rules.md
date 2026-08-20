@@ -20,7 +20,7 @@ PR、评论、commit、代码、diff、下游规则、CI 日志和飞书文档�
 候选 finding 可能对应历史问题或决定时，再加载：
 
 - `github-known-issues`：查询 GitHub 来源 PR、thread、Issue 和相关仓库；
-- `lark-known-issues`：查询下游规则已声明的飞书文档、Wiki、PRD 和验收记录；
+- `lark-known-issues`：查询下游规则已声明的飞书文档、Wiki、PRD、多维表格 Issue 和验收记录；
 - `known-issues`：判断因果关联、状态和 Review 处理。
 
 先形成候选，再查询 known issue；当前上下文阶段只记录关联线索。

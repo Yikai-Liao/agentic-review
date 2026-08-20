@@ -23,6 +23,10 @@ on:
 permissions:
   contents: read
 
+env:
+  LARK_CLI_VERSION: 1.0.88
+  LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
+
 concurrency:
   # 同一 PR 串行审查；旧结果先发布，后续运行据此更新或关闭 thread。
   group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
@@ -203,14 +207,11 @@ jobs:
         id: lark-cli-cache
         uses: actions/cache@v6.1.0
         with:
-          path: ${{ runner.tool_cache }}/lark-cli/1.0.88
-          key: lark-cli-${{ runner.os }}-${{ runner.arch }}-1.0.88
+          path: ${{ runner.tool_cache }}/lark-cli/${{ env.LARK_CLI_VERSION }}
+          key: lark-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.LARK_CLI_VERSION }}
 
       - name: Install Lark CLI
         if: steps.lark-cli-cache.outputs.cache-hit != 'true'
-        env:
-          LARK_CLI_VERSION: 1.0.88
-          LARK_CLI_SHA256: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
         run: |
           archive="lark-cli-$LARK_CLI_VERSION-linux-amd64.tar.gz"
           tool_dir="$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION"
@@ -218,7 +219,7 @@ jobs:
           curl --fail --location --silent --show-error \
             "https://github.com/larksuite/cli/releases/download/v$LARK_CLI_VERSION/$archive" \
             --output "$RUNNER_TEMP/$archive"
-          echo "$LARK_CLI_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          echo "$LARK_CLI_SHA256_LINUX_AMD64  $RUNNER_TEMP/$archive" | sha256sum --check --strict
           tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$tool_dir" lark-cli
 
       - name: Configure read-only Lark CLI
@@ -231,9 +232,9 @@ jobs:
           LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
           LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
         run: |
-          echo "$RUNNER_TOOL_CACHE/lark-cli/1.0.88" >> "$GITHUB_PATH"
-          "$RUNNER_TOOL_CACHE/lark-cli/1.0.88/lark-cli" auth check \
-            --scope "search:docs:read docx:document:readonly wiki:node:retrieve drive:drive.metadata:readonly"
+          echo "$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION" >> "$GITHUB_PATH"
+          "$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION/lark-cli" auth check \
+            --scope "search:docs:read docx:document:readonly wiki:node:retrieve drive:drive.metadata:readonly base:app:read base:table:read base:field:read base:record:read"
 
       # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
       - name: Configure Pi runtime

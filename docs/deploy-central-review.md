@@ -66,30 +66,45 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
    - `search:docs:read`：在已授权范围搜索文档/Wiki；
    - `docx:document:readonly`：读取文档正文；
    - `wiki:node:retrieve`：从 Wiki URL 解析节点和 space ID；
-   - `drive:drive.metadata:readonly`：读取文档元数据。
+   - `drive:drive.metadata:readonly`：读取文档元数据；
+   - `base:app:read`、`base:table:read`、`base:field:read`、`base:record:read`：读取多维表格结构与 Issue 记录。
 3. 创建并发布应用版本，按组织流程由飞书管理员审核。应用可用范围至少包含后续负责授权资料的同事；API scope 只决定“能调用什么接口”，还不能读取任何未授予资源权限的文档。
 4. 在“凭证与基础信息”复制 App ID 与 App Secret，分别写入中央 GitHub 仓库的 Actions variable `AGENTIC_REVIEW_LARK_APP_ID` 和 secret `AGENTIC_REVIEW_LARK_APP_SECRET`。不要写入下游仓库或 `.agentic-review.md`。
-5. 运行一次中央 Review；`Configure read-only Lark CLI` 会校验凭证与四个 scope，缺失时 fail closed。官方 `lark-cli 1.0.88` 二进制按固定 SHA-256 校验，并通过 Actions cache 跨运行复用。
+5. 运行一次中央 Review；`Configure read-only Lark CLI` 会校验凭证与八个 scope，缺失时 fail closed。官方 CLI 的版本和 SHA-256 只在 workflow 顶层配置一次，二进制通过 Actions cache 跨运行复用。
 
 ### 项目同事按资料授权
 
 现有文档无需迁移、归档到专用空间或改变目录结构：
 
-1. 打开任意需要授权的 Docx 或 Wiki 文档，在“分享 / 权限设置”中选择“添加文档应用”，找到 `Agentic Review` 并只授予阅读权限。需要授权整个**现有** folder 或 Wiki space 时，才在对应成员设置中加入应用。不同飞书版本的入口文案可能略有差异；搜不到应用时，先确认应用版本已发布、可用范围包含当前操作者且已申请云文档 scope。官方排障见[如何给应用添加云文档权限](https://open.feishu.cn/document/faq/trouble-shooting/how-to-add-permissions-to-app)。
-2. 在下游仓库 `.agentic-review.md` 逐条写清楚文档完整 URL、触发查询的路径/业务对象、哪些状态算已修复或已验收。例如：
+1. 打开任意需要授权的 Docx、Wiki 或多维表格，在“分享 / 权限设置”中选择“添加文档应用”，找到 `Agentic Review` 并只授予阅读权限。需要授权整个**现有** folder 或 Wiki space 时，才在对应成员设置中加入应用。高级权限多维表格还要把应用加入能读取目标记录的角色。不同飞书版本的入口文案可能略有差异；搜不到应用时，先确认应用版本已发布、可用范围包含当前操作者且已申请对应 scope。官方排障见[如何给应用添加云文档权限](https://open.feishu.cn/document/faq/trouble-shooting/how-to-add-permissions-to-app)。
+2. 在下游仓库 `.agentic-review.md` 逐条写清楚完整 URL、触发查询的路径/业务对象，以及多维表格的 Issue 表、关键字段和状态语义。例如：
 
    ```markdown
    ## 飞书 Known issues
 
    - 修改订单、支付或退款状态时，按需查询退款 PRD
-     `https://example.feishu.cn/wiki/wikcnRefundPRD` 和验收记录
-     `https://example.feishu.cn/docx/doxcnRefundQA`；其他变更不读取。
-   - “已排期”只表示计划中；正文中的验收结论才表示已修复。
+     `https://example.feishu.cn/wiki/wikcnRefundPRD`、验收记录
+     `https://example.feishu.cn/docx/doxcnRefundQA` 和 Issue 表
+     `https://example.feishu.cn/base/bascnIssues?table=tblIssues`；其他变更不读取。
+   - Issue 表的“已排期”只表示计划中；“已验收”或正文中的验收结论才表示已修复。
    ```
 
 3. 先合并这份规则。当前 PR 新增的飞书 URL 或搜索范围不会在同一轮被读取，后续 PR 才生效，防止候选代码自行扩大组织文档访问范围。
 
-Agent 只在形成候选 finding 后，直接对已声明文档做关键词/章节读取；仅当 `.agentic-review.md` 明确声明整个现有 Wiki space 或 folder 时才使用范围搜索。飞书文档中的 Figma 等第三方 iframe 只能返回链接/占位元数据，Lark CLI 不会取得 Figma 画布内容；此类信息需要人工提供文本结论，或另行设计独立、最小权限的 Figma 集成。
+Agent 只在形成候选 finding 后，直接对已声明文档做关键词/章节读取，或对已声明多维表格做服务端筛选和最小字段投影；仅当 `.agentic-review.md` 明确声明整个现有 Wiki space 或 folder 时才使用范围搜索。飞书文档中的 Figma 等第三方 iframe 只能返回链接/占位元数据，Lark CLI 不会取得 Figma 画布内容；此类信息需要人工提供文本结论，或另行设计独立、最小权限的 Figma 集成。
+
+### 主企业与三个子企业
+
+子企业彼此不关联不影响主企业分别与它们授权，但关联组织关系本身不等于 OpenAPI 的跨租户授权。官方[企业自建应用开发流程](https://open.feishu.cn/document/home/introduction-to-custom-app-development/self-built-application-development-process)只保证应用在同一企业内发布和使用；“添加文档应用”与真实 API 读取是否跨到子企业，取决于你们租户是否已开通关联组织应用共享以及资源策略。
+
+在配置 GitHub secret 前，用主企业应用逐个做四企业验收：
+
+1. 每个企业各选一篇无敏感内容的 Docx 和一张测试多维表格；
+2. 在资源权限中确认能选到主企业的 `Agentic Review` 应用并授予只读；
+3. 使用同一组 App ID/Secret 分别执行 `lark-cli docs +fetch --as bot --doc '<URL>' --scope outline`，以及 `base +url-resolve`、`base +record-list --limit 1`；
+4. 四个企业都成功后再将该凭证接入中央 workflow。
+
+任一子企业无法选择应用、返回 `91403`/权限错误或读不到记录时，不要扩大 API scope：当前单应用方案对该租户不成立。优先请飞书管理员确认“关联组织应用共享”；仍不支持时，为该租户单独创建同权限自建应用。当前 workflow 只注入一组 Lark 凭证，多应用接入需先增加由可信中央配置选择租户凭证的路径，不能把全部子企业 App Secret 暴露给 Agent。
 
 ## 5. Review 发布权限验证
 
