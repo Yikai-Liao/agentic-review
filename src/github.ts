@@ -124,7 +124,7 @@ export async function submitPullRequestReview(contextRoot: string, review: PullR
 export async function publishGitHubReview(contextRoot: string, review: PullRequestReview): Promise<string> {
   review = validatePullRequestReview(review);
   await validateLocations(contextRoot, review);
-  const token = process.env.TARGET_REPOSITORY_TOKEN || required('GITHUB_TOKEN');
+  const token = required('GH_TOKEN');
   const repository = required('GITHUB_REPOSITORY');
   const pull = required('REVIEW_PULL_NUMBER');
   const headSha = required('REVIEW_HEAD_SHA');

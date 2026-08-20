@@ -2,12 +2,17 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, test } from 'node:test';
+import { afterEach, beforeEach, test } from 'node:test';
 import { collectDiffSideLines } from '../src/diff.ts';
 import { addDiffContext, buildPullRequestReview, publishGitHubReview, validatePullRequestReview } from '../src/github.ts';
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
+
+beforeEach(() => {
+  delete process.env.TARGET_REPOSITORY_TOKEN;
+  delete process.env.GITHUB_TOKEN;
+});
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -99,8 +104,7 @@ test('trusted publisher revalidates the current head before posting', async () =
   await writeFile(`${context}/changed-files.txt`, 'src/a.ts\n');
   await writeFile(`${context}/pr.diff`, 'diff --git a/src/a.ts b/src/a.ts\n--- /dev/null\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const value = 1;\n');
   Object.assign(process.env, {
-    TARGET_REPOSITORY_TOKEN: 'token',
-    GITHUB_TOKEN: 'legacy',
+    GH_TOKEN: 'token',
     GITHUB_REPOSITORY: 'Qiyin-Tech/example',
     REVIEW_PULL_NUMBER: '7',
     REVIEW_HEAD_SHA: 'head',
@@ -135,8 +139,7 @@ test('trusted publisher posts deleted-line ranges on the LEFT side', async () =>
   await writeFile(`${context}/changed-files.txt`, 'src/deleted.ts\n');
   await writeFile(`${context}/pr.diff`, 'diff --git a/src/deleted.ts b/src/deleted.ts\ndeleted file mode 100644\n--- a/src/deleted.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-guard();\n-authorize();\n');
   Object.assign(process.env, {
-    TARGET_REPOSITORY_TOKEN: '',
-    GITHUB_TOKEN: 'legacy',
+    GH_TOKEN: 'token',
     GITHUB_REPOSITORY: 'Qiyin-Tech/example',
     REVIEW_PULL_NUMBER: '7',
     REVIEW_HEAD_SHA: 'head',
@@ -165,8 +168,7 @@ test('trusted publisher rejects a stale review without posting', async () => {
   await writeFile(`${context}/changed-files.txt`, 'src/a.ts\n');
   await writeFile(`${context}/pr.diff`, 'diff --git a/src/a.ts b/src/a.ts\n--- /dev/null\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const value = 1;\n');
   Object.assign(process.env, {
-    TARGET_REPOSITORY_TOKEN: 'token',
-    GITHUB_TOKEN: '',
+    GH_TOKEN: 'token',
     GITHUB_REPOSITORY: 'Qiyin-Tech/example',
     REVIEW_PULL_NUMBER: '7',
     REVIEW_HEAD_SHA: 'old',
