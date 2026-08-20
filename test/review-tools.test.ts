@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
-// @ts-expect-error The trusted publisher is plain Node.js so the workflow needs no runtime dependency.
-import { parseUpdates, publishThreadUpdates } from '../scripts/publish-thread-updates.mjs';
+import { buildFooter, parseReviewResult, publishReview } from '../scripts/publish-review.ts';
 
 const baseSha = 'a'.repeat(40);
 const headSha = 'b'.repeat(40);
-const update = {
-  root_comment_id: 123,
-  status: 'reintroduced',
-  evidence: '当前改动重新开放了原触发路径。',
+const result = {
+  body: '## Review 总结\n\n这个 PR 修复了清理行为。',
+  comments: [{ path: 'src/gc.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
+  thread_updates: [{
+    root_comment_id: 123,
+    status: 'suggest_resolve' as const,
+    evidence: '当前实现已经恢复 owner token 检查。',
+  }],
 };
 
 type ReviewComment = {
@@ -24,21 +27,14 @@ type ReviewComment = {
 
 function publisherFetch({
   comments = [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } }] as ReviewComment[],
-  isResolved = true,
-  currentResolved,
-  currentHeads = [headSha],
-  pullState = 'open',
-  draft = false,
+  isResolved = false,
+  heads = [headSha],
 }: {
   comments?: ReviewComment[];
   isResolved?: boolean;
-  currentResolved?: boolean;
-  currentHeads?: string[];
-  pullState?: string;
-  draft?: boolean;
+  heads?: string[];
 } = {}) {
   const requests: Array<{ url: string; body: string }> = [];
-  const latestResolved = currentResolved ?? isResolved;
   let snapshot = 0;
   return {
     requests,
@@ -47,8 +43,8 @@ function publisherFetch({
       const body = String(init?.body ?? '');
       requests.push({ url, body });
       if (url.endsWith('/pulls/7')) {
-        const sha = currentHeads[Math.min(snapshot++, currentHeads.length - 1)];
-        return Response.json({ state: pullState, draft, base: { sha: baseSha }, head: { sha } });
+        const sha = heads[Math.min(snapshot++, heads.length - 1)];
+        return Response.json({ state: 'open', draft: false, base: { sha: baseSha }, head: { sha } });
       }
       if (url.includes('/comments?')) return Response.json(comments);
       if (url.endsWith('/graphql') && body.includes('reviewThreads')) {
@@ -57,11 +53,7 @@ function publisherFetch({
             repository: {
               pullRequest: {
                 reviewThreads: {
-                  nodes: [{
-                    id: 'thread-id',
-                    isResolved,
-                    comments: { nodes: [{ databaseId: 123 }] },
-                  }],
+                  nodes: [{ id: 'thread-id', comments: { nodes: [{ databaseId: 123 }] } }],
                   pageInfo: { hasNextPage: false, endCursor: null },
                 },
               },
@@ -70,121 +62,165 @@ function publisherFetch({
         });
       }
       if (url.endsWith('/graphql') && body.includes('query($thread:ID!)')) {
-        return Response.json({ data: { node: { id: 'thread-id', isResolved: latestResolved } } });
+        return Response.json({ data: { node: { id: 'thread-id', isResolved } } });
       }
       if (url.endsWith('/comments/123/replies')) return Response.json({ html_url: 'https://github.test/thread#reply' });
+      if (url.endsWith('/pulls/7/reviews')) return Response.json({ html_url: 'https://github.test/review/1' });
       return Response.json({ data: {} });
     },
   };
 }
 
-async function publish(updates: typeof update[], fetchImpl: typeof fetch) {
-  return publishThreadUpdates({
-    updates,
+async function publish(reviewResult: Parameters<typeof publishReview>[0]['result'], fetchImpl: typeof fetch) {
+  return publishReview({
+    result: reviewResult,
     repository: 'owner/repo',
     pullNumber: 7,
     botLogin: 'review-app[bot]',
     token: 'write-token',
     expectedBaseSha: baseSha,
     expectedHeadSha: headSha,
+    footer: '[View action run](https://github.test/run) | Model: openai/test',
     api: 'https://api.github.test',
     fetchImpl,
   });
 }
 
-test('queues one update without a GitHub snapshot', async () => {
+test('submit_review seals one JSON file from the review workspace', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
   const originalEnv = { ...process.env };
   try {
-    const updatesPath = path.join(directory, 'updates.ndjson');
-    process.env.REVIEW_THREAD_UPDATES_PATH = updatesPath;
+    const workspace = path.join(directory, 'workspace');
+    const sourcePath = path.join(workspace, 'final.json');
+    const resultPath = path.join(directory, 'review-result.json');
+    await mkdir(workspace);
+    await writeFile(sourcePath, `${JSON.stringify(result)}\n`);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = resultPath;
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
 
-    const result = await tool.execute('call', update);
-    assert.deepEqual(parseUpdates(await readFile(updatesPath, 'utf8')), [update]);
-    assert.deepEqual(result.details, { status: 'reintroduced', queued: true });
-    await assert.rejects(tool.execute('call', update), /already updated/);
+    const response = await tool.execute('call', { path: sourcePath });
+    assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
+    assert.deepEqual(response.details, { queued: true, source: sourcePath });
+    await assert.rejects(tool.execute('call', { path: sourcePath }), /already submitted/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('publisher replies, reopens, and rejects another bot root', async () => {
-  const { requests, fetchImpl } = publisherFetch({
-    comments: [
-      { id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } },
-      { id: 124, in_reply_to_id: 123, body: '**Pi thread 状态更新：🔁 问题重现**\n\n旧证据', user: { login: 'review-app[bot]' } },
-      { id: 125, in_reply_to_id: 123, body: '**Pi thread 状态更新：✅ 建议关闭**\n\n旧证据', user: { login: 'review-app[bot]' } },
-    ],
-  });
-  assert.deepEqual(await publish([update], fetchImpl as typeof fetch), ['https://github.test/thread#reply']);
-  assert.match(requests.find(({ url }) => url.endsWith('/comments/123/replies'))!.body, /问题重现/);
-  assert.match(requests.at(-1)!.body, /unresolveReviewThread/);
-  assert.equal(requests.filter(({ url }) => url.endsWith('/pulls/7')).length, 3);
+test('submit_review rejects files outside the review workspace', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const outside = path.join(directory, 'outside.json');
+    await mkdir(workspace);
+    await writeFile(outside, JSON.stringify(result));
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
+    let tool: any;
+    reviewTools({ registerTool: (definition) => { tool = definition; } });
+    await assert.rejects(tool.execute('call', { path: outside }), /inside REVIEW_WORKSPACE_PATH/);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
-  await assert.rejects(
-    publishThreadUpdates({
-      updates: [update],
-      repository: 'owner/repo',
-      pullNumber: 7,
-      botLogin: 'another-app[bot]',
-      token: 'write-token',
-      expectedBaseSha: baseSha,
-      expectedHeadSha: headSha,
-      api: 'https://api.github.test',
-      fetchImpl: fetchImpl as typeof fetch,
-    }),
-    /was not created by another-app\[bot\]/,
+test('publisher creates one review, updates threads, and appends the footer', async () => {
+  const { requests, fetchImpl } = publisherFetch();
+  assert.equal(await publish(result, fetchImpl as typeof fetch), 'https://github.test/review/1');
+
+  assert.match(requests.find(({ url }) => url.endsWith('/comments/123/replies'))!.body, /建议关闭/);
+  assert.match(requests.find(({ body }) => body.includes('resolveReviewThread'))!.body, /resolveReviewThread/);
+  const review = JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body);
+  assert.equal(review.event, 'COMMENT');
+  assert.equal(review.commit_id, headSha);
+  assert.match(review.body, /这个 PR 修复了清理行为。/);
+  assert.match(review.body, /View action run/);
+  assert.deepEqual(review.comments[0], {
+    path: 'src/gc.ts',
+    line: 42,
+    start_line: 40,
+    side: 'RIGHT',
+    start_side: 'RIGHT',
+    body: '**[P1] 仍会误删**\n\n详细证据。',
+  });
+});
+
+test('publisher reopens a resolved thread when risk increases', async () => {
+  const { requests, fetchImpl } = publisherFetch({ isResolved: true });
+  await publish({
+    ...result,
+    thread_updates: [{ ...result.thread_updates[0], status: 'severity_increased' }],
+  }, fetchImpl as typeof fetch);
+  assert.match(requests.find(({ body }) => body.includes('unresolveReviewThread'))!.body, /unresolveReviewThread/);
+});
+
+test('publisher supports a summary-only review', async () => {
+  const { requests, fetchImpl } = publisherFetch();
+  const summaryOnly = { body: '未发现需要阻止合并的问题。', comments: [], thread_updates: [] };
+  await publish(summaryOnly as typeof result, fetchImpl as typeof fetch);
+  assert.equal(requests.some(({ url }) => url.includes('/comments?')), false);
+  assert.deepEqual(
+    JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body).comments,
+    [],
   );
 });
 
-test('publisher resolves a fixed thread and retries a missing transition without another reply', async () => {
-  const resolved = { ...update, status: 'suggest_resolve' };
-  const first = publisherFetch({ isResolved: false });
-  await publish([resolved], first.fetchImpl as typeof fetch);
-  assert.match(first.requests.at(-1)!.body, /resolveReviewThread/);
-
-  const changedByAnotherActor = publisherFetch({ isResolved: false, currentResolved: true });
-  await publish([update], changedByAnotherActor.fetchImpl as typeof fetch);
-  assert.match(changedByAnotherActor.requests.at(-1)!.body, /unresolveReviewThread/);
-
+test('publisher rejects a thread owned by another bot', async () => {
   const { requests, fetchImpl } = publisherFetch({
-    comments: [
-      { id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } },
-      { id: 124, in_reply_to_id: 123, body: '**Pi thread 状态更新：🔁 问题重现**\n\n旧证据', user: { login: 'review-app[bot]' } },
-    ],
+    comments: [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'other[bot]' } }],
   });
-  assert.deepEqual(await publish([update], fetchImpl as typeof fetch), []);
-  assert.equal(requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
-  assert.match(requests.at(-1)!.body, /unresolveReviewThread/);
+  await assert.rejects(publish(result, fetchImpl as typeof fetch), /was not created by review-app\[bot\]/);
+  assert.equal(requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), false);
 });
 
-test('publisher rechecks the snapshot before every side effect', async () => {
+test('publisher fails closed when the pull request snapshot changes', async () => {
   const changed = 'c'.repeat(40);
-  for (const stale of [
-    publisherFetch({ currentHeads: [changed] }),
-    publisherFetch({ pullState: 'closed' }),
-    publisherFetch({ draft: true }),
-  ]) {
-    await assert.rejects(publish([update], stale.fetchImpl as typeof fetch), /changed since review started/);
-    assert.equal(stale.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
-  }
+  const initial = publisherFetch({ heads: [changed] });
+  await assert.rejects(publish(result, initial.fetchImpl as typeof fetch), /changed since review started/);
+  assert.equal(initial.requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), false);
+  assert.equal(initial.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
 
-  const beforeReply = publisherFetch({ currentHeads: [headSha, changed] });
-  await assert.rejects(publish([update], beforeReply.fetchImpl as typeof fetch), /changed since review started/);
-  assert.equal(beforeReply.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
-
-  const beforeReopen = publisherFetch({ currentHeads: [headSha, headSha, changed] });
-  await assert.rejects(publish([update], beforeReopen.fetchImpl as typeof fetch), /changed since review started/);
-  assert.equal(beforeReopen.requests.some(({ url }) => url.endsWith('/comments/123/replies')), true);
-  assert.equal(beforeReopen.requests.some(({ body }) => body.includes('unresolveReviewThread')), false);
+  const afterReview = publisherFetch({ heads: [headSha, headSha, changed] });
+  await assert.rejects(publish(result, afterReview.fetchImpl as typeof fetch), /changed since review started/);
+  assert.equal(afterReview.requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), true);
+  assert.equal(afterReview.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+  assert.equal(afterReview.requests.some(({ body }) => body.includes('resolveReviewThread')), false);
 });
 
-test('rejects inherited status names before publication', () => {
+test('parser rejects duplicate thread updates and invalid comment locations', () => {
   assert.throws(
-    () => parseUpdates('{"root_comment_id":123,"status":"__proto__","evidence":"足够长的恶意状态说明"}\n'),
-    /Invalid thread status/,
+    () => parseReviewResult(JSON.stringify({ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] })),
+    /Duplicate thread update/,
+  );
+  assert.throws(
+    () => parseReviewResult(JSON.stringify({ ...result, comments: [{ ...result.comments[0], start_line: 43 }] })),
+    /start_line/,
+  );
+  assert.throws(
+    () => parseReviewResult(JSON.stringify({ ...result, comments: [{ ...result.comments[0], path: '../secret' }] })),
+    /path/,
+  );
+});
+
+test('footer preserves action metadata', () => {
+  assert.equal(
+    buildFooter({
+      runUrl: 'https://github.test/run',
+      workspaceUrl: 'https://github.test/artifact/1',
+      model: 'openai/gpt-test',
+      thinkingLevel: 'high',
+      durationSeconds: 175,
+      inputTokens: 700_000,
+      outputTokens: 15_300,
+      cost: 0,
+      piVersion: '0.82.1',
+      actionVersion: '2.27.0',
+    }),
+    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Pi SDK v0.82.1 | Action v2.27.0',
   );
 });
