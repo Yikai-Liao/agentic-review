@@ -24,8 +24,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: agentic-review-${{ inputs.repository }}-${{ inputs.pull_number }}-${{ inputs.head_sha }}
-  cancel-in-progress: true
+  # 同一 PR 保留当前运行；新快照排队，后续快照自动替换尚未开始的旧队列项。
+  group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -74,6 +75,8 @@ jobs:
           repositories: ${{ steps.target.outputs.name }}
           permission-contents: read
           permission-pull-requests: write
+          # 可信 workflow 用它创建和完成关联 PR 的 Check Run；不传给 Agent shell。
+          permission-checks: write
 
       - name: Validate current pull request
         env:
@@ -89,6 +92,37 @@ jobs:
             --arg base "$BASE_SHA" \
             --arg head "$HEAD_SHA" \
             '.state == "open" and .draft == false and .base.repo.id == $repository_id and .base.sha == $base and .head.sha == $head'
+
+      # workflow_dispatch 不会自动挂到目标 PR；显式创建关联 Check，并链接当前 Action Run。
+      - name: Start Agentic Review check
+        id: review-check
+        uses: actions/github-script@v7
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_TASK_ID: ${{ inputs.repository_id }}:${{ inputs.pull_number }}:${{ inputs.base_sha }}:${{ inputs.head_sha }}
+          REVIEW_RUN_ID: ${{ github.run_id }}
+        with:
+          # 写 token 只在这个可信 workflow step 内使用，不进入 Agent shell。
+          github-token: ${{ steps.review-token.outputs.token }}
+          script: |
+            const [owner, repo] = process.env.REPOSITORY.split('/');
+            const name = 'Agentic Review / audit';
+            const response = await github.rest.checks.create({
+              owner,
+              repo,
+              name,
+              head_sha: process.env.HEAD_SHA,
+              external_id: `${process.env.REVIEW_TASK_ID}:${process.env.REVIEW_RUN_ID}`,
+              status: 'in_progress',
+              started_at: new Date().toISOString(),
+              details_url: `${process.env.GITHUB_SERVER_URL}/${process.env.REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              output: {
+                title: 'Agentic Review 正在审查',
+                summary: '中央 Review Agent 已开始处理当前 PR。',
+              },
+            });
+            core.setOutput('check_id', String(response.data.id));
 
       # 两个版本分别放在明确目录，Agent 通过环境变量读取，不依赖工作区根目录。
       - name: Checkout target pull request
@@ -112,6 +146,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Prepare review diff
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
+        run: |
+          git -C review-target diff --no-ext-diff --no-textconv \
+            --find-renames --find-copies --unified=20 \
+            "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
+
       # Checkout after the target: checkout cleans its own root, so the
       # trusted control checkout cannot be removed as an untracked directory.
       - name: Checkout control-plane rules
@@ -131,23 +175,60 @@ jobs:
             echo REVIEW_PROMPT
           } >> "$GITHUB_OUTPUT"
 
+      # Pi 不会自动认识组织内的自定义模型；按 orchestra-backend 的可用配置注册它。
+      - name: Configure Pi model
+        env:
+          REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+        run: |
+          mkdir -p "$HOME/.pi/agent"
+          jq -n --arg model "$REVIEW_AGENT_MODEL" '{
+            providers: {
+              openai: {
+                models: [{
+                  id: $model,
+                  name: $model,
+                  api: "openai-responses",
+                  reasoning: true,
+                  input: ["text", "image"],
+                  contextWindow: 272000,
+                  maxTokens: 128000,
+                  thinkingLevelMap: {
+                    off: "none",
+                    minimal: null,
+                    low: "low",
+                    medium: "medium",
+                    high: "high",
+                    xhigh: "xhigh",
+                    max: "max"
+                  },
+                  compat: { supportsStrictMode: true }
+                }]
+              }
+            }
+          }' > "$HOME/.pi/agent/models.json"
+
       - name: Run Pi review
-        uses: shaftoe/pi-coding-agent-action@v2.9.1
+        id: pi-review
+        uses: shaftoe/pi-coding-agent-action@v2.27.0
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           # 让 action 和 gh 知道当前审查的目标仓库；不改变 token 权限。
           GITHUB_REPOSITORY: ${{ inputs.repository }}
-          # Agent 只读取预先 checkout 的本地代码，不自行 clone 仓库。
+          REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+          # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
+          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
         with:
           # 仅供 action 内部的 create_pull_request_review 使用；不注入 Agent shell。
           github_token: ${{ steps.review-token.outputs.token }}
           # 模型服务商和模型名称；均来自中央仓库配置。
-          provider: ${{ vars.REVIEW_AGENT_PROVIDER }}
+          provider: openai
           model: ${{ vars.REVIEW_AGENT_MODEL }}
+          # OpenAI-compatible Azure gateway；不配置时模型会被发送到错误的默认端点。
+          base_url: ${{ vars.REVIEW_AGENT_BASE_URL }}
           # 模型 API 凭证；不与 GitHub installation token 混用。
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
@@ -157,17 +238,53 @@ jobs:
           # 覆盖常规大型 PR；超大 diff 仍需 Agent 按相关文件和路径审查，避免上下文失控。
           diff_max_lines: 10000
           diff_max_bytes: 1000000
-          # Agent 可用工具：前九项只读；最后一项是唯一的 Review 发布出口。
+          # Agent 可用工具：前七项只读；最后一项是唯一的 Review 发布出口。
           loaded_tools: |
             read
             grep
             find
             ls
             bash
-            get_pr_diff
-            get_issue_or_pr_thread
             get_ci_status
             get_workflow_run_logs
             create_pull_request_review
           # 从中央 checkout 加载单一 Prompt；不要在 workflow 中重复规则。
           prompt: ${{ steps.prompt.outputs.prompt }}
+
+      - name: Complete Agentic Review check
+        if: always() && steps.review-check.outputs.check_id != ''
+        uses: actions/github-script@v7
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+          CHECK_ID: ${{ steps.review-check.outputs.check_id }}
+          PI_REVIEW_OUTCOME: ${{ steps.pi-review.outcome }}
+        with:
+          # 同一个写 token 仅用于可信 workflow 的 Check 完成，不进入 Agent shell。
+          github-token: ${{ steps.review-token.outputs.token }}
+          script: |
+            const [owner, repo] = process.env.REPOSITORY.split('/');
+            const conclusion = process.env.PI_REVIEW_OUTCOME === 'success'
+              ? 'success'
+              : process.env.PI_REVIEW_OUTCOME === 'cancelled'
+                ? 'neutral'
+                : 'failure';
+            await github.rest.checks.update({
+              owner,
+              repo,
+              check_run_id: Number(process.env.CHECK_ID),
+              status: 'completed',
+              conclusion,
+              completed_at: new Date().toISOString(),
+              output: {
+                title: conclusion === 'success'
+                  ? 'Agentic Review 已完成'
+                  : conclusion === 'neutral'
+                    ? 'Agentic Review 已取消'
+                    : 'Agentic Review 执行失败',
+                summary: conclusion === 'success'
+                  ? '审查已完成。'
+                  : conclusion === 'neutral'
+                    ? '该审查已取消，结果不再代表当前 PR 快照。'
+                    : '审查未能可靠完成，当前提交保持不可合并。',
+              },
+            });

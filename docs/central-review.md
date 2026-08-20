@@ -26,14 +26,15 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 Review App private key（只在中央 Actions secret）
   ├─ Token A: 当前仓库，contents/pull_requests/actions/checks read
   │    -> checkout、GH_TOKEN、Pi bash 中的 gh
-  └─ Token B: 当前仓库，contents read、pull_requests write
-       -> shaftoe action 的 github_token
+  └─ Token B: 当前仓库，contents read、pull_requests/checks write
+       ├─ 可信 workflow 的 PR Check Run（details_url 指向当前 Action Run）
+       └─ shaftoe action 的 github_token
           -> create_pull_request_review
 ```
 
-Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Agent shell，但它密码学上没有写权限；Token B 不进入 shell，只由 shaftoe action 的 GitHub provider 创建 structured tool 使用。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载 `create_pull_request_review`。
+Token 默认约一小时过期，并且只允许当前目标仓库。Token A 进入 Agent shell，但它密码学上没有写权限；Token B 不进入 shell，只由可信 workflow 的 Check Run 步骤和 shaftoe action 的 GitHub provider 使用。`loaded_tools` 不加载 `create_pull_request` 或 `update_pull_request`，只加载 `create_pull_request_review`。
 
-这解决了 PR 中“能不能写 Review”的问题：不是依赖 prompt 约束，也不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限。`create_pull_request_review` 调用 GitHub `pulls.createReview`，可以同时提交 summary 和 diff 行上的 inline comments。
+这解决了 PR 中“能不能写 Review”的问题：不是依赖 prompt 约束，也不是使用长期 PAT，而是给发布 API 单独的 installation token 和 `pull_requests: write` 权限；同一个 token 的 `checks: write` 只用于可信 workflow 的 PR Check 生命周期。`create_pull_request_review` 调用 GitHub `pulls.createReview`，可以同时提交 summary 和 diff 行上的 inline comments。
 
 ## Agent 工具
 
