@@ -55,4 +55,4 @@ description: 自动 PR Review 的最终 finding 归因合并、review-result.jso
 submit_review({"path":"review-workspace/review-result.json"})
 ```
 
-`submit_review` 只封存该文件；可信 publisher 会重新验证 schema 和 PR 快照，创建一个包含 `body` 与全部 inline comments 的 Review，处理历史 thread，并追加运行元数据。不要通过其他工具发布，也不要在提交后继续修改结果文件。
+`submit_review` 只封存该文件；可信 publisher 会重新验证 schema，把 `body` 与全部 inline comments 发布到本轮审查的 head，处理历史 thread，并追加运行元数据。后续快照由同一 PR 的下一轮 Review 串行处理。不要通过其他工具发布，也不要在提交后继续修改结果文件。

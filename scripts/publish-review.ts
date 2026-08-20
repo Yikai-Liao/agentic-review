@@ -25,7 +25,6 @@ type PublishOptions = {
   pullNumber: number;
   botLogin: string;
   token: string;
-  expectedBaseSha: string;
   expectedHeadSha: string;
   footer: string;
   api: string;
@@ -113,21 +112,6 @@ async function github<T>(fetchImpl: typeof fetch, api: string, token: string, ro
   const body = await response.text();
   if (!response.ok) throw new Error(`GitHub API ${response.status}: ${body}`);
   return (body ? JSON.parse(body) : undefined) as T;
-}
-
-async function assertPullSnapshot(
-  fetchImpl: typeof fetch,
-  api: string,
-  token: string,
-  repository: string,
-  pullNumber: number,
-  expectedBaseSha: string,
-  expectedHeadSha: string,
-) {
-  const pull = await github<any>(fetchImpl, api, token, `/repos/${repository}/pulls/${pullNumber}`);
-  if (pull.state !== 'open' || pull.draft || pull.base?.sha !== expectedBaseSha || pull.head?.sha !== expectedHeadSha) {
-    throw new Error('Pull request changed since review started');
-  }
 }
 
 async function reviewComments(
@@ -235,7 +219,6 @@ export async function publishReview({
   pullNumber,
   botLogin,
   token,
-  expectedBaseSha,
   expectedHeadSha,
   footer,
   api,
@@ -244,11 +227,8 @@ export async function publishReview({
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)) throw new Error('Invalid repository');
   if (!Number.isInteger(pullNumber) || pullNumber < 1) throw new Error('Invalid pull number');
   if (!/^[A-Za-z0-9-]+\[bot\]$/.test(botLogin)) throw new Error('Invalid review bot login');
-  if (!/^[0-9a-f]{40}$/.test(expectedBaseSha) || !/^[0-9a-f]{40}$/.test(expectedHeadSha)) {
-    throw new Error('Invalid review snapshot');
-  }
+  if (!/^[0-9a-f]{40}$/.test(expectedHeadSha)) throw new Error('Invalid review head');
 
-  await assertPullSnapshot(fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha);
   const preparedUpdates: Array<{
     update: ReviewResult['thread_updates'][number];
     thread: ReviewThread;
@@ -279,7 +259,6 @@ export async function publishReview({
     }
   }
 
-  await assertPullSnapshot(fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha);
   const review = await github<{ html_url: string }>(
     fetchImpl,
     api,
@@ -305,7 +284,6 @@ export async function publishReview({
   for (const { update, thread, previousStatus } of preparedUpdates) {
     const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
     if (!previousStatus?.startsWith(status)) {
-      await assertPullSnapshot(fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha);
       await github(
         fetchImpl,
         api,
@@ -318,7 +296,6 @@ export async function publishReview({
     const shouldResolve = update.status === 'suggest_resolve';
     const currentThread = await reviewThreadState(fetchImpl, api, token, thread.id);
     if (currentThread.isResolved !== shouldResolve) {
-      await assertPullSnapshot(fetchImpl, api, token, repository, pullNumber, expectedBaseSha, expectedHeadSha);
       const mutation = shouldResolve
         ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
         : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
@@ -362,7 +339,6 @@ async function main() {
     pullNumber: Number(requiredEnv('PULL_NUMBER')),
     botLogin: requiredEnv('REVIEW_BOT_LOGIN'),
     token: requiredEnv('GH_TOKEN'),
-    expectedBaseSha: requiredEnv('BASE_SHA'),
     expectedHeadSha: requiredEnv('HEAD_SHA'),
     footer,
     api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
