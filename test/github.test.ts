@@ -2,12 +2,17 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, test } from 'node:test';
+import { afterEach, beforeEach, test } from 'node:test';
 import { collectDiffSideLines } from '../src/diff.ts';
 import { addDiffContext, buildPullRequestReview, publishGitHubReview, validatePullRequestReview } from '../src/github.ts';
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
+
+beforeEach(() => {
+  delete process.env.TARGET_REPOSITORY_TOKEN;
+  delete process.env.GITHUB_TOKEN;
+});
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
