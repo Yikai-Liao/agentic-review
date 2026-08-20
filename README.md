@@ -20,7 +20,7 @@ REVIEW_AGENT_MODEL=... REVIEW_AGENT_API_KEY=... pnpm benchmark:run
 
 - `REVIEW_BASE_SHA`、`REVIEW_HEAD_SHA`、`REVIEW_PULL_NUMBER`
 - `REVIEW_AGENT_MODEL`、`REVIEW_AGENT_API_KEY`
-- 直接发布模式需要 `GITHUB_TOKEN`、`GITHUB_REPOSITORY`；中央模式改由可信 Publisher 注入
+- 直接发布模式需要 `TARGET_REPOSITORY_TOKEN`、`GITHUB_REPOSITORY`；中央模式改由可信 Publisher 注入
 - 可选：`REVIEW_AGENT_BASE_URL`、`REVIEW_POLICY_ROOT`
 
 中央 Engine 的 `.agentic-review.yml` 声明默认 Review Agents、概要 Agent、失败是否阻断以及仓库特定指令。目标仓库可在 base 分支放置同名文件完整覆盖默认配置，因此当前 PR 不能修改自己的审查范围。每个 Agent 必须对应中央 `prompts/<id>.md`；`overviewAgent` 必须被选中且为 `required: true`。仓库规则同样只从 base 快照的 `spec/review` 读取。

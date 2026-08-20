@@ -99,7 +99,7 @@ test('trusted publisher revalidates the current head before posting', async () =
   await writeFile(`${context}/changed-files.txt`, 'src/a.ts\n');
   await writeFile(`${context}/pr.diff`, 'diff --git a/src/a.ts b/src/a.ts\n--- /dev/null\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const value = 1;\n');
   Object.assign(process.env, {
-    GITHUB_TOKEN: 'token',
+    TARGET_REPOSITORY_TOKEN: 'token',
     GITHUB_REPOSITORY: 'Qiyin-Tech/example',
     REVIEW_PULL_NUMBER: '7',
     REVIEW_HEAD_SHA: 'head',
@@ -132,7 +132,7 @@ test('trusted publisher posts deleted-line ranges on the LEFT side', async () =>
   await writeFile(`${context}/changed-files.txt`, 'src/deleted.ts\n');
   await writeFile(`${context}/pr.diff`, 'diff --git a/src/deleted.ts b/src/deleted.ts\ndeleted file mode 100644\n--- a/src/deleted.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-guard();\n-authorize();\n');
   Object.assign(process.env, {
-    GITHUB_TOKEN: 'token',
+    TARGET_REPOSITORY_TOKEN: 'token',
     GITHUB_REPOSITORY: 'Qiyin-Tech/example',
     REVIEW_PULL_NUMBER: '7',
     REVIEW_HEAD_SHA: 'head',
@@ -161,7 +161,7 @@ test('trusted publisher rejects a stale review without posting', async () => {
   await writeFile(`${context}/changed-files.txt`, 'src/a.ts\n');
   await writeFile(`${context}/pr.diff`, 'diff --git a/src/a.ts b/src/a.ts\n--- /dev/null\n+++ b/src/a.ts\n@@ -0,0 +1 @@\n+const value = 1;\n');
   Object.assign(process.env, {
-    GITHUB_TOKEN: 'token',
+    TARGET_REPOSITORY_TOKEN: 'token',
     GITHUB_REPOSITORY: 'Qiyin-Tech/example',
     REVIEW_PULL_NUMBER: '7',
     REVIEW_HEAD_SHA: 'old',
