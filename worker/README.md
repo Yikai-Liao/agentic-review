@@ -80,4 +80,4 @@ pnpm dlx wrangler@4.123.0 deploy --dry-run
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy --dry-run
 ```
 
-Webhook 签名、事件过滤与 delivery claim 行为覆盖在 `test/webhook.test.ts`。Review 发布权限和两个 installation token 的分工见 [`../docs/deploy-central-review.md`](../docs/deploy-central-review.md)。
+Webhook 签名、事件过滤与 delivery claim 行为覆盖在 `test/webhook.test.ts`。三个 installation token 的权限分工见 [`../docs/deploy-central-review.md`](../docs/deploy-central-review.md)。

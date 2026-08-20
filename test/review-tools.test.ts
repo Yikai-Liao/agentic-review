@@ -6,7 +6,6 @@ import { test } from 'node:test';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
 import { buildFooter, parseReviewResult, publishReview } from '../scripts/publish-review.ts';
 
-const baseSha = 'a'.repeat(40);
 const headSha = 'b'.repeat(40);
 const result = {
   body: '## Review 总结\n\n这个 PR 修复了清理行为。',
@@ -28,24 +27,17 @@ type ReviewComment = {
 function publisherFetch({
   comments = [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } }] as ReviewComment[],
   isResolved = false,
-  heads = [headSha],
 }: {
   comments?: ReviewComment[];
   isResolved?: boolean;
-  heads?: string[];
 } = {}) {
   const requests: Array<{ url: string; body: string }> = [];
-  let snapshot = 0;
   return {
     requests,
     fetchImpl: async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const body = String(init?.body ?? '');
       requests.push({ url, body });
-      if (url.endsWith('/pulls/7')) {
-        const sha = heads[Math.min(snapshot++, heads.length - 1)];
-        return Response.json({ state: 'open', draft: false, base: { sha: baseSha }, head: { sha } });
-      }
       if (url.includes('/comments?')) return Response.json(comments);
       if (url.endsWith('/graphql') && body.includes('reviewThreads')) {
         return Response.json({
@@ -78,7 +70,6 @@ async function publish(reviewResult: Parameters<typeof publishReview>[0]['result
     pullNumber: 7,
     botLogin: 'review-app[bot]',
     token: 'write-token',
-    expectedBaseSha: baseSha,
     expectedHeadSha: headSha,
     footer: '[View action run](https://github.test/run) | Model: openai/test',
     api: 'https://api.github.test',
@@ -178,18 +169,14 @@ test('publisher rejects a thread owned by another bot', async () => {
   assert.equal(requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), false);
 });
 
-test('publisher fails closed when the pull request snapshot changes', async () => {
-  const changed = 'c'.repeat(40);
-  const initial = publisherFetch({ heads: [changed] });
-  await assert.rejects(publish(result, initial.fetchImpl as typeof fetch), /changed since review started/);
-  assert.equal(initial.requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), false);
-  assert.equal(initial.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
+test('publisher keeps an older review available to later serial runs', async () => {
+  const { requests, fetchImpl } = publisherFetch();
+  await publish(result, fetchImpl as typeof fetch);
 
-  const afterReview = publisherFetch({ heads: [headSha, headSha, changed] });
-  await assert.rejects(publish(result, afterReview.fetchImpl as typeof fetch), /changed since review started/);
-  assert.equal(afterReview.requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), true);
-  assert.equal(afterReview.requests.some(({ url }) => url.endsWith('/comments/123/replies')), false);
-  assert.equal(afterReview.requests.some(({ body }) => body.includes('resolveReviewThread')), false);
+  assert.equal(requests.some(({ url }) => url.endsWith('/pulls/7')), false);
+  assert.equal(JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body).commit_id, headSha);
+  assert.equal(requests.some(({ url }) => url.endsWith('/comments/123/replies')), true);
+  assert.equal(requests.some(({ body }) => body.includes('resolveReviewThread')), true);
 });
 
 test('parser rejects duplicate thread updates and invalid comment locations', () => {
