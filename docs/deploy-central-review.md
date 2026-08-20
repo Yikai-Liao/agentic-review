@@ -1,78 +1,85 @@
-# 部署中央 PR 审计
+# 部署中央 PR Review
 
-以下步骤适用于任意 GitHub organization 与 Cloudflare account。尖括号内容必须替换为当前部署值；组织、仓库、分支、域名不得写入 Worker 源码或版本控制中的 `wrangler.toml`。
+## 1. Dispatcher App
 
-## 1. 创建 Dispatcher App
+在中央仓库所属 organization 创建 Dispatcher GitHub App：
 
-在控制仓库所属 organization 创建 Dispatcher GitHub App：
+- 关闭 webhook；
+- 仅 `Actions: read and write`；
+- 只安装到中央仓库。
 
-- Webhook：关闭；
-- Repository permissions：`Actions: Read and write`，其余均为 `No access`；
-- 安装范围：Only select repositories，仅选择 `<control-owner>/<control-repository>`。
+Worker 使用它触发中央仓库的 `agentic-review.yml`，不使用它访问目标仓库。
 
-记录 Client ID 并生成 private key。GitHub 下载的是 PKCS#1，Cloudflare Web Crypto 需要 PKCS#8：
+## 2. Worker
 
-```bash
-openssl pkcs8 -topk8 -nocrypt \
-  -in dispatcher.private-key.pem \
-  -out dispatcher.private-key.pkcs8.pem
-```
+Worker secrets：
 
-## 2. 配置并部署 Worker
+- `WEBHOOK_SECRET`：Review App webhook HMAC secret；
+- `DISPATCH_CLIENT_ID`：Dispatcher App Client ID；
+- `DISPATCH_PRIVATE_KEY_PKCS8`：Dispatcher App 的 PKCS#8 private key。
 
-复制 `worker/README.md` 中的示例，创建 gitignored 的 `wrangler.local.toml`，配置：
+Deployment vars：
 
-- Cloudflare `account_id`；
-- Worker 名称与可选 custom domain；
-- `CONTROL_REPOSITORY=<owner>/<repository>`；
-- `CONTROL_WORKFLOW_REF=<中央 Action 所在 branch 或 tag>`；
-- `ALLOWED_OWNER=<允许审查的 owner>`。
-
-`CONTROL_WORKFLOW_REF` 在部署时确定，只定位控制仓库中的 `agentic-review.yml`；它不读取或限制目标 PR 的分支。
-
-然后登录并配置 secrets：
+- `CONTROL_REPOSITORY=owner/agentic-review`；
+- `CONTROL_WORKFLOW_REF=main` 或固定 tag；
+- `ALLOWED_OWNER=目标 owner`。
 
 ```bash
-pnpm dlx wrangler@4.123.0 login
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml secret put WEBHOOK_SECRET
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml secret put DISPATCH_CLIENT_ID
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml secret put DISPATCH_PRIVATE_KEY_PKCS8
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 ```
 
-- `WEBHOOK_SECRET`：自行生成的随机值，例如 `openssl rand -hex 32`；
-- `DISPATCH_CLIENT_ID`：Dispatcher App Client ID；
-- `DISPATCH_PRIVATE_KEY_PKCS8`：PKCS#8 PEM 完整内容。
+## 3. Review App 与中央仓库
 
-记录 Worker 的 HTTPS URL。
+创建 Review GitHub App，开启 Pull request webhook，并安装到所有目标仓库以及中央仓库。App repository permissions 至少为：
 
-## 3. 创建 Review App
+- `Contents: read`；
+- `Pull requests: write`；
+- `Actions: read`；
+- `Checks: read`；
+- `Metadata: read`（GitHub 默认权限）。
 
-在目标 organization 创建 Review GitHub App：
+中央仓库 Actions variables：
 
-- Webhook URL：Worker HTTPS URL；
-- Webhook secret：与 Worker 的 `WEBHOOK_SECRET` 相同；
-- 订阅事件：`Pull request`；
-- Repository permissions：
-  - Metadata: read；
-  - Contents: read；
-  - Actions: read；
-  - Checks: read and write；
-  - Pull requests: read and write。
+- `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
+- `REVIEW_AGENT_PROVIDER`：例如 `openai`；
+- `REVIEW_AGENT_MODEL`：例如 `gpt-5.6-luna`。
 
-安装到需要审查的仓库，至少包含控制仓库。记录 Client ID 并生成 private key。在控制仓库 Actions 中配置：
+中央仓库 Actions secrets：
 
-- Repository variable `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- Repository secret `AGENTIC_REVIEW_APP_PRIVATE_KEY`：原始 PEM 完整内容；
-- `REVIEW_AGENT_API_KEY`、`REVIEW_AGENT_MODEL`、`REVIEW_AGENT_BASE_URL`。
+- `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
+- `REVIEW_AGENT_API_KEY`：模型 API key。
 
-## 4. 建立合并门禁
+不要把上述 secrets 配到目标仓库。目标仓库不需要 `.github/workflows/review.yml`。
 
-Review App 至少成功创建一次 `Agentic Review / audit` Check 后，在 organization 或 repository Ruleset 中：
+## 4. Review 发布权限验证
 
-1. 将 `Agentic Review / audit` 设为 required status check；
-2. Expected source 选择 Review App；
-3. 开启 `Require conversation resolution before merging`；
-4. Ruleset 的目标 ref 由各仓库治理策略决定，Engine 不假设分支名称。
+每次中央 workflow 会为当前 `owner/name` mint 两个 installation token：
 
-首次上线可先用 Ruleset Evaluate 模式观察，再切换 Active。缺失、运行中或失败的 Check 都会保持不可合并。
+| Token | 用途 | 权限 |
+|---|---|---|
+| read token | checkout、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`pull_requests: read`、`actions: read`、`checks: read` |
+| review token | shaftoe action 的 `github_token` | `contents: read`、`pull_requests: write` |
+
+`review token` 不作为环境变量传给 Pi，只有 shaftoe action 内部的 Octokit provider 能使用它。Agent 最终通过 `create_pull_request_review` 调用 `pulls.createReview`，所以不需要 PAT，也不依赖普通 comment 权限。当前不提供 Lark/known issues 查询工具，后续接入飞书表格时再单独增加只读工具。
+
+如果 Review 发布失败，先检查：
+
+1. Review App 是否安装到目标仓库；
+2. App 是否包含 `Pull requests: write`；
+3. Actions secret 中的 private key 是否属于该 App；
+4. workflow 是否把 `github_token` 绑定到 `steps.review-token.outputs.token`，而不是只绑定只读 `GH_TOKEN`；
+5. `GITHUB_REPOSITORY` 和 `pr_number` 是否指向 webhook 携带的目标 PR。
+
+## 5. 验证
+
+```bash
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm dlx wrangler@4.123.0 deploy --dry-run
+```
+
+用一个测试 PR 确认中央 workflow 日志中：Agent 的 `gh` 使用 read token，最后创建了一个 GitHub Pull Request Review，而不是普通 issue comment。
