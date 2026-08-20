@@ -62,15 +62,16 @@ jobs:
             echo "name=$name"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Mint read-only target token
+      # Agent 的 token 覆盖该 owner 中安装了 Review App 的仓库，供按下游规则查询关联代码、PR 和 Issue；权限始终只读。
+      - name: Mint cross-repository read-only token
         id: read-token
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.AGENTIC_REVIEW_CLIENT_ID }}
           private-key: ${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ steps.target.outputs.owner }}
-          repositories: ${{ steps.target.outputs.name }}
           permission-contents: read
+          permission-issues: read
           permission-pull-requests: read
           permission-actions: read
           permission-checks: read
@@ -243,6 +244,8 @@ jobs:
           # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+          REVIEW_BASE_SHA: ${{ inputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base

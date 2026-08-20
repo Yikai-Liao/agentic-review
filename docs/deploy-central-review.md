@@ -33,9 +33,10 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 
 ## 3. Review App 与中央仓库
 
-创建 Review GitHub App，开启 Pull request webhook，并安装到所有目标仓库以及中央仓库。App repository permissions 至少为：
+创建 Review GitHub App，开启 Pull request webhook，并安装到所有目标仓库、需要查询的同 owner 关联仓库以及中央仓库。App repository permissions 至少为：
 
-- `Contents: read and write`（GitHub GraphQL 的 review thread resolve/unresolve 所需；只签发给隔离的可信 publish job）；
+- `Contents: read and write`（GitHub GraphQL 的 review thread resolve/unresolve 所需；write 只签发给隔离的可信 publish job）；
+- `Issues: read`；
 - `Pull requests: write`；
 - `Actions: read`；
 - `Checks: write`；
@@ -56,19 +57,21 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 
 ## 4. Review 发布权限验证
 
-每次中央 workflow 会为当前 `owner/name` mint 两个 installation token：
+每次中央 workflow 会 mint 两个 installation token：
 
-| Token | 用途 | 权限 |
-|---|---|---|
-| read token | checkout、shaftoe action、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`pull_requests: read`、`actions: read`、`checks: read` |
-| publication token | 隔离的可信 publish job | `contents: write`、`pull_requests: write`、`checks: write` |
+| Token | 仓库范围 | 用途 | 权限 |
+|---|---|---|---|
+| read token | 目标 owner 中安装了 Review App 的仓库 | checkout、shaftoe action、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`issues: read`、`pull_requests: read`、`actions: read`、`checks: read` |
+| publication token | 仅当前目标仓库 | 隔离的可信 publish job | `contents: write`、`pull_requests: write`、`checks: write` |
 
-`publication token` 用于 Check Run，以及 Pi 结束后统一创建 Review、回复历史 thread 和 resolve/reopen。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；可信步骤重新校验结果和当前 PR 快照后才发布。Review footer 还会链接保留 1 天的工作稿 Actions artifact；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。当前不提供 Lark/known issues 查询工具，后续可单独增加只读 skill 和工具。
+下游仓库可以在 `.agentic-review.md` 中用自然语言说明相关仓库、known issue 来源和项目状态语义；Agent 按 PR head 理解预期合并后的语义，只在当前 finding 确有需要时查询。新增私有跨仓库读取范围必须已存在于 merge base；单个 installation token 不能跨 GitHub owner，其他 owner 的私有仓库需要单独的 installation/token 设计。
+
+`publication token` 用于 Check Run，以及 Pi 结束后统一创建 Review、回复当前 PR 历史 thread 和 resolve/reopen。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；可信步骤重新校验结果和当前 PR 快照后才发布。Review footer 还会链接保留 1 天的工作稿 Actions artifact；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 skills 和只读 `gh`；未来 Lark CLI 通过独立来源 skill 接入同一套 known issue 规则。
 
 如果 Review 发布失败，先检查：
 
-1. Review App 是否安装到目标仓库；
-2. App 是否包含 `Pull requests: write` 和 `Contents: read and write`，且安装已接受最新权限；
+1. Review App 是否安装到目标仓库和需要读取的关联仓库；
+2. App 是否包含 `Issues: read`、`Pull requests: write` 和 `Contents: read and write`，且安装已接受最新权限；
 3. Actions secret 中的 private key 是否属于该 App；
 4. review job 的 `github_token` 是否仍绑定只读 token，且 write token 只进入 publish job；
 5. publisher 使用的 `repository`、`pull_number` 和 base/head SHA 是否来自 webhook dispatch input。

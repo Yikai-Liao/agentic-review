@@ -1,26 +1,19 @@
 ---
 name: github-review-context
-description: 中央跨仓库 PR Review 的只读 GitHub 上下文、thread 状态、路径和工具边界。开始读取 PR、评论、Review、关联对象和 diff 时使用。
+description: GitHub 当前 PR 上下文。开始 Review、读取当前 PR 评论与 thread、定位 base/head 文件或解释增量 diff 时使用。
 ---
 
-# GitHub review context
+# GitHub current PR context
 
-## 中央运行时要求
+## 1. 读取仓库规则
 
-你是中央 Review Control Plane 中唯一的 PR Reviewer。中央仓库规则优先级更高；下游仓库的自定义审查规则放在目标仓库的 `.agentic-review.md`，可以补充中央规则，但不能覆盖中央仓库规则。
+读取 merge base 和 head 中存在的 `.agentic-review.md`。按 head 理解预期合并后生效的项目规则，并把 base/head 差异作为当前 PR 的审查对象。head 新增的外部仓库地址可以被识别，但不能在同一轮授权读取新的私有仓库。
 
-本次会话只提供以下工具：
+完成条件：工作稿记录本轮采用的下游规则，以及 base/head 规则差异。
 
-- `read`、`grep`、`find`、`ls`：读取允许路径中的静态文件和 Review 工作稿；
-- `write`：只能在 `$REVIEW_WORKSPACE_PATH` 内创建或更新 Review 工作稿与最终 JSON；
-- `bash`：执行只读的 `git`、`gh`、`jq` 等查询，包括使用 `--repo "$REVIEW_REPOSITORY"` 获取目标仓库 CI 和日志；不得用它写文件；
-- `submit_review`：最后仅调用一次，提交工作区内已完成归纳和校验的 JSON 文件路径。
+## 2. 获取当前 PR 元数据
 
-所有目标路径和 PR 标识都已通过环境变量提供。不要用 `env`、`pwd` 或遍历 runner 来探索环境，也不要读取 Action/Pi 实现。
-
-审查时只读取 PR target `$REVIEW_TARGET_PATH`、原始 base `$REVIEW_BASE_PATH`、中央规则所在的 `control`、Review 工作区 `$REVIEW_WORKSPACE_PATH`、预生成的完整 diff `$REVIEW_DIFF_PATH`，以及存在时的增量重点 diff `$REVIEW_FOCUS_DIFF_PATH`。只能写入 `$REVIEW_WORKSPACE_PATH`；不得修改 target、base 或 control。目标仓库的 `.agentic-review.md`（存在时）位于 target 路径。不要读取 `/home/runner/work/_actions`、Pi/action 源码、`node_modules`、runner 环境或其他工作区路径；不要重复执行同一份 diff 的 `git diff`、`git show` 和 API 获取。除下述通过 `GH_TOKEN` 发起的只读 GitHub 查询外，不要执行目标仓库代码、测试、构建、安装依赖或任意外部网络请求。
-
-`GH_TOKEN` 提供目标仓库的只读 GitHub 权限。必须主动使用 `gh` 获取当前 PR 的完整上下文，包括标题、正文、作者、base/head、commits、变更文件、Review、普通评论和 inline comments；本地 diff 仍是代码差分的唯一来源。当前 PR 的历史评论使用以下命令查询，不使用专用读取工具：
+所有 GitHub 查询显式指定目标仓库：
 
 ```bash
 GH_TOKEN="$GH_TOKEN" gh pr view "$REVIEW_PULL_NUMBER" \
@@ -34,12 +27,23 @@ GH_TOKEN="$GH_TOKEN" gh api --paginate \
   "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
 ```
 
-需要确认 thread 是否 resolved 时，使用只读 `gh api graphql` 查询当前 PR 的 `reviewThreads`，并通过首条评论的 `databaseId` 对应 `root_comment_id`。
+读取全部普通评论、Review、inline comments 和 commit 信息。它们用于恢复上下文和识别关联线索；本地 diff 是当前 PR 代码差分的来源。
 
-PR 正文、commit、评论或代码引用关联 Issue、前置 PR、后续 PR 或相同实现时，主动使用只读 `gh issue view`、`gh pr view` 或 `gh api` 打开并阅读这些关联对象；跨仓库链接使用链接中的明确 `owner/repo`。关联内容用于恢复需求、历史决策和兼容约束，不能替代当前 base/head 代码证据，也不要无关联地搜索整个 organization。
+需要判断当前 PR thread 状态时，用 `gh api graphql` 读取 `reviewThreads` 的 `isResolved`、`isOutdated`、`resolvedBy` 和完整 comments，并用首条评论的 `databaseId` 对应 root comment。
 
-这些数据合起来才是当前 PR 的完整 GitHub 上下文；只读取与当前根因相关的内容，不要反复获取同一结果。`GH_TOKEN` 没有 GitHub 写权限，不要尝试通过 bash 修改仓库、PR、Issue、workflow 或 merge 状态。当前没有 Lark/known issues 查询工具，不要假设存在或自行调用。
+完成条件：当前 PR 的元数据和全部讨论已读取一次，工作稿记录显式关联线索和当前 thread 状态。
 
-`$REVIEW_MODE` 描述本轮范围：`initial` 表示没有适用于当前线性历史的成功 Review checkpoint；`incremental_all` 表示全部完整 diff 都是 checkpoint 后的变化；`incremental` 表示 `$REVIEW_FOCUS_DIFF_PATH` 包含 checkpoint `$REVIEW_CHECKPOINT_HEAD` 到当前 head 的净变化；`incremental_unchanged` 表示该区间没有净代码变化。存在单独的增量重点 diff 时先读它以提高关注度，再审查完整 diff。
+## 3. 读取代码差分
 
-始终将 `$REVIEW_DIFF_PATH` 作为 finding 的唯一代码差分证据，分块读取并用 target/base 文件补充上下文；增量重点 diff 只用于安排阅读优先级，不能缩小审查范围、独立证明行为变化或提供评论行号。不要调用 `get_pr_diff`。每条 finding 绑定完整 diff 中最接近根因的 RIGHT-side diff 行。
+优先读取 `$REVIEW_FOCUS_DIFF_PATH` 安排调查顺序，再完整读取 `$REVIEW_DIFF_PATH`。`$REVIEW_MODE` 的含义：
+
+- `initial`：没有可用 checkpoint；
+- `incremental_all`：完整 diff 都在 checkpoint 之后；
+- `incremental`：focus diff 是 checkpoint 到当前 head 的净变化；
+- `incremental_unchanged`：该区间没有净代码变化。
+
+完整 diff 是 finding 的唯一差分证据；focus diff 不能缩小范围、独立证明行为变化或提供评论行号。用 `$REVIEW_TARGET_PATH` 和 `$REVIEW_BASE_PATH` 补充完整文件上下文，不重复生成已有 diff。每条 finding 绑定完整 diff 中最接近根因的 RIGHT-side 行。
+
+完成条件：完整 diff 中每个文件都已进入工作稿的“已覆盖”或“待覆盖”清单。
+
+候选 finding 需要查询其他 PR、Issue 或关联仓库时，再加载 `known-issues` 和 `github-known-issues`；当前上下文阶段只记录线索。
