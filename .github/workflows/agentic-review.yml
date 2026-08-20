@@ -115,6 +115,7 @@ jobs:
 
       - name: Start required Check
         id: check
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ inputs.repository }}
@@ -305,7 +306,7 @@ jobs:
         run: pnpm tsx scripts/publish-review.ts
 
       - name: Complete required Check
-        if: always()
+        if: always() && needs.start.outputs.check_id != ''
         working-directory: control
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
@@ -315,5 +316,5 @@ jobs:
         run: pnpm tsx scripts/github-check.ts complete
 
       - name: Fail closed
-        if: always() && (needs.review.result != 'success' || steps.publish.outcome != 'success')
+        if: always() && (needs.start.outputs.check_id == '' || needs.review.result != 'success' || steps.publish.outcome != 'success')
         run: exit 1
