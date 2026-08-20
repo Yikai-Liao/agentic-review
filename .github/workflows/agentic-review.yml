@@ -199,6 +199,42 @@ jobs:
           fi
           node control/scripts/finalize-review-focus.mjs
 
+      - name: Cache Lark CLI
+        id: lark-cli-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/lark-cli/1.0.88
+          key: lark-cli-${{ runner.os }}-${{ runner.arch }}-1.0.88
+
+      - name: Install Lark CLI
+        if: steps.lark-cli-cache.outputs.cache-hit != 'true'
+        env:
+          LARK_CLI_VERSION: 1.0.88
+          LARK_CLI_SHA256: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
+        run: |
+          archive="lark-cli-$LARK_CLI_VERSION-linux-amd64.tar.gz"
+          tool_dir="$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION"
+          mkdir -p "$tool_dir"
+          curl --fail --location --silent --show-error \
+            "https://github.com/larksuite/cli/releases/download/v$LARK_CLI_VERSION/$archive" \
+            --output "$RUNNER_TEMP/$archive"
+          echo "$LARK_CLI_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$tool_dir" lark-cli
+
+      - name: Configure read-only Lark CLI
+        env:
+          LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
+          LARKSUITE_CLI_APP_SECRET: ${{ secrets.AGENTIC_REVIEW_LARK_APP_SECRET }}
+          LARKSUITE_CLI_BRAND: feishu
+          LARKSUITE_CLI_DEFAULT_AS: bot
+          LARKSUITE_CLI_STRICT_MODE: bot
+          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
+          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
+        run: |
+          echo "$RUNNER_TOOL_CACHE/lark-cli/1.0.88" >> "$GITHUB_PATH"
+          "$RUNNER_TOOL_CACHE/lark-cli/1.0.88/lark-cli" auth check \
+            --scope "search:docs:read docx:document:readonly wiki:node:retrieve drive:drive.metadata:readonly"
+
       # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
       - name: Configure Pi runtime
         env:
@@ -241,6 +277,14 @@ jobs:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          # Lark CLI 固定为应用身份；飞书应用只授予文档/Wiki 检索与读取 scope。
+          LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
+          LARKSUITE_CLI_APP_SECRET: ${{ secrets.AGENTIC_REVIEW_LARK_APP_SECRET }}
+          LARKSUITE_CLI_BRAND: feishu
+          LARKSUITE_CLI_DEFAULT_AS: bot
+          LARKSUITE_CLI_STRICT_MODE: bot
+          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
+          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
           # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
