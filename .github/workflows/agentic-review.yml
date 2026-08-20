@@ -249,7 +249,7 @@ jobs:
           name: review-workspace-${{ github.run_id }}
           path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
       # 只把无凭证最终结果传给新的 runner；结果始终按不可信输入处理。
       - name: Upload review result
