@@ -134,6 +134,8 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 
 常见有效 witness 包括新 guard 两侧与恰好边界、独立权限/租户/敏感信息边界、异常或终态、平台/runtime/编码/精度、并发时序和清理、不同 consumer 或一个现有测试杀不死但可从当前生产结构推导的漏字段、漏项、错误映射或比较符。不同 test 名、普通 literal、局部变量、fixture 描述、重复同一路径以及“多一个样本更保险”不构成 witness。
 
+“实现可能硬编码 base fixture 的 literal 或 expected”也不构成 witness；只有生产代码、当前 diff 的生产/契约变更，或 PR 之前的独立契约已存在按该 literal、数据表、枚举成员或对应来源分支的静态证据时，才能据此区分 member。待审查的 test、fixture、assertion、expected 以及同一 PR 为其新增的说明不能提供该例外。不得仅因为第二个样本能击败臆造的 hard-code，就保留同一普通 partition 的额外代表。
+
 base 已有代表时，没有 witness 的新增成员进入候选；base 没有代表时保留覆盖该 fingerprint 的最小成员，其余成员必须提供 witness。参数化只减少代码重复，不增加故障检测能力。
 
 ## 6. 独立反证、归因与去重
@@ -148,7 +150,7 @@ base 已有代表时，没有 witness 的新增成员进入候选；base 没有�
 - **T2 测试过约束**：现实允许变化会被新增/修改测试拒绝、被固定属性没有独立契约，并能指出更窄且完整的判定边界；
 - **T2 冗余测试信号**：candidate oracle 已被蕴含，或与代表具有相同 responsibility、partition、path、oracle、failure mode 和层级；deletion test 找不到 witness；独立价值 veto 失败；后果是零边际检测、重复失败信号或重复维护点。
 
-finding 按 redundancy cluster 去重，只合并相同 focal behavior、partition/boundary role、oracle、failure mode 和测试层级的成员。不同生产符号、业务责任、外部边界或 failure mode 不能因为位于同一 evidence batch、来自“AI 批量生成”或都“重复 base coverage”而合并。
+finding 按 redundancy cluster 去重，只合并相同 focal behavior、partition/boundary role、oracle、failure mode 和测试层级的成员。不同生产符号、业务责任、外部边界或 failure mode 不能因为位于同一 evidence batch、来自“AI 批量生成”或都“重复 base coverage”而合并。同一 cluster 内的 exact clone、alpha rename、普通 literal family、subsumed assertion 和 duplicate assertion 是同一根因的不同证据，不得各自生成 finding。
 
 同一 test 整体冗余且内部还有 duplicate assertion 时，优先报告可删除整个 test 的 finding，并把重复 assertion 作为补充证据；若 test 有独立 witness，则只报告 duplicate assertion。
 
@@ -172,8 +174,8 @@ branch router：T1 / change-detector / zero-marginal / not applicable
 candidate proof：violating / allowed / deletion / none
 最强 veto：
 结论：保留 / T1 / T2-change-detector / T2-zero-marginal / 并入生产 finding
-cluster key：
-finding 草稿：可直接发布的标题、位置、影响和证明 / none
+
+cluster index：cluster key → 全部 member ID → 唯一 finding 草稿 / none
 ```
 
 正常情况下 complete batch 不复制进后续工作稿。新证据改变结论时重新打开并精确更新原文件；不能为遵守 checkpoint 形式保留已失效结论。
@@ -184,6 +186,6 @@ finding 草稿：可直接发布的标题、位置、影响和证明 / none
 - 每个 family 只共享责任、生产边界和测试层级；每个 fingerprint 分别记录 partition、actual/oracle 路径、failure mode、风险维度和 branch 结论；member 只记录语义差异；
 - 每个适用分支满足对应的 violating、allowed 或 deletion/witness 证明；
 - 每个 literal-varying family 有最小代表集，每个保留的新 member 有独立 boundary 或 witness；
-- finding cluster 没有因 batch 分组而过度合并；
+- finding cluster 没有因 batch 分组而过度合并；相同 cluster key 在全部 batch 中恰好对应一个 finding 草稿；
 - 最终只汇总 complete batch 的结论和 surviving finding 草稿，除关联冲突外不重新执行无 finding batch；
 - 没有以测试通过、CI 绿色、输入不同、代码形状或“只是 smell”为由跳过静态可证明的问题。
