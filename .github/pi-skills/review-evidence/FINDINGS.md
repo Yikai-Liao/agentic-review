@@ -51,7 +51,7 @@
 
 **📌 问题与触发**
 
-说明应保持的结果、现实入口和 base/head 差异；性能写成本变化，测试写允许或错误变化的判定。
+说明应保持的结果、现实入口和 base/head 差异；性能写成本变化，测试写对应分支的判定证明。
 
 **💥 影响**
 
@@ -79,11 +79,12 @@ base: 1 次批量请求处理最多 N 个对象
 head: 1 + N 次远程请求；N=100 时至少 101 次往返
 ```
 
-测试 finding 必须给出允许变化或错误变化，例如：
+测试 finding 必须给出对应分支的证明：T1 使用 violating probe，T2 change detector 使用 allowed-change probe，T2 redundancy 使用 deletion test、base/sibling 覆盖和缺失 unique witness 的证明。例如：
 
 ```text
-允许变化：新增合法命令 c，契约仍只要求 a、b 可用；完整列表 equality 会失败。
 错误变化：默认值改错，expected 与实现共用常量；测试仍会通过。
+允许变化：新增合法命令 c，契约仍只要求 a、b 可用；完整列表 equality 会失败。
+删除测试：base 已覆盖相同路径、partition 和 oracle；删除后没有现实契约错误会漏过相关 suite。
 ```
 
 单行足以表达根因时只选单行；只有声明、条件、调用或错误处理共同构成根因时才覆盖连续范围。单行使用 `start_line: null` 和 `start_side: null`。
@@ -107,7 +108,7 @@ T2→T1、P2→P1/P0，或性能从有界路径变成无界/常见路径，属�
 
 - `review-workspace` 的 change ledger 已满足完成条件；
 - 每条 finding 都有 base/head 差分、现实入口、完整路径和可观察边界；
-- T finding 有明确 false positive 或 false negative 反例；
+- T finding 有对应分支的证明：T1 的 violating probe、T2 change detector 的 allowed-change probe，或 T2 redundancy 的 deletion test、base/sibling 覆盖和缺失 unique witness；
 - 性能 finding 有规模、成本函数和数量级或复杂度证据；
 - 上游保护、合法例外、base 行为和已有 thread 已检查；
 - 同一根因没有同时输出 P、T 和人工确认；

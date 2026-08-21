@@ -16,7 +16,7 @@ description: PR 静态审查的行为正确性、测试契约、性能成本、�
 - CI 能稳定直接发现的格式、编译、类型或测试错误；
 - 单纯缺少测试、覆盖率、注释、文档或 benchmark；
 - 命名、布局、风格、抽象和架构偏好；
-- anti-pattern、test smell 或危险代码形状本身；
+- anti-pattern、test smell 或危险代码形状本身；但 `TEST-CONTRACTS.md` 已静态证明 false verdict、assertion subsumption 或 zero-marginal signal 的情况除外；
 - 没有真实路径、输入规模和成本差分的性能猜测；
 - 必须依赖运行时 profile、压测或查询计划且静态代码无法证明的问题。
 
