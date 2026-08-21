@@ -277,10 +277,11 @@ jobs:
           # 暂时使用上方启用的 Pi 默认 compaction，仅加载本地 Review 工具。
           extensions: |
             control/.github/pi-extensions/review-tools.ts
-          # write 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
+          # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |
             read
             write
+            edit
             grep
             find
             ls
