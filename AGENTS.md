@@ -28,3 +28,9 @@ This repository is privately maintained by a trusted maintainer. Self-review of 
 The candidate Engine is trusted code in this repository's maintenance model, not an untrusted-code sandbox. The self-review job may therefore expose the model runtime credential to the candidate process. This is an accepted boundary for trusted-maintainer regression protection; it must not be described as protection against a malicious contributor.
 
 For ordinary downstream repositories, the Review Engine treats the target pull request as static input and does not execute target-repository code.
+
+## Internal Lark trust boundary
+
+All downstream repositories are private and their authors are employees in the same Lark data trust domain. The Review Agent may therefore receive a short-lived tenant token for the read-only-scoped app and invoke the official Lark CLI directly. Limiting queries to merge-base-declared sources is an operational Review rule, not a sandbox against a malicious employee; such an employee already has simpler direct access to these documents.
+
+The long-lived App Secret remains in a trusted pre-Agent workflow step, and executable caches must be finalized before the Agent starts. If external repositories or contributors are admitted, redesign the Lark access boundary before enabling Review for them.

@@ -33,7 +33,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare-lark-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Cache is finalized before any Agent starts, so Agent writes cannot persist across runs.
+      - name: Cache Lark CLI archive
+        id: lark-cli-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/lark-cli-archives/${{ env.LARK_CLI_VERSION }}
+          key: lark-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.LARK_CLI_VERSION }}
+
+      - name: Download Lark CLI archive
+        if: steps.lark-cli-cache.outputs.cache-hit != 'true'
+        run: |
+          archive="lark-cli-$LARK_CLI_VERSION-linux-amd64.tar.gz"
+          archive_dir="$RUNNER_TOOL_CACHE/lark-cli-archives/$LARK_CLI_VERSION"
+          mkdir -p "$archive_dir"
+          curl --fail --location --silent --show-error \
+            "https://github.com/larksuite/cli/releases/download/v$LARK_CLI_VERSION/$archive" \
+            --output "$archive_dir/$archive"
+          echo "$LARK_CLI_SHA256_LINUX_AMD64  $archive_dir/$archive" | sha256sum --check --strict
+
   review:
+    needs: prepare-lark-cli
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -203,24 +227,22 @@ jobs:
           fi
           node control/scripts/finalize-review-focus.mjs
 
-      - name: Cache Lark CLI
-        id: lark-cli-cache
+      - name: Restore Lark CLI archive
         uses: actions/cache@v6.1.0
         with:
-          path: ${{ runner.tool_cache }}/lark-cli/${{ env.LARK_CLI_VERSION }}
+          path: ${{ runner.tool_cache }}/lark-cli-archives/${{ env.LARK_CLI_VERSION }}
           key: lark-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.LARK_CLI_VERSION }}
+          fail-on-cache-miss: true
 
       - name: Install Lark CLI
-        if: steps.lark-cli-cache.outputs.cache-hit != 'true'
         run: |
           archive="lark-cli-$LARK_CLI_VERSION-linux-amd64.tar.gz"
-          tool_dir="$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION"
+          archive_path="$RUNNER_TOOL_CACHE/lark-cli-archives/$LARK_CLI_VERSION/$archive"
+          tool_dir="$RUNNER_TEMP/lark-cli/$LARK_CLI_VERSION"
+          echo "$LARK_CLI_SHA256_LINUX_AMD64  $archive_path" | sha256sum --check --strict
           mkdir -p "$tool_dir"
-          curl --fail --location --silent --show-error \
-            "https://github.com/larksuite/cli/releases/download/v$LARK_CLI_VERSION/$archive" \
-            --output "$RUNNER_TEMP/$archive"
-          echo "$LARK_CLI_SHA256_LINUX_AMD64  $RUNNER_TEMP/$archive" | sha256sum --check --strict
-          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$tool_dir" lark-cli
+          tar --extract --gzip --file "$archive_path" --directory "$tool_dir" lark-cli
+          echo "$tool_dir" >> "$GITHUB_PATH"
 
       - name: Configure read-only Lark CLI
         env:
@@ -232,8 +254,18 @@ jobs:
           LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
           LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
         run: |
-          echo "$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION" >> "$GITHUB_PATH"
-          "$RUNNER_TOOL_CACHE/lark-cli/$LARK_CLI_VERSION/lark-cli" auth check \
+          response=$(curl --fail --silent --show-error \
+            'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal' \
+            --header 'Content-Type: application/json; charset=utf-8' \
+            --data "$(jq -nc \
+              --arg app_id "$LARKSUITE_CLI_APP_ID" \
+              --arg app_secret "$LARKSUITE_CLI_APP_SECRET" \
+              '{app_id: $app_id, app_secret: $app_secret}')")
+          token=$(jq -er 'if .code == 0 then .tenant_access_token else error(.msg) end' <<< "$response")
+          echo "::add-mask::$token"
+          echo "LARKSUITE_CLI_TENANT_ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+          export LARKSUITE_CLI_TENANT_ACCESS_TOKEN="$token"
+          lark-cli auth check \
             --scope "search:docs:read docx:document:readonly wiki:node:retrieve drive:drive.metadata:readonly base:app:read base:table:read base:field:read base:record:read"
 
       # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
@@ -278,9 +310,8 @@ jobs:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          # Lark CLI 固定为应用身份；飞书应用只授予文档/Wiki 检索与读取 scope。
+          # Lark CLI 固定为应用身份；Agent 只继承本轮短期 tenant token，不接触 App Secret。
           LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
-          LARKSUITE_CLI_APP_SECRET: ${{ secrets.AGENTIC_REVIEW_LARK_APP_SECRET }}
           LARKSUITE_CLI_BRAND: feishu
           LARKSUITE_CLI_DEFAULT_AS: bot
           LARKSUITE_CLI_STRICT_MODE: bot
