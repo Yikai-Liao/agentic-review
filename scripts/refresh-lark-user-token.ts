@@ -85,12 +85,28 @@ function parseTokens(response: Response, body: TokenResponse) {
 async function publishTokens(
   repository: string,
   tokens: ReturnType<typeof parseTokens>,
-  { setSecret: save = setSecret, mask = (value) => console.log(`::add-mask::${value}`) }: Dependencies,
+  {
+    setSecret: save = setSecret,
+    mask = (value) => console.log(`::add-mask::${value}`),
+    sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  }: Dependencies,
 ) {
+  const persist = async (name: string, value: string) => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await save(repository, name, value);
+        return;
+      } catch (error) {
+        if (attempt === 5) throw error;
+        await sleep(1000 * 2 ** (attempt - 1));
+      }
+    }
+  };
+
   mask(tokens.accessToken);
   mask(tokens.refreshToken);
-  await save(repository, 'AGENTIC_REVIEW_LARK_REFRESH_TOKEN', tokens.refreshToken);
-  await save(repository, 'AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN', tokens.accessToken);
+  await persist('AGENTIC_REVIEW_LARK_REFRESH_TOKEN', tokens.refreshToken);
+  await persist('AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN', tokens.accessToken);
   return { expiresIn: tokens.expiresIn, refreshExpiresIn: tokens.refreshExpiresIn };
 }
 

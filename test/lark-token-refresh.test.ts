@@ -42,6 +42,24 @@ test('rotates the single-use refresh token before publishing the access token', 
   assert.deepEqual(result, { expiresIn: 7200, refreshExpiresIn: 2592000 });
 });
 
+test('retries persistence of a newly rotated refresh token', async () => {
+  let attempts = 0;
+  const sleeps: number[] = [];
+  await refreshLarkUserToken(input, {
+    fetchImpl: async () => Response.json({
+      access_token: 'access-new',
+      refresh_token: 'refresh-new',
+    }),
+    setSecret: async (_repository, name) => {
+      if (name === 'AGENTIC_REVIEW_LARK_REFRESH_TOKEN' && attempts++ === 0) throw new Error('temporary failure');
+    },
+    mask: () => {},
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); },
+  });
+  assert.equal(attempts, 2);
+  assert.deepEqual(sleeps, [1000]);
+});
+
 test('authorizes one user through device flow and stores both tokens', async () => {
   const requests: Array<{ url: string; body: string }> = [];
   const messages: string[] = [];
