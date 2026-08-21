@@ -81,12 +81,19 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 
 ### 首次授权维护者账号
 
-PR 合并后，在中央仓库 Actions 页面手动运行 **Refresh Lark User Token**，将 `authorize` 设为 `true`。立即打开运行日志中的飞书验证 URL，使用维护者本人账号确认授权。workflow 通过飞书 device flow 取得 UAT 与单次 refresh token，并直接创建：
+PR 合并后，使用有权操作中央仓库的维护者 GitHub 账号执行：
+
+```bash
+gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
+  -f event_type=authorize-lark-user
+```
+
+`repository_dispatch` 只加载默认分支上的可信 workflow，避免误选 PR branch 执行持有中央凭证的代码。立即打开 **Refresh Lark User Token** 运行日志中的飞书验证 URL，使用维护者本人账号确认授权。workflow 通过飞书 device flow 取得 UAT 与单次 refresh token，并直接创建：
 
 - `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN`；
 - `AGENTIC_REVIEW_LARK_REFRESH_TOKEN`。
 
-之后 workflow 每小时串行刷新一次，先保存新 refresh token，再保存新 UAT，避免并发消费同一代 refresh token。Secret 写入使用幂等指数退避重试；连续五次失败才使 Action 失败。token 被撤销、过期或需要重新授权时，再手动运行一次 `authorize=true`。
+之后 workflow 每小时串行刷新一次，先保存新 refresh token，再保存新 UAT，避免并发消费同一代 refresh token。Secret 写入使用幂等指数退避重试；连续五次失败才使 Action 失败。token 被撤销、过期或需要重新授权时，再发送一次上述 `repository_dispatch`。
 
 ### 验证主企业与三个子企业
 

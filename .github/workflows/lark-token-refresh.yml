@@ -3,13 +3,8 @@ name: Refresh Lark User Token
 on:
   schedule:
     - cron: '17 * * * *'
-  workflow_dispatch:
-    inputs:
-      authorize:
-        description: Authorize the configured Lark user instead of refreshing
-        required: true
-        default: false
-        type: boolean
+  repository_dispatch:
+    types: [authorize-lark-user]
 
 permissions:
   contents: read
@@ -47,5 +42,5 @@ jobs:
           LARK_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
           LARK_APP_SECRET: ${{ secrets.AGENTIC_REVIEW_LARK_APP_SECRET }}
           LARK_REFRESH_TOKEN: ${{ secrets.AGENTIC_REVIEW_LARK_REFRESH_TOKEN }}
-          LARK_AUTHORIZE: ${{ inputs.authorize }}
+          LARK_AUTHORIZE: ${{ github.event_name == 'repository_dispatch' }}
         run: node scripts/refresh-lark-user-token.ts

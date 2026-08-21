@@ -84,7 +84,7 @@ Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head �
 
 中央管理员在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，为用户身份申请 `offline_access`、`search:docs:read`、`docx:document:readonly`、`wiki:node:retrieve`、`drive:drive.metadata:readonly`、`base:app:read`、`base:table:read`、`base:field:read` 与 `base:record:read`，发布版本并通过管理员审核。当前部署由维护者本人完成 OAuth 授权，Lark CLI 的可见范围因此与该用户在飞书客户端中能看到的资料一致；不需要添加机器人能力或逐篇“添加文档应用”。
 
-中央 `Refresh Lark User Token` workflow 首次手动运行时选择 `authorize=true`，维护者打开日志中的飞书验证 URL 完成授权；workflow 将 UAT 和单次 refresh token 写入中央仓库 Secrets。之后定时任务每小时串行刷新并轮换两项 secret，Review job 只读取当前 UAT，不持久化 CLI 登录态，也不需要 self-hosted runner。写 secret 使用一个只安装到中央仓库、仅有 `Secrets: write` 的独立 GitHub App。
+首次授权时，维护者执行 `gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches -f event_type=authorize-lark-user`，再打开 `Refresh Lark User Token` 日志中的飞书验证 URL；默认分支 workflow 将 UAT 和单次 refresh token 写入中央仓库 Secrets。之后定时任务每小时串行刷新并轮换两项 secret，Review job 只读取当前 UAT，不持久化 CLI 登录态，也不需要 self-hosted runner。写 secret 使用一个只安装到中央仓库、仅有 `Secrets: write` 的独立 GitHub App。
 
 主企业与三个子企业无需共享同一个飞书应用身份；只要该维护者账号在飞书客户端中本来就能打开相应 Docx、Wiki 或多维表格，用户 UAT 就沿用同一可见范围。各项目只需在已合并的 `.agentic-review.md` 写明完整 URL、触发条件，以及 Base 的 Issue 表、关键字段和状态语义；下游仓库不保存飞书密钥，也不安装 CLI。
 

@@ -7,9 +7,9 @@ description: 自动 PR Review 的最终 finding 归因合并、review-result.jso
 
 ## 最终归纳
 
-完成全量审查后，读取完整工作稿，并重新检查所有准备发布的代码位置、相关历史 thread 和 known issue 关联。若会话发生过 compact，或无法准确确认某项约束，再按需重新读取对应 skill。
+完成全量审查后，先读取 `notes.md` 中的覆盖状态、complete batch 的结论和 surviving finding 草稿。确认每个 ledger/census 关联都已由 complete batch 覆盖；不要为最终归纳重新执行已经完成且没有关联候选的 batch。只有 finding 可能共享根因、cluster key 冲突、覆盖状态不一致、会话发生过 compact 或无法准确确认约束时，才重新读取相关 batch 的完整证明、代码位置、历史 thread、known issue 或对应 skill。
 
-然后按根因重新聚类：合并重复项，将表层症状提升到已证明的最深共享根因，删除被反证的候选，并检查每条 finding 的严重度、证据、RIGHT-side diff 位置和独立可读性。只有完成这次最终归纳后才能生成 JSON。
+然后按根因重新聚类：合并重复项，将表层症状提升到已证明的最深共享根因，删除被反证的候选，并检查每条 finding 的严重度、证据、RIGHT-side diff 位置和独立可读性。最终覆盖状态可用 `edit` 更新到 `notes.md`；能与 JSON 同一工具批次完成时，不为更新工作稿增加单独回合。只有完成这次最终归纳后才能生成 JSON。
 
 ## 最终 JSON
 
@@ -45,7 +45,7 @@ description: 自动 PR Review 的最终 finding 归因合并、review-result.jso
 - 没有新 finding 或 thread update 时使用空数组，仍然必须提供完整 `body`。
 - 文件不得超过 1 MB，不得包含额外字段、注释、Markdown fence 或 trailing text。
 
-写完后重新读取 JSON，确认工作稿中的每个已确认问题都已被合并、发布或明确排除，并用只读 `jq -e . "$REVIEW_WORKSPACE_PATH/review-result.json"` 检查 JSON 语法。
+写完后重新读取 JSON，确认 complete batch 中每个 surviving finding 都已被合并、发布或明确排除。GitHub Actions Runner 已提供 `jq` CLI；通过 `bash` 执行只读的 `jq -e . "$REVIEW_WORKSPACE_PATH/review-result.json"` 检查 JSON 语法。
 
 ## 唯一提交
 

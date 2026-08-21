@@ -294,6 +294,7 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
+        timeout-minutes: 15
         uses: shaftoe/pi-coding-agent-action@v2.27.0
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
@@ -338,12 +339,15 @@ jobs:
           auto_compaction: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
           load_builtin_extensions: false
-          # 中央扩展只写完整 Review 结果，不直接调用 GitHub 写 API。
-          extensions: control/.github/pi-extensions/review-tools.ts
-          # write 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
+          # smart-compact 暂停使用；npm 扩展无法解析 action 内置的 Pi peer modules。
+          # 暂时使用上方启用的 Pi 默认 compaction，仅加载本地 Review 工具。
+          extensions: |
+            control/.github/pi-extensions/review-tools.ts
+          # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |
             read
             write
+            edit
             grep
             find
             ls
