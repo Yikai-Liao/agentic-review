@@ -11,7 +11,7 @@ Review App pull_request webhook
   -> Cloudflare Worker
   -> 中央仓库 agentic-review.yml
   -> shaftoe/pi-coding-agent-action（只读分析）
-  -> 只读 gh + bot 身份 Lark CLI（按候选定向查询）
+  -> 只读 gh + 维护者用户身份 Lark CLI（按候选定向查询）
   -> 中央 skills + 持久化工作稿
   -> submit_review 封存最终 JSON 文件
   -> 隔离的可信 publisher 创建 Review、更新 thread 并链接工作稿 artifact
@@ -37,7 +37,7 @@ Review App private key（只在中央 Actions secret）
        -> 隔离的可信 publish job：Review、完成 Check、thread 回复和 resolve/reopen
 ```
 
-Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖同一 GitHub App installation 中的仓库，但密码学上没有写权限；Token B 只供 Agent 启动前的可信 workflow step 使用。可信 workflow 使用独立飞书企业自建应用的 App ID/Secret 获取短期 tenant access token，App Secret 不进入 Agent；Agent 用短期 token 和官方 Lark CLI 以 bot 身份直接查询。该应用只申请文档/Wiki 检索读取和多维表格结构/记录读取 scope，并且只被加入明确授权的文档、Wiki 或 Base。下游仓库在 `.agentic-review.md` 中用自然语言说明项目相关仓库和 known issue 来源。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义，并只在当前 finding 确有需要时查询；新增私有 GitHub 或飞书读取范围必须已存在于 merge base。`loaded_tools` 不加载任何内置 GitHub 写工具；`write` 只用于隔离 Review 工作区，`submit_review` 只封存该工作区内的最终 JSON 文件。
+Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖同一 GitHub App installation 中的仓库，但密码学上没有写权限；Token B 只供 Agent 启动前的可信 workflow step 使用。Lark CLI 使用维护者本人 OAuth 授权产生的 user access token，其文档范围与该用户在飞书中的实际可见范围一致。独立定时 workflow 持有 App Secret 和单次 refresh token，每小时串行刷新并原地轮换中央仓库 Secrets；Review Agent 只收到当前 UAT，固定为 user 身份，不读取 App Secret 或 refresh token。下游仓库在 `.agentic-review.md` 中用自然语言说明项目相关仓库和 known issue 来源。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义，并只在当前 finding 确有需要时查询；新增私有 GitHub 或飞书读取范围必须已存在于 merge base。`loaded_tools` 不加载任何内置 GitHub 写工具；`write` 只用于隔离 Review 工作区，`submit_review` 只封存该工作区内的最终 JSON 文件。
 
 同一 PR 的 Review workflow 串行执行。Pi 结束后，可信 publisher 将自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，再处理已有 thread 的状态变化；即使期间出现新快照，旧结果仍先形成历史 thread，后续 Review 再根据新代码更新或关闭。Publisher 会重新校验 schema、root comment 和 bot 身份。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。任何发布失败仍会使 Review Check 失败。
 
@@ -54,4 +54,4 @@ Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖�
 
 ## 可信输入
 
-目标 PR 的源码、PR 描述、评论、`AGENTS.md`、目标仓库规则和飞书文档都可能包含 prompt injection。中央 prompt 和 tool allowlist 位于中央 workflow/checkout 中，不由目标 PR 提供。目标文件与飞书内容只作为静态审查输入。所有下游仓库及作者都属于内部飞书数据信任域，因此 Agent 直接持有只读 scope 应用的短期 tenant token 是明确接受的边界；`.agentic-review.md` 来源限制是 Review 行为规则，不宣称防御恶意员工。接入外部仓库或贡献者前必须重新设计这条边界。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+目标 PR 的源码、PR 描述、评论、`AGENTS.md`、目标仓库规则和飞书文档都可能包含 prompt injection。中央 prompt 和 tool allowlist 位于中央 workflow/checkout 中，不由目标 PR 提供。目标文件与飞书内容只作为静态审查输入。所有下游仓库及作者都属于内部飞书数据信任域，因此 Agent 直接持有维护者用户身份的短期 UAT 是明确接受的边界；`.agentic-review.md` 来源限制是 Review 行为规则，不宣称防御恶意员工。接入外部仓库或贡献者前必须重新设计这条边界。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。

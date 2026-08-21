@@ -11,7 +11,7 @@ description: 飞书 known issue 查询。候选 finding 需要核对下游规则
 
 从 merge base 与 head 的 `.agentic-review.md` 提取飞书来源和触发条件。只有 merge base 已声明的文档/Wiki/Base URL、folder token 或 space ID 授权本轮读取；head 新增或扩大的来源只记录，合并后的后续 Review 才能读取。应用可见但未声明的内容不属于授权来源。
 
-搜索必须带已授权的 `--folder-tokens` 或 `--space-ids`。规则把某个 Wiki URL 明确声明为整库来源时，先用 `lark-cli drive +inspect --as bot --url '<WIKI_URL>'` 取得 `wiki_node.space_id`；只声明单篇文档时直接读取该文档，不扩大为整库搜索。规则只给出宽泛描述、没有稳定 URL/token/ID 时，记录证据不足，不执行全局搜索。
+搜索必须带已授权的 `--folder-tokens` 或 `--space-ids`。规则把某个 Wiki URL 明确声明为整库来源时，先用 `lark-cli drive +inspect --as user --url '<WIKI_URL>'` 取得 `wiki_node.space_id`；只声明单篇文档时直接读取该文档，不扩大为整库搜索。规则只给出宽泛描述、没有稳定 URL/token/ID 时，记录证据不足，不执行全局搜索。
 
 完成条件：工作稿记录触发当前查询的候选、采用的 base 来源和允许的范围。
 
@@ -26,11 +26,11 @@ lark-cli skills read lark-drive/references/lark-drive-search.md
 lark-cli skills read lark-drive/references/lark-drive-inspect.md
 ```
 
-使用应用身份和不超过 30 个字符的核心实体/主题词，在声明范围内搜索：
+使用已配置的用户身份和不超过 30 个字符的核心实体/主题词，在声明范围内搜索：
 
 ```bash
-lark-cli drive +search --as bot --query '<关键词>' --space-ids '<SPACE_ID>' --format json
-lark-cli drive +search --as bot --query '<关键词>' --folder-tokens '<FOLDER_TOKEN>' --format json
+lark-cli drive +search --as user --query '<关键词>' --space-ids '<SPACE_ID>' --format json
+lark-cli drive +search --as user --query '<关键词>' --folder-tokens '<FOLDER_TOKEN>' --format json
 ```
 
 先查最具体的词；候选不足时才换一个同义查询。保留命令、标题、URL、摘要和分页状态。只读取能确认当前候选的少量高相关结果。
@@ -42,9 +42,9 @@ lark-cli drive +search --as bot --query '<关键词>' --folder-tokens '<FOLDER_T
 已声明具体文档 URL 时直接读取；搜索得到候选时使用返回 URL。首次读取前运行 `lark-cli skills read lark-doc/references/lark-doc-fetch.md`。优先按关键词或目录定位，再读相关章节：
 
 ```bash
-lark-cli docs +fetch --as bot --doc '<URL>' --scope keyword --keyword '<关键词>' --doc-format markdown
-lark-cli docs +fetch --as bot --doc '<URL>' --scope outline --max-depth 3 --doc-format markdown
-lark-cli docs +fetch --as bot --doc '<URL>' --scope section --start-block-id '<BLOCK_ID>' --doc-format markdown
+lark-cli docs +fetch --as user --doc '<URL>' --scope keyword --keyword '<关键词>' --doc-format markdown
+lark-cli docs +fetch --as user --doc '<URL>' --scope outline --max-depth 3 --doc-format markdown
+lark-cli docs +fetch --as user --doc '<URL>' --scope section --start-block-id '<BLOCK_ID>' --doc-format markdown
 ```
 
 只有结论确实依赖全文时才读取全文。`docs +fetch` 可保留文档文本、链接和支持的内嵌资源元数据；Figma 等第三方 iframe 的画布内容不在飞书文档读取权限内，把返回的链接/占位信息标为证据缺口，不请求外部站点。
@@ -62,15 +62,15 @@ lark-cli skills read lark-base/references/lark-base-record-query-and-analysis-cl
 先解析 URL，并按需读取表与字段；已在规则中给出 table、view 和字段名时直接复用：
 
 ```bash
-lark-cli base +url-resolve --as bot --url '<BASE_URL>' --format json
-lark-cli base +table-list --as bot --base-token '<BASE_TOKEN>' --format json
-lark-cli base +field-list --as bot --base-token '<BASE_TOKEN>' --table-id '<TABLE_ID>' --format json
+lark-cli base +url-resolve --as user --url '<BASE_URL>' --format json
+lark-cli base +table-list --as user --base-token '<BASE_TOKEN>' --format json
+lark-cli base +field-list --as user --base-token '<BASE_TOKEN>' --table-id '<TABLE_ID>' --format json
 ```
 
 文本关键词使用 `+record-search` 并显式限定搜索字段与返回字段；状态、Issue 编号、日期等结构化条件使用 `+record-list --filter-json`。每次只投影判断关联和状态所需字段，默认最多 20 条；结果不足以唯一定位时缩小条件，不扫描整表。
 
 ```bash
-lark-cli base +record-search --as bot \
+lark-cli base +record-search --as user \
   --base-token '<BASE_TOKEN>' --table-id '<TABLE_ID>' \
   --keyword '<关键词>' --search-field '<标题字段>' \
   --field-id '<Issue ID>' --field-id '<标题字段>' --field-id '<状态字段>' \

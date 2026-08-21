@@ -31,6 +31,6 @@ For ordinary downstream repositories, the Review Engine treats the target pull r
 
 ## Internal Lark trust boundary
 
-All downstream repositories are private and their authors are employees in the same Lark data trust domain. The Review Agent may therefore receive a short-lived tenant token for the read-only-scoped app and invoke the official Lark CLI directly. Limiting queries to merge-base-declared sources is an operational Review rule, not a sandbox against a malicious employee; such an employee already has simpler direct access to these documents.
+All downstream repositories are private and their authors are employees in the same Lark data trust domain. The Review Agent may therefore receive a short-lived user access token for the maintainer's Lark account and invoke the official Lark CLI directly. Limiting queries to merge-base-declared sources is an operational Review rule, not a sandbox against a malicious employee; such an employee already has simpler direct access to these documents.
 
-The long-lived App Secret remains in a trusted pre-Agent workflow step, and executable caches must be finalized before the Agent starts. If external repositories or contributors are admitted, redesign the Lark access boundary before enabling Review for them.
+The App Secret and single-use refresh token remain in the trusted scheduled rotation workflow, and executable caches must be finalized before the Agent starts. If external repositories or contributors are admitted, redesign the Lark access boundary before enabling Review for them.

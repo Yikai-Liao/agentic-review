@@ -247,26 +247,15 @@ jobs:
       - name: Configure read-only Lark CLI
         env:
           LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
-          LARKSUITE_CLI_APP_SECRET: ${{ secrets.AGENTIC_REVIEW_LARK_APP_SECRET }}
+          LARKSUITE_CLI_USER_ACCESS_TOKEN: ${{ secrets.AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN }}
           LARKSUITE_CLI_BRAND: feishu
-          LARKSUITE_CLI_DEFAULT_AS: bot
-          LARKSUITE_CLI_STRICT_MODE: bot
+          LARKSUITE_CLI_DEFAULT_AS: user
+          LARKSUITE_CLI_STRICT_MODE: user
           LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
           LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
         run: |
-          response=$(curl --fail --silent --show-error \
-            'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal' \
-            --header 'Content-Type: application/json; charset=utf-8' \
-            --data "$(jq -nc \
-              --arg app_id "$LARKSUITE_CLI_APP_ID" \
-              --arg app_secret "$LARKSUITE_CLI_APP_SECRET" \
-              '{app_id: $app_id, app_secret: $app_secret}')")
-          token=$(jq -er 'if .code == 0 then .tenant_access_token else error(.msg) end' <<< "$response")
-          echo "::add-mask::$token"
-          echo "LARKSUITE_CLI_TENANT_ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
-          export LARKSUITE_CLI_TENANT_ACCESS_TOKEN="$token"
           lark-cli auth check \
-            --scope "search:docs:read docx:document:readonly wiki:node:retrieve drive:drive.metadata:readonly base:app:read base:table:read base:field:read base:record:read"
+            --scope "offline_access search:docs:read docx:document:readonly wiki:node:retrieve drive:drive.metadata:readonly base:app:read base:table:read base:field:read base:record:read"
 
       # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
       - name: Configure Pi runtime
@@ -310,11 +299,12 @@ jobs:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          # Lark CLI 固定为应用身份；Agent 只继承本轮短期 tenant token，不接触 App Secret。
+          # Lark CLI 固定使用维护者授权的用户身份；App Secret 和 refresh token 不进入 Agent。
           LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
+          LARKSUITE_CLI_USER_ACCESS_TOKEN: ${{ secrets.AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN }}
           LARKSUITE_CLI_BRAND: feishu
-          LARKSUITE_CLI_DEFAULT_AS: bot
-          LARKSUITE_CLI_STRICT_MODE: bot
+          LARKSUITE_CLI_DEFAULT_AS: user
+          LARKSUITE_CLI_STRICT_MODE: user
           LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
           LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
           # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
