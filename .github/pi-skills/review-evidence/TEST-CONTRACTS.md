@@ -69,6 +69,8 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 
 同一路径不自动证明冗余，不同数据点也不自动证明价值。显式有限集合中的权限、identity 或协议成员可能各有 witness；集合外的多个普通值通常仍属同一 partition。无分支公式的额外输入只有能区分漏项、错项、错误比较符、精度或溢出等现实局部错误时才有价值；不得为区分样本虚构生产代码不存在的数据特判。
 
+生产 guard、schema 或协议明确区分的恰好边界是独立 boundary role；下界、边界、内部值、上界和上界外不能因当前实现偶然返回相同值而互相蕴含。若 base 没有覆盖同一个明确 boundary role，该 case 通过独立价值 veto，不得要求用相邻 partition 的当前实现构造额外 witness；只有测试名或 literal 自称“boundary”、但生产代码和 PR 前契约没有对应分界时，才按普通值处理。
+
 每个 data family 选择 base 或最小 retained representative；member 只与同一 fingerprint 的代表比较，不做 family 内或全 suite 两两比较。发现独立责任、partition、actual/oracle path、failure mode、风险维度或测试层级后建立新的 fingerprint；共享证据相同时仍可留在同一 batch，最终 finding 再按 cluster key 去重。
 
 ## 4. Branch router：只进入有触发依据的分支
@@ -89,6 +91,8 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 
 ### 5.1 T1 false confidence：违反探针
 
+先锁定 changed test 的实际责任。mock/stub 提供下层错误、返回值或副作用以测试调用方的传播、映射或展示时，responsibility 是最近的未 mock 调用方边界，不自动包含被替换的下层 producer contract。只有 PR 前独立契约要求该 case 执行真实 producer 路径，或当前 diff 使 suite 失去该 producer 的独立真实路径判定时，才按绕过下层边界进入 T1；测试名、预制错误文本和 mock 自身不能扩张责任。
+
 从 PR 之前的独立契约构造一个测试声称拒绝的最小错误，分别追踪：
 
 ```text
@@ -104,7 +108,7 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 
 ### 5.3 T2 zero-marginal：先 veto，再做 deletion proof
 
-先检查独立价值：不同生产 guard、相邻边界、权限/租户/归属、状态机分支、平台/runtime、编码、外部 consumer、真实 unit/integration/contract 层级或独立 oracle，能静态证明时立即保留该 member 并结束 redundancy 分支。
+先检查独立价值：不同生产 guard、生产代码或契约明确划分且 base 未覆盖的 boundary role、权限/租户/归属、状态机分支、平台/runtime、编码、外部 consumer、真实 unit/integration/contract 层级或独立 oracle，能静态证明时立即保留该 member 并结束 redundancy 分支。相邻 partition 的测试不能替代明确边界本身。
 
 没有独立价值 veto 时，对 family/cluster 执行以下 sweep；代码形状只产生候选：
 
