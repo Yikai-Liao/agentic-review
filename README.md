@@ -1,6 +1,6 @@
 # agentic-review
 
-中央 PR Review 控制面。下游仓库只安装 GitHub App，不保存模型或 GitHub 凭证，也不需要 Review workflow。
+可复用的静态 Review Skill 与中央 PR Review 控制面。开发者可以在任意 Git 仓库本地审查 working tree、commit 或分支差异；中央服务仍只要求下游安装 GitHub App，不向下游保存模型或 GitHub 凭证。
 
 ## 运行链路
 
@@ -12,12 +12,24 @@ GitHub pull_request webhook
        ├─ read：给 Pi、Action 和只读 gh
        ├─ check：在 Pi 启动前创建关联 Check，不传给 Agent
        └─ publication：只给隔离的可信发布 job
-  -> Pi 按中央 skills 审查，并在隔离工作区维护工作稿
+  -> Pi 按可信 agentic-review Skill 审查，并在隔离工作区维护工作稿
   -> submit_review 封存最终 review-result.json
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 只负责阶段编排，运行时 skills 位于 `.github/pi-skills/`；下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前 diff，再按候选 finding 定向查询，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。唯一 Review 方法论位于 `skills/agentic-review/`；workflow 只用 `central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前变化，再按候选 finding 定向查询，不加载全量历史。
+
+## 本地安装与使用
+
+在目标项目根目录安装唯一的 Project-level Skill：
+
+```bash
+npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
+```
+
+随后可以要求当前 Agent 审查未提交变化、指定 commit 或与某个分支的差异。Skill 使用操作系统临时目录保存 change ledger 和 evidence batch；调用方设置 `REVIEW_WORKSPACE_PATH` 时改用该路径。当前环境已经提供 Agent delegation 工具且存在多个独立 batch 时，主 Agent 可以委派一层 worker；否则按同一方法顺序完成，不依赖 Pi、Codex、Claude Code 或特定插件名称。
+
+本地受信任运行时提供的持久记忆也可以作为 known issue 来源。主 Agent 应恢复可复核的原始记录；无法恢复原文的摘要只用于定位，不能单独证明“已修复”或“已确认”。
 
 ## 权限边界
 
@@ -74,7 +86,7 @@ GitHub pull_request webhook
 - `src/generated/` 由 schema 生成；审查 schema 和生成结果的一致性，不要求直接修改生成文件。
 ```
 
-Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央 workflow 还会列出 Target 的 `.agents/skills` 和 `.pi/skills`：其他项目 Skill 可以按需作为不可信项目上下文读取，所有 frontmatter `name: agentic-review` 的副本都会在进入 Agent 前从清单排除，方法论始终来自中央可信 checkout。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
 
 相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
 

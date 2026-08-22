@@ -1,18 +1,13 @@
----
-name: review-evidence
-description: PR 静态审查的行为正确性、测试契约、性能成本、证据和 finding 规则。执行行为分析、测试审查、性能审查或 finding 归纳时使用。
----
-
 # Review evidence
 
-自动 Review 是高精度告警：宁可零 finding，也不输出不能由静态证据证明的问题。只做静态审查；读取仓库文件、base/head 和 Git 历史，不安装依赖，不运行 lint、typecheck、build、test、coverage、benchmark 或 profiler。
+Review 是高精度告警：宁可零 finding，也不输出不能由静态证据证明的问题。只做静态审查；读取仓库文件、base/head 和 Git 历史，不安装依赖，不运行 lint、typecheck、build、test、coverage、benchmark 或 profiler。
 
 以下内容不构成 finding：
 
 - CI 能稳定直接发现的格式、编译、类型或测试错误；
 - 单纯缺少测试、覆盖率、注释、文档或 benchmark；
 - 命名、布局、风格、抽象和架构偏好；
-- anti-pattern、test smell 或危险代码形状本身；但 `TEST-CONTRACTS.md` 已静态证明 false verdict、assertion subsumption 或 zero-marginal signal 的情况除外；
+- anti-pattern、test smell 或危险代码形状本身；但 `test-contracts.md` 已静态证明 false verdict、assertion subsumption 或 zero-marginal signal 的情况除外；
 - 没有真实路径、输入规模和成本差分的性能猜测；
 - 必须依赖运行时 profile、压测或查询计划且静态代码无法证明的问题。
 
@@ -50,7 +45,7 @@ severity P0|P1|P2|n/a
 
 ## 1. 建立 ledger 与 evidence batch
 
-按 `review-workspace` skill 为完整 diff 的每个文件和非机械性 hunk 建立 change ledger。使用 PR head `.agentic-review.md` 中与当前变更匹配的重点安排顺序；项目重点不能缩小完整 diff 覆盖范围或降低中央输出门槛。
+按 [`workspace.md`](workspace.md) 为完整变化集合的每个文件和非机械性 hunk 建立 change ledger。使用适用于 head 状态的项目规则安排顺序；项目重点不能缩小完整变化覆盖范围或降低输出门槛。
 
 将需要读取相同 base/head 文件、生产边界和独立契约来源的 ledger 项放入同一个 **evidence batch**。batch 是执行与证据复用单位，不是 finding 根因或去重单位；同一 batch 可以产生多个独立 finding。小 diff 的直接证据相同时只建一个 batch，不因规则章节、候选数量或输出 cluster 人为拆回合。
 
@@ -63,13 +58,13 @@ severity P0|P1|P2|n/a
 一次读取 batch 所需的完整改动文件和最小直接依赖，然后在进入下一个 batch 前完成以下字段；这些是同一遍调查的不同维度，不是对全 diff 反复执行的独立阶段：
 
 1. **行为差分**：哪些输入、身份、状态、规模或调用顺序现在得到不同处理；最终读取、写入、返回、发布、删除、分配或调用什么。
-2. **独立契约**：从生产代码、数据库约束和迁移、API/事件/任务契约、调用方、被调用方、持久化格式、消费者、稳定文档和 base 行为恢复约束。当前 PR 新增或修改的测试、文档、schema、配置或注释不能单独为同一变化背书。
+2. **独立契约**：从生产代码、数据库约束和迁移、API/事件/任务契约、调用方、被调用方、持久化格式、消费者、稳定文档和 base 行为恢复约束。当前变化新增或修改的测试、文档、schema、配置或注释不能单独为同一变化背书。
 3. **真实路径**：有限追踪 `入口 → 校验与转换 → 核心决策 → 持久化、外部副作用或资源消耗 → 返回、错误、重试或清理`，达到足以判断结果的稳定边界，不无边界扫描仓库。
 4. **观察者与成本**：哪些调用方、租户、数据、消费者、外部系统或资源预算会观察到差异；工作量是否随集合、分页、重试、外部往返或并发变化。
 
 生产代码与测试、fixture、snapshot、mock、helper 或 CI 配置同时变化时，分别确认生产行为、断言依据、断言是否放宽、mock 是否绕过真实边界，以及 expected 是否与实现共享真相源。
 
-重试、降级、冲突恢复、并行化和补偿路径应保持同一个逻辑操作。没有 PR 之前的独立授权时，恢复路径不能为了成功而静默改写租户、业务日期、资源范围、资源身份、幂等键、顺序或业务载荷。数据库约束仍满足、操作最终成功或测试同步更新都不能证明语义等价。
+重试、降级、冲突恢复、并行化和补偿路径应保持同一个逻辑操作。没有当前变化之前的独立授权时，恢复路径不能为了成功而静默改写租户、业务日期、资源范围、资源身份、幂等键、顺序或业务载荷。数据库约束仍满足、操作最终成功或测试同步更新都不能证明语义等价。
 
 同一证据在当前上下文中已经读取时直接引用 batch 记录；只有候选复核、新证据冲突、文件变化或 compact 后无法准确确认时才重读。
 
@@ -77,8 +72,8 @@ severity P0|P1|P2|n/a
 
 先完成主行为路径，再对 batch 内匹配项进入专项：
 
-- 成本随集合、分页、载荷、并发、锁、事务、重试或外部往返变化时，完整读取并执行 [`PERFORMANCE.md`](PERFORMANCE.md)；
-- 当前 diff 改动测试、fixture、snapshot、mock、test helper，或生产变更使既有测试错误判定重新可达时，完整读取并执行 [`TEST-CONTRACTS.md`](TEST-CONTRACTS.md)。
+- 成本随集合、分页、载荷、并发、锁、事务、重试或外部往返变化时，完整读取并执行 [`performance.md`](performance.md)；
+- 当前变化改动测试、fixture、snapshot、mock、test helper，或生产变更使既有测试错误判定重新可达时，完整读取并执行 [`test-contracts.md`](test-contracts.md)。
 
 机械变化不加载专项。专项结论写回当前 batch，不另起一次全 diff 扫描。
 
@@ -94,27 +89,27 @@ severity P0|P1|P2|n/a
 - 输入规模是否被静态限制为小常数；
 - 替代机制是否保持权限、顺序、事务、失败和返回语义；
 - base 是否已有相同失败或成本；
-- 当前 diff 是否确实引入、扩大或重新激活问题；
-- 当前 PR 是否已有同根因评论。
+- 当前变化是否确实引入、扩大或重新激活问题；
+- 调用方提供的已有 Review 或问题记录是否已覆盖同一根因。
 
 第一眼线索不得直接进入输出。候选被反证后立即记录排除理由，不继续执行与其无关的证明步骤。
 
 ## 5. 按需查询 known issue
 
-候选通过代码与契约反证后，只有历史记录可能改变授权、归因、严重度、去重或当前状态时，才加载 `known-issues` 与 `github-known-issues` 并执行定向查询。PR 正文提到旧 PR、相似关键词或了解设计历史本身不足以触发查询。
+候选通过代码与契约反证后，只有历史记录可能改变授权、归因、严重度、去重或当前状态时，才读取 [`known-issues.md`](known-issues.md)，并通过调用方允许的 GitHub、项目记录或本地持久记忆等来源执行定向查询。宽泛主题相似或了解设计历史本身不足以触发查询。
 
 ## 6. 检查高风险契约变更
 
 认证授权、租户隔离、资源归属、敏感信息、数据删除迁移、唯一性、事务、业务日期、金额、状态、幂等、重试补偿、API/事件/持久化兼容，以及数据规模、分页、批量、并发、超时、速率、重试预算和资源配额的放宽，都要检查是否需要人工确认。
 
 - 已证明具体生产错误或性能后果：使用 P0/P1/P2；
-- 确实改变高风险边界，但缺少 PR 之前的独立授权、迁移、容量或兼容性依据：使用 `[需人工确认]`；
+- 确实改变高风险边界，但缺少当前变化之前的独立授权、迁移、容量或兼容性依据：使用 `[需人工确认]`；
 - 同一根因的 P、T 和 `[需人工确认]` 互斥，保留最接近真实影响且证据最强的一条。
 
 ## 7. 完成 batch 并最终归因
 
-每个 batch 在 checkpoint 中逐项给出“已审查无 finding、候选已反证、新 finding 或已有 thread 覆盖”；每个生产候选还必须完成 Finding 接受判定记录，并记录 surviving finding 草稿、cluster key、最强反证和跨 batch 关联。未 complete 的 batch 不能进入最终归纳。
+每个 batch 在 checkpoint 中逐项给出“已审查无 finding、候选已反证、新 finding 或已有问题覆盖”；每个生产候选还必须完成 Finding 接受判定记录，并记录 surviving finding 草稿、cluster key、最强反证和跨 batch 关联。未 complete 的 batch 不能进入最终归纳。
 
-finding 必须由当前 diff 新引入、扩大或重新激活。生产错误优先于同步测试问题；生产性能后果优先于缺少性能测试；同一成本放大的延迟、配额和账单影响合并为一条。
+finding 必须由当前变化新引入、扩大或重新激活。生产错误优先于同步测试问题；生产性能后果优先于缺少性能测试；同一成本放大的延迟、配额和账单影响合并为一条。
 
-所有 batch complete 后，完整读取 [`FINDINGS.md`](FINDINGS.md)。最终只先汇总 batch 结论和 surviving finding 草稿；发现 cluster key 冲突或共享根因时，再读取相关 batch 完整证明。不能因最终归纳重新执行已完成且无关联候选的 batch。
+所有 batch complete 后，完整读取 [`findings.md`](findings.md)。最终只先汇总 batch 结论和 surviving finding 草稿；发现 cluster key 冲突或共享根因时，再读取相关 batch 完整证明。不能因最终归纳重新执行已完成且无关联候选的 batch。

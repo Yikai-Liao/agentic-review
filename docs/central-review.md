@@ -11,7 +11,7 @@ Review App pull_request webhook
   -> Cloudflare Worker
   -> 中央仓库 agentic-review.yml
   -> shaftoe/pi-coding-agent-action（只读分析）
-  -> 中央 skills + 持久化工作稿
+  -> 可信 agentic-review Skill + 中央 GitHub/结果适配器 + 持久化工作稿
   -> submit_review 封存最终 JSON 文件
   -> 隔离的可信 publisher 创建 Review、更新 thread 并链接工作稿 artifact
 ```
@@ -49,8 +49,8 @@ Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖�
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-入口 prompt 只要求读取 `prompts/review-rules.md`；该文件按阶段引导 Agent 加载 `.github/pi-skills/` 中的上下文、known issue、证据、工作稿和提交规则，避免把完整规则作为一次性 prompt。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。GitHub 查询方式由 `github-review-context` skill 规定；未来 Lark CLI 通过独立来源 skill 接入，并复用中央 `known-issues` 的判断和处理规则。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+workflow 入口只组装三个事实来源：`skills/agentic-review/SKILL.md` 提供唯一 Review 方法论，`central/github-context.md` 接入 PR、Target 项目规则和 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 可信输入
 
-目标 PR 的源码、PR 描述、评论、`AGENTS.md` 和目标仓库规则都可能包含 prompt injection。中央 prompt 和 tool allowlist 位于中央 workflow/checkout 中，不由目标 PR 提供。目标文件只作为静态审查输入。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+目标 PR 的源码、PR 描述、评论、`AGENTS.md`、`.agentic-review.md` 和项目 Skill 都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现；可信脚本只列出 `.agents/skills` 与 `.pi/skills` 中的项目 Skill，并在 Agent 读取前排除所有 frontmatter `name: agentic-review` 的副本。其他 Target Skill 只作为按需静态项目上下文，不能覆盖中央方法论、工具或发布边界。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
