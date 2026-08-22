@@ -24,7 +24,7 @@
 
 先用不依赖代码上下文的语言说明业务流程、关键行为路径、相关性能规模和证据边界，再给 finding 导航。按实际内容使用“生产行为与安全”“性能”“测试契约”“需人工确认”和“已有问题”分组。
 
-本地默认输出 Markdown；调用方提供 JSON、inline comment 或 thread 状态等输出契约时，只改变封装格式，不改变本文件的 finding 门槛、严重度和根因归纳。
+本地默认输出 Markdown；调用方提供其他输出契约时，只改变封装格式，不改变本文件的 finding 门槛、严重度和根因归纳。
 
 ## Finding 内容
 
@@ -70,7 +70,15 @@ base: 1 次批量请求处理最多 N 个对象
 head: 1 + N 次远程请求；N=100 时至少 101 次往返
 ```
 
-测试 finding 必须给出对应分支的证明：T1 使用 violating probe，T2 change detector 使用 allowed-change probe，T2 redundancy 使用 deletion test、base/sibling 覆盖和缺失 unique witness 的证明。
+测试 finding 必须给出对应分支的证明：T1 使用 violating probe，T2 change detector 使用 allowed-change probe，T2 redundancy 使用 deletion test、base/sibling 覆盖和缺失 unique witness 的证明。例如：
+
+```text
+错误变化：默认值改错，expected 与实现共用常量；测试仍会通过。
+允许变化：新增合法命令 c，契约仍只要求 a、b 可用；完整列表 equality 会失败。
+删除测试：base 已覆盖相同路径、partition 和 oracle；删除后没有现实契约错误会漏过相关 suite。
+```
+
+单行足以表达根因时只选单行；只有声明、条件、调用或错误处理共同构成根因时才覆盖连续范围。调用方提供位置字段时，使用其 schema 要求的最小位置。
 
 ## 去重
 

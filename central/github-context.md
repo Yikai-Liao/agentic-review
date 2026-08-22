@@ -51,8 +51,8 @@ GH_TOKEN="$GH_TOKEN" gh api --paginate \
 
 依次查询：
 
-1. 当前 PR 正文、commit、评论和代码中的明确 Issue/PR 链接；
-2. finding RIGHT-side 行的 `git blame` 引入 commit 及其来源 PR；
+1. 当前 PR 正文、commit、评论和代码中的明确 Issue/PR 链接；使用 `gh issue view`、`gh pr view` 或 `gh api` 读取与候选根因相关的对象；
+2. finding RIGHT-side 行的 `git blame` 引入 commit 及其来源 PR；优先读取引入该行的来源 PR，不展开仅因包含该 commit 而命中的无关后续 PR；
 3. 最多两个有区分度的代码标识符、业务对象或根因短语。
 
 ```bash
@@ -66,6 +66,6 @@ GH_TOKEN="$GH_TOKEN" gh search issues '<term>' \
   --json number,title,state,isPullRequest,updatedAt,url
 ```
 
-只展开与候选真实路径相关的记录。需要关联仓库代码时先用 `gh search code --repo owner/name` 定位，再通过 contents、commit、PR 或 diff API 读取必要片段；不 clone 或执行关联仓库代码。
+只展开与候选真实路径相关的记录。来源 PR 至少读取标题、正文、commits、files、普通评论、inline comments 和 GraphQL `reviewThreads`；第一个关键词无有效结果时换一个独立的强关键词，第二次仍无结果即结束搜索。需要关联仓库代码时先用 `gh search code --repo owner/name` 定位，再通过 contents、commit、PR 或 diff API 读取必要片段；不 clone 或执行关联仓库代码。
 
 对每个高相关记录保存稳定 URL、编号、完整名称、正文或 thread 回复、`isResolved`、`isOutdated`、`resolvedBy` 及必要修复代码，再交给通用 `known-issues.md` 判断关联和状态。两个强关键词都无有效结果时结束搜索，不无边界扫描历史。
