@@ -7,6 +7,8 @@ const checkName = 'Agentic Review / audit';
 const shaPattern = /^[0-9a-f]{40}$/;
 const batchSize = 100;
 
+type Checkpoint = { headSha: string; runId: string };
+
 type FindOptions = {
   commits: string[];
   repository: string;
@@ -16,6 +18,14 @@ type FindOptions = {
   appSlug: string;
   token: string;
   graphql?: string;
+  fetchImpl?: typeof fetch;
+};
+
+type WorkspaceArtifactOptions = {
+  repository: string;
+  runId: string;
+  token: string;
+  api?: string;
   fetchImpl?: typeof fetch;
 };
 
@@ -54,7 +64,7 @@ fragment Checkpoint on Commit {
 }`;
 }
 
-function hasReviewedCheck(
+function reviewedRunId(
   commit: RecordValue,
   sha: string,
   repositoryId: string,
@@ -85,11 +95,11 @@ function hasReviewedCheck(
         && parts[2] === baseSha
         && parts[3] === sha
         && /^[0-9]+$/.test(parts[4])) {
-        return true;
+        return parts[4];
       }
     }
   }
-  return false;
+  return null;
 }
 
 export async function findReviewCheckpoint({
@@ -121,10 +131,42 @@ export async function findReviewCheckpoint({
     for (const [index, sha] of batch.entries()) {
       const commit = body.data.repository[`c${index}`];
       if (!isRecord(commit)) throw new Error('Invalid GitHub GraphQL checkpoint response');
-      if (hasReviewedCheck(commit, sha, repositoryId, pullNumber, baseSha, appSlug)) return sha;
+      const runId = reviewedRunId(commit, sha, repositoryId, pullNumber, baseSha, appSlug);
+      if (runId) return { headSha: sha, runId } satisfies Checkpoint;
     }
   }
   return null;
+}
+
+export async function findReviewWorkspaceArtifact({
+  repository, runId, token, api = 'https://api.github.com', fetchImpl = fetch,
+}: WorkspaceArtifactOptions) {
+  const response = await fetchImpl(
+    `${api}/repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`,
+    {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`GitHub artifact lookup failed: ${response.status}`);
+
+  const body: unknown = await response.json();
+  if (!isRecord(body) || !Array.isArray(body.artifacts)) {
+    throw new Error('Invalid GitHub artifact response');
+  }
+  for (const item of body.artifacts) {
+    if (!isRecord(item)
+      || typeof item.id !== 'number' || !Number.isSafeInteger(item.id) || item.id < 1
+      || typeof item.name !== 'string' || typeof item.expired !== 'boolean') {
+      throw new Error('Invalid GitHub artifact response');
+    }
+  }
+  const artifact = body.artifacts.find((item) => item.name === `review-workspace-${runId}` && !item.expired);
+  if (!artifact) return null;
+  return String(artifact.id);
 }
 
 export async function findReviewCheckpointSafely(options: FindOptions, warn = console.warn) {
@@ -146,10 +188,14 @@ export async function main() {
     HEAD_SHA: headSha,
     REVIEW_APP_SLUG: appSlug,
     GH_TOKEN: token,
+    CONTROL_REPOSITORY: controlRepository,
+    CONTROL_TOKEN: controlToken,
     GITHUB_GRAPHQL_URL: graphql,
+    GITHUB_API_URL: api,
     GITHUB_OUTPUT: output,
   } = process.env;
-  if (!targetPath || !repository || !repositoryId || !pullNumber || !baseSha || !headSha || !appSlug || !token || !output) {
+  if (!targetPath || !repository || !repositoryId || !pullNumber || !baseSha || !headSha || !appSlug
+    || !token || !controlRepository || !controlToken || !output) {
     throw new Error('Missing review checkpoint environment');
   }
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)
@@ -157,7 +203,8 @@ export async function main() {
     || !/^[0-9]+$/.test(pullNumber)
     || !shaPattern.test(baseSha)
     || !shaPattern.test(headSha)
-    || !/^[A-Za-z0-9-]+$/.test(appSlug)) {
+    || !/^[A-Za-z0-9-]+$/.test(appSlug)
+    || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(controlRepository)) {
     throw new Error('Invalid review checkpoint environment');
   }
 
@@ -178,9 +225,22 @@ export async function main() {
   });
   if (checkpoint) {
     const { stdout: merges } = await exec('git', [
-      '-C', targetPath, 'rev-list', '--merges', `${checkpoint}..${headSha}`,
+      '-C', targetPath, 'rev-list', '--merges', `${checkpoint.headSha}..${headSha}`,
     ]);
     if (merges.trim()) checkpoint = null;
   }
-  await appendFile(output, `head_sha=${checkpoint ?? ''}\n`);
+  const artifactId = checkpoint
+    ? await findReviewWorkspaceArtifact({
+      repository: controlRepository,
+      runId: checkpoint.runId,
+      token: controlToken,
+      api,
+    })
+    : null;
+  await appendFile(output, [
+    `head_sha=${checkpoint?.headSha ?? ''}`,
+    `run_id=${checkpoint?.runId ?? ''}`,
+    `workspace_artifact_id=${artifactId ?? ''}`,
+    '',
+  ].join('\n'));
 }

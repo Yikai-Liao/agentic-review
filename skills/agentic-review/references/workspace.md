@@ -18,6 +18,8 @@ mktemp -d "$workspace_root/review.XXXXXX"
 
 本地 Review 成功输出后删除本轮目录；中断或用户要求复核时保留并报告路径。调用方自行规定工作区的 artifact 和保留期。不要记录 token、环境变量值或与审查无关的敏感信息。
 
+调用方提供 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 时，该目录是上一轮 Reviewer 的只读结果，不是本轮工作区。先读取其中的 `notes.md`、最终结果和与本轮新增变化相关的 complete batch；把可复用结论及来源写入本轮 `notes.md`，不修改、复制或续写历史文件。历史工作稿可能遗漏问题或包含已过时判断，只能作为调查索引和证据缓存，当前代码、增量 diff 和最新外部记录优先。
+
 ## 结构
 
 ```text
@@ -31,7 +33,7 @@ review-workspace/
 
 `notes.md` 只保存当前上下文、change ledger、evidence batch 状态、候选根因关系和最终覆盖状态，不复制每个 batch 的完整证据。
 
-change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳定 ID，分别标记为生产行为、测试行为、性能路径或机械变化，并映射到一个或多个 evidence batch。每项结束时必须是“已审查无 finding、候选已反证、新 finding 或已有问题覆盖”。
+change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳定 ID，分别标记为生产行为、测试行为、性能路径或机械变化，并映射到一个或多个 evidence batch。每项结束时必须是“已审查无 finding、候选已反证、新 finding、已有问题覆盖或继承自上一轮 complete batch”。继承只适用于 checkpoint 后未变化且前提未受影响的代码；增量变化触及其契约、调用方、数据流或反证，最新评论提出冲突证据，或历史 batch 不完整时，必须重新打开调查。
 
 每个 batch 文件记录：
 

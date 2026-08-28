@@ -3,7 +3,11 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { findReviewCheckpoint, findReviewCheckpointSafely } from '../scripts/find-review-checkpoint.ts';
+import {
+  findReviewCheckpoint,
+  findReviewCheckpointSafely,
+  findReviewWorkspaceArtifact,
+} from '../scripts/find-review-checkpoint.ts';
 // @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
 import { finalizeReviewFocus } from '../scripts/finalize-review-focus.mjs';
 
@@ -62,7 +66,7 @@ test('finds the newest valid checkpoint in one GraphQL request', async () => {
     });
   };
 
-  assert.equal(await find(fetchImpl as typeof fetch), reviewed);
+  assert.deepEqual(await find(fetchImpl as typeof fetch), { headSha: reviewed, runId: '99' });
   assert.equal(requested.length, 1);
   assert.equal(requested[0].url, 'https://api.github.test/graphql');
   assert.match(String(requested[0].body.query), /checkSuites/);
@@ -86,7 +90,7 @@ test('queries at most 100 commits per GraphQL request', async () => {
     return Response.json({ data: { repository } });
   };
 
-  assert.equal(await findReviewCheckpoint({
+  assert.deepEqual(await findReviewCheckpoint({
     commits,
     repository: 'owner/repo',
     repositoryId: '1',
@@ -95,7 +99,7 @@ test('queries at most 100 commits per GraphQL request', async () => {
     appSlug: 'review-app',
     token: 'read-token',
     fetchImpl: fetchImpl as typeof fetch,
-  }), commits.at(-1));
+  }), { headSha: commits.at(-1), runId: '99' });
   assert.equal(requests, 2);
 });
 
@@ -109,6 +113,40 @@ test('returns no checkpoint when no successful review exists', async () => {
       },
     },
   })), null);
+});
+
+test('finds the unexpired workspace artifact for the reviewed run', async () => {
+  const requested: string[] = [];
+  const artifactId = await findReviewWorkspaceArtifact({
+    repository: 'control/review',
+    runId: '99',
+    token: 'control-token',
+    api: 'https://api.github.test',
+    fetchImpl: (async (input: string | URL | Request) => {
+      requested.push(String(input));
+      return Response.json({
+        artifacts: [
+          { id: 1, name: 'review-workspace-98', expired: false },
+          { id: 2, name: 'review-workspace-99', expired: true },
+          { id: 3, name: 'review-workspace-99', expired: false },
+        ],
+      });
+    }) as typeof fetch,
+  });
+
+  assert.equal(artifactId, '3');
+  assert.deepEqual(requested, ['https://api.github.test/repos/control/review/actions/runs/99/artifacts?per_page=100']);
+});
+
+test('returns no workspace artifact when it is unavailable', async () => {
+  assert.equal(await findReviewWorkspaceArtifact({
+    repository: 'control/review',
+    runId: '99',
+    token: 'control-token',
+    fetchImpl: (async () => Response.json({
+      artifacts: [{ id: 2, name: 'review-workspace-99', expired: true }],
+    })) as typeof fetch,
+  }), null);
 });
 
 test('continues without a checkpoint when GitHub lookup fails', async () => {

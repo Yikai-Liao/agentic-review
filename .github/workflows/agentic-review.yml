@@ -21,6 +21,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -185,11 +186,33 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha }}
           REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          CONTROL_REPOSITORY: ${{ github.repository }}
+          CONTROL_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ steps.read-token.outputs.token }}
           script: |
             const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-checkpoint.ts`);
             await main();
+
+      # 上一轮工作稿只作为历史证据，下载到本轮可写工作区之外。
+      - name: Download previous review workspace
+        if: steps.review-checkpoint.outputs.workspace_artifact_id != ''
+        uses: actions/download-artifact@v8.0.1
+        with:
+          artifact-ids: ${{ steps.review-checkpoint.outputs.workspace_artifact_id }}
+          path: ${{ runner.temp }}/previous-review-workspace
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.review-checkpoint.outputs.run_id }}
+
+      - name: Protect previous review workspace
+        id: previous-review-workspace
+        if: steps.review-checkpoint.outputs.workspace_artifact_id != ''
+        env:
+          PREVIOUS_WORKSPACE_PATH: ${{ runner.temp }}/previous-review-workspace
+        run: |
+          chmod -R a-w "$PREVIOUS_WORKSPACE_PATH"
+          echo "path=$PREVIOUS_WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Prepare review diffs
         id: review-diffs
@@ -276,6 +299,8 @@ jobs:
           REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
           REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
           REVIEW_CHECKPOINT_HEAD: ${{ steps.review-diffs.outputs.checkpoint_head }}
+          # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
+          REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
           # Agent 只在隔离工作区写草稿；自定义工具将最终 JSON 封存到固定结果路径。
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
@@ -321,7 +346,7 @@ jobs:
           name: review-workspace-${{ github.run_id }}
           path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
       # 只把无凭证最终结果传给新的 runner；结果始终按不可信输入处理。
       - name: Upload review result
@@ -331,7 +356,7 @@ jobs:
           name: review-result-${{ github.run_id }}
           path: ${{ runner.temp }}/review-result.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
   publish:
     needs: review

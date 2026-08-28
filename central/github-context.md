@@ -30,18 +30,20 @@ GH_TOKEN="$GH_TOKEN" gh api --paginate \
 
 完成条件：当前 PR 元数据和全部讨论已读取一次，工作稿记录显式关联线索和当前 thread 状态。
 
-## 3. 读取代码差分
+## 3. 读取历史结果和代码差分
 
-优先读取 `$REVIEW_FOCUS_DIFF_PATH` 安排调查顺序，再完整读取 `$REVIEW_DIFF_PATH`。`$REVIEW_MODE` 的含义：
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，它是 checkpoint 对应的上一轮 Reviewer 只读工作稿。按通用 `workspace.md` 读取其 `notes.md`、最终结果和与新增变化相关的 complete batch；不要修改该目录，也不要把历史结论当作完整或当前事实。先用最新 PR 评论、Review、thread 状态和 checkpoint 后的 diff 更新其前提，再决定哪些未变化 batch 可以继承、哪些必须重开。调查重点是新增变化、受其影响的旧路径和未解决候选，而不是机械重做仍成立的历史调查。
+
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 为空时完整读取 `$REVIEW_DIFF_PATH`。存在上一轮工作稿时，完整读取 `$REVIEW_FOCUS_DIFF_PATH`，并从 `$REVIEW_DIFF_PATH` 读取文件清单、受新增变化影响或历史未完成的 hunk，以及最终 finding 的定位上下文；满足继承条件的旧 hunk 不机械重读。`$REVIEW_MODE` 的含义：
 
 - `initial`：没有可用 checkpoint；
 - `incremental_all`：完整 diff 都在 checkpoint 之后；
 - `incremental`：focus diff 是 checkpoint 到当前 head 的净变化；
 - `incremental_unchanged`：该区间没有净代码变化。
 
-完整 diff 是 finding 的唯一差分证据；focus diff 不能缩小范围、独立证明行为变化或提供评论行号。用 `$REVIEW_TARGET_PATH` 和 `$REVIEW_BASE_PATH` 补充完整文件上下文，不重复生成已有 diff。每条中央 inline finding 绑定完整 diff 中最接近根因的 RIGHT-side 行。
+完整 diff 是 finding 的唯一差分证据；focus diff 和历史工作稿不能独立证明当前行为变化或提供评论行号。用 `$REVIEW_TARGET_PATH` 和 `$REVIEW_BASE_PATH` 补充当前调查需要的完整文件上下文，不重复生成已有 diff。每条中央 inline finding 发布前都必须回到完整 diff，绑定最接近根因的 RIGHT-side 行。
 
-完成条件：完整 diff 中每个文件都已进入工作稿的“已覆盖”或“待覆盖”清单。
+完成条件：checkpoint 后的每项变化及其影响面已经调查，最新讨论已归类；完整 diff 中每个文件都进入本轮 ledger，并标为本轮覆盖、待覆盖或满足 `workspace.md` 条件的历史继承。
 
 ## 4. 按需查询 GitHub known issue
 
