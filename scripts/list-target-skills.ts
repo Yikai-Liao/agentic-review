@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 export type TargetSkillCatalog = {
   skills: Array<{ name: string; path: string }>;
-  ignored: Array<{ path: string; reason: 'agentic-review' | 'invalid' | 'outside-target' }>;
+  ignored: Array<{ path: string; reason: 'agentic-review' | 'invalid' | 'outside-skill-roots' }>;
 };
 
 const skillRoots = ['.agents/skills', '.pi/skills'];
@@ -27,8 +27,24 @@ function skillName(content: string): string | undefined {
 export async function listTargetSkills(targetPath: string): Promise<TargetSkillCatalog> {
   const target = await realpath(targetPath);
   const catalog: TargetSkillCatalog = { skills: [], ignored: [] };
+  const roots: string[] = [];
   const seenDirectories = new Set<string>();
   const seenFiles = new Set<string>();
+
+  for (const relative of skillRoots) {
+    const logicalRoot = path.join(target, relative);
+    try {
+      const root = await realpath(logicalRoot);
+      if (root === logicalRoot) roots.push(root);
+      else catalog.ignored.push({ path: relative, reason: 'outside-skill-roots' });
+    } catch {
+      // Missing Skill roots are valid.
+    }
+  }
+
+  function insideSkillRoots(candidate: string): boolean {
+    return roots.some((root) => inside(root, candidate));
+  }
 
   async function walk(logicalDirectory: string): Promise<void> {
     let directory: string;
@@ -37,8 +53,8 @@ export async function listTargetSkills(targetPath: string): Promise<TargetSkillC
     } catch {
       return;
     }
-    if (!inside(target, directory)) {
-      catalog.ignored.push({ path: path.relative(target, logicalDirectory), reason: 'outside-target' });
+    if (!insideSkillRoots(directory)) {
+      catalog.ignored.push({ path: path.relative(target, logicalDirectory), reason: 'outside-skill-roots' });
       return;
     }
     if (seenDirectories.has(directory)) return;
@@ -61,8 +77,8 @@ export async function listTargetSkills(targetPath: string): Promise<TargetSkillC
 
       const file = await realpath(logicalPath);
       const relative = path.relative(target, logicalPath).split(path.sep).join('/');
-      if (!inside(target, file)) {
-        catalog.ignored.push({ path: relative, reason: 'outside-target' });
+      if (!insideSkillRoots(file)) {
+        catalog.ignored.push({ path: relative, reason: 'outside-skill-roots' });
         continue;
       }
       if (seenFiles.has(file)) continue;
@@ -75,7 +91,7 @@ export async function listTargetSkills(targetPath: string): Promise<TargetSkillC
     }
   }
 
-  for (const root of skillRoots) await walk(path.join(target, root));
+  for (const root of roots) await walk(root);
   catalog.skills.sort((a, b) => a.path.localeCompare(b.path));
   catalog.ignored.sort((a, b) => a.path.localeCompare(b.path));
   return catalog;

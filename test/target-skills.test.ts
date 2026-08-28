@@ -20,8 +20,10 @@ test('catalogs target project skills without exposing agentic-review', async () 
     await skill(target, '.agents/skills/domain-rules', 'name: domain-rules');
     await skill(target, '.agents/skills/invalid', 'description: missing name');
     await skill(target, '.pi/skills/quoted', "name: 'quoted-skill'");
+    await skill(target, '.git/history', 'name: hidden-history');
     await mkdir(outside);
     await symlink(outside, path.join(target, '.agents/skills/escape'));
+    await symlink('../../.git', path.join(target, '.agents/skills/repository'));
     await symlink('../../.agents/skills/domain-rules', path.join(target, '.pi/skills/domain-rules'));
 
     assert.deepEqual(await listTargetSkills(target), {
@@ -31,8 +33,9 @@ test('catalogs target project skills without exposing agentic-review', async () 
       ],
       ignored: [
         { path: '.agents/skills/agentic-review/SKILL.md', reason: 'agentic-review' },
-        { path: '.agents/skills/escape', reason: 'outside-target' },
+        { path: '.agents/skills/escape', reason: 'outside-skill-roots' },
         { path: '.agents/skills/invalid/SKILL.md', reason: 'invalid' },
+        { path: '.agents/skills/repository', reason: 'outside-skill-roots' },
       ],
     });
   } finally {
