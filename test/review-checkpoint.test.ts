@@ -7,6 +7,7 @@ import {
   findReviewCheckpoint,
   findReviewCheckpointSafely,
   findReviewWorkspaceArtifact,
+  findReviewWorkspaceArtifactSafely,
 } from '../scripts/find-review-checkpoint.ts';
 // @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
 import { finalizeReviewFocus } from '../scripts/finalize-review-focus.mjs';
@@ -147,6 +148,17 @@ test('returns no workspace artifact when it is unavailable', async () => {
       artifacts: [{ id: 2, name: 'review-workspace-99', expired: true }],
     })) as typeof fetch,
   }), null);
+});
+
+test('discards incremental context when workspace lookup fails', async () => {
+  const warnings: string[] = [];
+  assert.equal(await findReviewWorkspaceArtifactSafely({
+    repository: 'control/review',
+    runId: '99',
+    token: 'control-token',
+    fetchImpl: async () => new Response(null, { status: 503 }),
+  }, (warning: string) => warnings.push(warning)), undefined);
+  assert.deepEqual(warnings, ['Previous review workspace lookup skipped: GitHub artifact lookup failed: 503']);
 });
 
 test('continues without a checkpoint when GitHub lookup fails', async () => {

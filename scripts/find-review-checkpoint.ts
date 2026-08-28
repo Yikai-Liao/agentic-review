@@ -169,6 +169,18 @@ export async function findReviewWorkspaceArtifact({
   return String(artifact.id);
 }
 
+export async function findReviewWorkspaceArtifactSafely(
+  options: WorkspaceArtifactOptions,
+  warn = console.warn,
+) {
+  try {
+    return await findReviewWorkspaceArtifact(options);
+  } catch (error) {
+    warn(`Previous review workspace lookup skipped: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
+}
+
 export async function findReviewCheckpointSafely(options: FindOptions, warn = console.warn) {
   try {
     return await findReviewCheckpoint(options);
@@ -230,13 +242,14 @@ export async function main() {
     if (merges.trim()) checkpoint = null;
   }
   const artifactId = checkpoint
-    ? await findReviewWorkspaceArtifact({
+    ? await findReviewWorkspaceArtifactSafely({
       repository: controlRepository,
       runId: checkpoint.runId,
       token: controlToken,
       api,
     })
     : null;
+  if (artifactId === undefined) checkpoint = null;
   await appendFile(output, [
     `head_sha=${checkpoint?.headSha ?? ''}`,
     `run_id=${checkpoint?.runId ?? ''}`,
