@@ -112,4 +112,4 @@ severity P0|P1|P2|n/a
 
 finding 必须由当前变化新引入、扩大或重新激活。生产错误优先于同步测试问题；生产性能后果优先于缺少性能测试；同一成本放大的延迟、配额和账单影响合并为一条。
 
-所有 batch complete 后，完整读取 [`findings.md`](findings.md)。最终只先汇总 batch 结论和 surviving finding 草稿；发现 cluster key 冲突或共享根因时，再读取相关 batch 完整证明。不能因最终归纳重新执行已完成且无关联候选的 batch。
+所有 batch complete 后，先汇总 batch 结论和 surviving finding 草稿；发现 cluster key 冲突或共享根因时，再读取相关 batch 完整证明。不能因最终归纳重新执行已完成且无关联候选的 batch。

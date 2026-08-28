@@ -86,7 +86,7 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 - `src/generated/` 由 schema 生成；审查 schema 和生成结果的一致性，不要求直接修改生成文件。
 ```
 
-Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央 workflow 还会列出 Target 的 `.agents/skills` 和 `.pi/skills`：其他项目 Skill 可以按需作为不可信项目上下文读取，所有 frontmatter `name: agentic-review` 的副本都会在进入 Agent 前从清单排除，方法论始终来自中央可信 checkout。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review 规则直接附加到入口 Prompt；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入；Target 的 `.agents/skills` 和 `.pi/skills` 不进入 Review。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
 
 相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
 

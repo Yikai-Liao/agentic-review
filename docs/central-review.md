@@ -49,8 +49,8 @@ Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖�
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口：它要求使用 `skills/agentic-review/SKILL.md` 的 Review 方法，并由 `central/github-context.md` 接入 PR、Target 项目规则和 GitHub known issue，由 `central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口；可信 Skill、必读 reference 和中央适配器直接附加到该 Prompt。PR、评论、项目规则和 diff 在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`；`central/github-context.md` 接入 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 可信输入
 
-目标 PR 的源码、PR 描述、评论、`AGENTS.md`、`.agentic-review.md` 和项目 Skill 都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现；可信脚本只列出 `.agents/skills` 与 `.pi/skills` 中的项目 Skill，并在 Agent 读取前排除所有 frontmatter `name: agentic-review` 的副本。其他 Target Skill 只作为按需静态项目上下文，不能覆盖中央方法论、工具或发布边界。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+目标 PR 的源码、PR 描述、评论、`AGENTS.md` 和 `.agentic-review.md` 都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
