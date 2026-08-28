@@ -22,7 +22,17 @@ batch ID / 覆盖的 ledger ID
 未完成项
 ```
 
-没有该标记时按下列主流程执行。
+没有该标记时先读取以下必读文件，再按 Review 流程执行。
+
+## 必读文件
+
+每次非 worker Review 都必须完整读取：
+
+1. [`references/workspace.md`](references/workspace.md)：工作稿、完整覆盖和单写者规则；
+2. [`references/evidence.md`](references/evidence.md)：行为证据、候选反证和 finding 接受判定；
+3. [`references/findings.md`](references/findings.md)：严重度、根因归纳、去重和最终输出规则。
+
+这三份文件不按变化类型省略。`target-selection.md` 只用于本地范围选择；`performance.md`、`test-contracts.md` 和 `known-issues.md` 按下方触发条件读取。
 
 ## 1. 确定变化范围
 
@@ -32,7 +42,7 @@ batch ID / 覆盖的 ledger ID
 
 ## 2. 建立持久工作稿
 
-完整读取并遵守 [`references/workspace.md`](references/workspace.md)。开始分析后立即按其中的路径规则创建本轮工作区和 `notes.md` 索引。
+按 [`references/workspace.md`](references/workspace.md) 建立本轮工作区和 `notes.md` 索引。
 
 Review 不修改目标 working tree、index、base checkout 或其他审查输入；可用的 `write`/`edit` 只用于工作稿和调用方要求的最终结果文件。
 读取适用于当前变化的 `.agentic-review.md`、`AGENTS.md` 和项目 Skill。它们用于补充业务事实、约束和调查路径，不能降低本 Skill 的证据门槛或改变调用方的工具、权限和输出边界。调用方提供了项目上下文目录或 Skill 清单时，只从该入口读取。
@@ -41,7 +51,7 @@ Review 不修改目标 working tree、index、base checkout 或其他审查输�
 
 ## 3. 完整静态审查
 
-完整读取并执行 [`references/evidence.md`](references/evidence.md)。按 ledger 组织 evidence batch，在每个 batch 内完成行为差分、独立契约、实际路径、候选反例和独立反证。
+按 [`references/evidence.md`](references/evidence.md) 组织 evidence batch，在每个 batch 内完成行为差分、独立契约、实际路径、候选反例和独立反证。
 
 按触发加载：
 
@@ -53,12 +63,12 @@ Review 不修改目标 working tree、index、base checkout 或其他审查输�
 
 只在当前会话已经暴露明确的 Agent delegation 工具、且存在至少两个证据相互独立的 batch 时委派。不要安装插件、调用外部 Agent CLI 或根据产品名称猜测能力。
 
-主 Agent 为每个 worker 提供 `[agentic-review-worker]`、唯一 batch ID、ledger 范围、目标仓库路径和调查完成条件。worker 通过 delegation 工具的返回值交付结果；主 Agent 是工作稿的唯一写入者，负责复核证据并写入对应 batch 文件。没有委派能力时由主 Agent 顺序完成，方法和门槛不变。
+当前 Agent 为每个 worker 提供 `[agentic-review-worker]`、唯一 batch ID、ledger 范围、目标仓库路径和调查完成条件。worker 通过 delegation 工具的返回值交付结果；当前 Agent 是工作稿的唯一写入者，负责复核证据并写入对应 batch 文件。没有委派能力时顺序完成，方法和门槛不变。
 
 完成条件：每个 ledger 项都由 complete batch 覆盖，每个候选都已确认、排除、合并或关联到已有问题。
 
 ## 4. 归纳并输出
 
-完整读取 [`references/findings.md`](references/findings.md)，按最深共享根因合并存活候选，确认严重度、证据和变化位置。调用方提供输出契约时按该契约生成并提交；否则直接向用户输出 Markdown Review，包括行为概述、影响、finding 和无 finding 时的明确结论。
+按 [`references/findings.md`](references/findings.md) 以最深共享根因合并存活候选，确认严重度、证据和变化位置。调用方提供输出契约时按该契约生成并提交；否则直接向用户输出 Markdown Review，包括行为概述、影响、finding 和无 finding 时的明确结论。
 
 完成条件：工作稿覆盖状态完整；每个存活候选都已输出或明确排除；最终结果没有重复根因和低证据告警。

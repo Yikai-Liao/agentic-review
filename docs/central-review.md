@@ -49,7 +49,7 @@ Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖�
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-workflow 入口只组装三个事实来源：`skills/agentic-review/SKILL.md` 提供唯一 Review 方法论，`central/github-context.md` 接入 PR、Target 项目规则和 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口：它要求使用 `skills/agentic-review/SKILL.md` 的 Review 方法，并由 `central/github-context.md` 接入 PR、Target 项目规则和 GitHub known issue，由 `central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 可信输入
 

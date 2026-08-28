@@ -17,7 +17,7 @@ GitHub pull_request webhook
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。唯一 Review 方法论位于 `skills/agentic-review/`；workflow 只用 `central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前变化，再按候选 finding 定向查询，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前变化，再按候选 finding 定向查询，不加载全量历史。
 
 ## 本地安装与使用
 

@@ -211,7 +211,7 @@ jobs:
           fi
           node control/scripts/finalize-review-focus.mjs
 
-      # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
+      # Pi 不会自动认识组织内的自定义模型和中央运行时 Skill；只从可信 control checkout 安装。
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
@@ -245,6 +245,15 @@ jobs:
               }
             }
           }' > "$HOME/.pi/agent/models.json"
+
+      - name: Load review prompt
+        id: review-prompt
+        run: |
+          {
+            echo 'prompt<<REVIEW_PROMPT_EOF'
+            cat control/prompts/review-rules.md
+            echo 'REVIEW_PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run Pi review
         id: pi-review
@@ -300,11 +309,8 @@ jobs:
             ls
             bash
             submit_review
-          # workflow 是中央 composition root；方法论、GitHub 输入和结果协议各自只有一个事实来源。
-          prompt: >-
-            执行目标 PR 的中央自动 Review。完整读取并使用可信的
-            control/skills/agentic-review/SKILL.md；按 control/central/github-context.md
-            接入 PR 与项目上下文；按 control/central/review-result.md 维护并提交中央结果。
+          # 入口内容来自唯一 prompt 文件；Skill 自己声明必读与按触发选读文件。
+          prompt: ${{ steps.review-prompt.outputs.prompt }}
 
       # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
       - name: Upload review workspace
