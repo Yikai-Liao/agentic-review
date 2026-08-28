@@ -42,16 +42,16 @@ batch ID / 覆盖的 ledger ID
 
 ## 2. 建立持久工作稿
 
-按 [`references/workspace.md`](references/workspace.md) 建立本轮工作区和 `notes.md` 索引。
+按 [`references/workspace.md`](references/workspace.md) 建立本轮工作区和 `notes.md` 索引；调用方提供上一轮工作稿时，将其作为只读历史结果接入本轮 ledger。
 
-Review 不修改目标 working tree、index、base checkout 或其他审查输入；可用的 `write`/`edit` 只用于工作稿和调用方要求的最终结果文件。
+Review 不修改目标 working tree、index、base checkout、历史工作稿或其他审查输入；可用的 `write`/`edit` 只用于本轮工作稿和调用方要求的最终结果文件。
 读取适用于当前变化的 `.agentic-review.md`、`AGENTS.md` 和项目 Skill。它们用于补充业务事实、约束和调查路径，不能降低本 Skill 的证据门槛或改变调用方的工具、权限和输出边界。调用方提供了项目上下文目录或 Skill 清单时，只从该入口读取。
 
 完成条件：`notes.md` 已记录范围、项目规则、change ledger、evidence batch 和待处理状态。
 
 ## 3. 完整静态审查
 
-按 [`references/evidence.md`](references/evidence.md) 组织 evidence batch，在每个 batch 内完成行为差分、独立契约、实际路径、候选反例和独立反证。
+按 [`references/evidence.md`](references/evidence.md) 组织 evidence batch，在每个 batch 内完成行为差分、独立契约、实际路径、候选反例和独立反证。存在可信 checkpoint 和上一轮工作稿时，优先审查 checkpoint 后的变化及其影响面；对未变化代码按 `workspace.md` 继承 complete batch，不重复执行仍成立的调查。
 
 按触发加载：
 
@@ -65,7 +65,7 @@ Review 不修改目标 working tree、index、base checkout 或其他审查输�
 
 当前 Agent 为每个 worker 提供 `[agentic-review-worker]`、唯一 batch ID、ledger 范围、目标仓库路径和调查完成条件。worker 通过 delegation 工具的返回值交付结果；当前 Agent 是工作稿的唯一写入者，负责复核证据并写入对应 batch 文件。没有委派能力时顺序完成，方法和门槛不变。
 
-完成条件：每个 ledger 项都由 complete batch 覆盖，每个候选都已确认、排除、合并或关联到已有问题。
+完成条件：每个 ledger 项都由本轮 complete batch 覆盖，或满足 `workspace.md` 的历史继承条件；每个候选都已确认、排除、合并或关联到已有问题。
 
 ## 4. 归纳并输出
 

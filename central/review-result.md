@@ -25,7 +25,7 @@ workflow 已把 `$REVIEW_WORKSPACE_PATH` 设置为隔离目录。按通用 `work
 
 ## 3. 最终归纳
 
-完成全量审查后，先读取 `notes.md` 中的覆盖状态、complete batch 的结论和 surviving finding 草稿。确认每个 ledger/census 关联都已由 complete batch 覆盖；不要为最终归纳重新执行已经完成且没有关联候选的 batch。只有 finding 可能共享根因、cluster key 冲突、覆盖状态不一致、会话发生过 compact 或无法准确确认约束时，才重新读取相关 batch 的完整证明、代码位置、历史 thread、known issue 或对应 Skill。
+完成审查后，先读取 `notes.md` 中的覆盖状态、继承来源、complete batch 结论和 surviving finding 草稿。确认每个 ledger/census 关联都已由本轮 complete batch 覆盖，或满足 `workspace.md` 的历史继承条件；不要为最终归纳重新执行仍然成立且没有关联候选的 batch。只有 finding 可能共享根因、cluster key 冲突、覆盖状态不一致、会话发生过 compact 或无法准确确认约束时，才重新读取相关 batch 的完整证明、代码位置、历史 thread、known issue 或对应 Skill。
 
 然后按根因重新聚类：合并重复项，将表层症状提升到已证明的最深共享根因，删除被反证的候选，并检查每条 finding 的严重度、证据、RIGHT-side diff 位置和独立可读性。最终覆盖状态可用 `edit` 更新到 `notes.md`；只有完成这次最终归纳后才能生成 JSON。
 
