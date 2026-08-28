@@ -4,9 +4,19 @@
 
 ## 路径和生命周期
 
-调用方提供 `$REVIEW_WORKSPACE_PATH` 时使用该绝对路径；否则主 Agent 在操作系统临时目录创建本轮唯一目录并限制为当前用户访问。不要把工作稿放进目标仓库，以免污染 `git status`、变化集合或提交内容。
+调用方提供 `$REVIEW_WORKSPACE_PATH` 时使用该绝对路径。否则在当前 worktree 的 Git 管理目录创建本轮唯一工作区：
 
-本地临时工作稿保留到 Review 完成；成功后可删除，用户要求复核时保留并报告路径。调用方自行规定 artifact 和保留期。不要记录 token、环境变量值或与审查无关的敏感信息。
+```bash
+git_dir="$(git rev-parse --absolute-git-dir)"
+workspace_root="$git_dir/agentic-review"
+mkdir -p "$workspace_root"
+chmod 700 "$workspace_root"
+mktemp -d "$workspace_root/review.XXXXXX"
+```
+
+将 `mktemp` 输出的绝对路径作为本轮工作区。它位于 Git 管理目录，不进入 working tree、`git status`、变化集合或提交内容；唯一目录也避免并行或后续 Review 读到旧笔记。
+
+本地 Review 成功输出后删除本轮目录；中断或用户要求复核时保留并报告路径。调用方自行规定工作区的 artifact 和保留期。不要记录 token、环境变量值或与审查无关的敏感信息。
 
 ## 结构
 
@@ -35,7 +45,7 @@ change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳
 
 ## 工具边界与单写者
 
-`write` 和 `edit` 只能修改 `$REVIEW_WORKSPACE_PATH` 内的工作稿与调用方要求的最终结果，不能修改目标或 base checkout。`bash` 只用于静态调查；调用方若提供专用 JSON 校验工具，只能按其权限和输出协议使用。Review 使用的外部凭证保持调用方规定的权限边界，不用于未经授权的发布。
+`write` 和 `edit` 只能修改本轮工作区内的工作稿与调用方要求的最终结果，不能修改目标 working tree、index 或 base checkout。`bash` 只用于创建或删除本轮工作区及静态调查；调用方若提供专用 JSON 校验工具，只能按其权限和输出协议使用。Review 使用的外部凭证保持调用方规定的权限边界，不用于未经授权的发布。
 
 主 Agent 是工作稿的唯一写入者。Sub-agent 只通过 delegation 返回指定 batch 的调查结果；主 Agent 复核后写入 batch 文件。不要让多个 Agent 并发修改 `notes.md`，也不要为工作稿引入锁或合并协议。
 

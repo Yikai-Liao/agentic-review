@@ -27,7 +27,7 @@ GitHub pull_request webhook
 npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 ```
 
-随后可以要求当前 Agent 审查未提交变化、指定 commit 或与某个分支的差异。Skill 使用操作系统临时目录保存 change ledger 和 evidence batch；调用方设置 `REVIEW_WORKSPACE_PATH` 时改用该路径。当前环境已经提供 Agent delegation 工具且存在多个独立 batch 时，主 Agent 可以委派一层 worker；否则按同一方法顺序完成，不依赖 Pi、Codex、Claude Code 或特定插件名称。
+随后可以要求当前 Agent 审查未提交变化、指定 commit 或与某个分支的差异。本地工作稿默认放在当前 worktree 的 Git 管理目录 `agentic-review/review.*` 下，不污染 working tree 或 `git status`，成功输出后删除；调用方设置 `REVIEW_WORKSPACE_PATH` 时改用该路径。当前环境已经提供 Agent delegation 工具且存在多个独立 batch 时，主 Agent 可以委派一层 worker；否则按同一方法顺序完成，不依赖 Pi、Codex、Claude Code 或特定插件名称。
 
 本地受信任运行时提供的持久记忆也可以作为 known issue 来源。主 Agent 应恢复可复核的原始记录；无法恢复原文的摘要只用于定位，不能单独证明“已修复”或“已确认”。
 
