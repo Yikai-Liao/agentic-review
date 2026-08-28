@@ -258,7 +258,7 @@ jobs:
       - name: Run Pi review
         id: pi-review
         timeout-minutes: 15
-        uses: shaftoe/pi-coding-agent-action@v2.27.0
+        uses: shaftoe/pi-coding-agent-action@v2.27.1
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
@@ -295,9 +295,10 @@ jobs:
           auto_compaction: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
           load_builtin_extensions: false
-          # smart-compact 暂停使用；npm 扩展无法解析 action 内置的 Pi peer modules。
-          # 暂时使用上方启用的 Pi 默认 compaction，仅加载本地 Review 工具。
+          # smart-compact 接管 Pi 的原生 session_before_compact；action v2.27.1
+          # 已修复 npm 扩展加载并内置兼容的 Pi 0.84.3。
           extensions: |
+            npm:pi-smart-compact@9.5.0
             control/.github/pi-extensions/review-tools.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |
@@ -392,8 +393,8 @@ jobs:
           REVIEW_OUTPUT_TOKENS: ${{ needs.review.outputs.output_tokens }}
           REVIEW_COST: ${{ needs.review.outputs.cost }}
           # 与上方固定的 shaftoe action 版本保持同步，用于保留原 action footer。
-          REVIEW_PI_VERSION: 0.82.1
-          REVIEW_ACTION_VERSION: 2.27.0
+          REVIEW_PI_VERSION: 0.84.3
+          REVIEW_ACTION_VERSION: 2.27.1
         run: node scripts/publish-review.ts
 
       - name: Complete Agentic Review check
