@@ -194,9 +194,11 @@ jobs:
             const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-checkpoint.ts`);
             await main();
 
-      # 上一轮工作稿只作为历史证据，下载到本轮可写工作区之外。
+      # 上一轮工作稿只作为可选历史证据；下载失败时后续自动改为完整 Review。
       - name: Download previous review workspace
+        id: previous-workspace-download
         if: steps.review-checkpoint.outputs.workspace_artifact_id != ''
+        continue-on-error: true
         uses: actions/download-artifact@v8.0.1
         with:
           artifact-ids: ${{ steps.review-checkpoint.outputs.workspace_artifact_id }}
@@ -205,21 +207,26 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ steps.review-checkpoint.outputs.run_id }}
 
-      - name: Protect previous review workspace
+      - name: Activate previous review workspace
         id: previous-review-workspace
-        if: steps.review-checkpoint.outputs.workspace_artifact_id != ''
+        if: steps.previous-workspace-download.outcome == 'success'
+        continue-on-error: true
         env:
           PREVIOUS_WORKSPACE_PATH: ${{ runner.temp }}/previous-review-workspace
+          CHECKPOINT_HEAD: ${{ steps.review-checkpoint.outputs.head_sha }}
         run: |
           chmod -R a-w "$PREVIOUS_WORKSPACE_PATH"
-          echo "path=$PREVIOUS_WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
+          {
+            echo "path=$PREVIOUS_WORKSPACE_PATH"
+            echo "checkpoint_head=$CHECKPOINT_HEAD"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Prepare review diffs
         id: review-diffs
         env:
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
-          CHECKPOINT_HEAD: ${{ steps.review-checkpoint.outputs.head_sha }}
+          CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
           REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
         run: |

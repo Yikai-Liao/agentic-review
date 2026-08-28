@@ -176,6 +176,13 @@ test('continues without a checkpoint when GitHub lookup fails', async () => {
   assert.deepEqual(warnings, ['Review checkpoint lookup skipped: GitHub GraphQL checkpoint lookup failed: 500']);
 });
 
+test('uses a checkpoint only after the previous workspace is ready', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /id: previous-workspace-download[\s\S]*?continue-on-error: true/);
+  assert.match(workflow, /if: steps\.previous-workspace-download\.outcome == 'success'[\s\S]*?checkpoint_head=\$CHECKPOINT_HEAD/);
+  assert.match(workflow, /CHECKPOINT_HEAD: \$\{\{ steps\.previous-review-workspace\.outputs\.checkpoint_head \}\}/);
+});
+
 test('keeps only a distinct non-empty focus diff', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-focus-'));
   const fullDiffPath = path.join(directory, 'full.diff');
