@@ -42,7 +42,7 @@ type ReviewThread = {
 };
 
 const statusLabels = {
-  suggest_resolve: '✅ 建议关闭',
+  resolved: '✅ 已关闭',
   severity_increased: '⚠️ 风险升级',
   reintroduced: '🔁 问题重现',
 } as const;
@@ -293,7 +293,7 @@ export async function publishReview({
       );
     }
 
-    const shouldResolve = update.status === 'suggest_resolve';
+    const shouldResolve = update.status === 'resolved';
     const currentThread = await reviewThreadState(fetchImpl, api, token, thread.id);
     if (currentThread.isResolved !== shouldResolve) {
       const mutation = shouldResolve

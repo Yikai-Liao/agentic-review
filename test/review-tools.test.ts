@@ -12,7 +12,7 @@ const result = {
   comments: [{ path: 'src/gc.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
   thread_updates: [{
     root_comment_id: 123,
-    status: 'suggest_resolve' as const,
+    status: 'resolved' as const,
     evidence: '当前实现已经恢复 owner token 检查。',
   }],
 };
@@ -124,7 +124,7 @@ test('publisher creates one review, updates threads, and appends the footer', as
   const { requests, fetchImpl } = publisherFetch();
   assert.equal(await publish(result, fetchImpl as typeof fetch), 'https://github.test/review/1');
 
-  assert.match(requests.find(({ url }) => url.endsWith('/comments/123/replies'))!.body, /建议关闭/);
+  assert.match(requests.find(({ url }) => url.endsWith('/comments/123/replies'))!.body, /已关闭/);
   assert.match(requests.find(({ body }) => body.includes('resolveReviewThread'))!.body, /resolveReviewThread/);
   const review = JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body);
   assert.equal(review.event, 'COMMENT');

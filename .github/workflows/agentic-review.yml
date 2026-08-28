@@ -161,6 +161,18 @@ jobs:
           path: control
           persist-credentials: false
 
+      - name: Set up Node.js for trusted review scripts
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+
+      # Target checkout 不参与 Pi 的项目 Skill 自动发现；可信脚本只列出其他项目 Skill，并排除同名 Review Skill。
+      - name: Catalog target project skills
+        env:
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          REVIEW_TARGET_SKILLS_PATH: ${{ runner.temp }}/target-skills.json
+        run: node control/scripts/list-target-skills.ts
+
       - name: Find last reviewed head
         id: review-checkpoint
         uses: actions/github-script@v9
@@ -199,7 +211,7 @@ jobs:
           fi
           node control/scripts/finalize-review-focus.mjs
 
-      # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
+      # Pi 不会自动认识组织内的自定义模型和中央运行时 Skill；只从可信 control checkout 安装。
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
@@ -207,7 +219,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          cp -R control/.github/pi-skills/. "$HOME/.pi/agent/skills/"
+          cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
               openai: {
@@ -234,6 +246,15 @@ jobs:
             }
           }' > "$HOME/.pi/agent/models.json"
 
+      - name: Load review prompt
+        id: review-prompt
+        run: |
+          {
+            echo 'prompt<<REVIEW_PROMPT_EOF'
+            cat control/prompts/review-rules.md
+            echo 'REVIEW_PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Run Pi review
         id: pi-review
         timeout-minutes: 15
@@ -250,6 +271,7 @@ jobs:
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
+          REVIEW_TARGET_SKILLS_PATH: ${{ runner.temp }}/target-skills.json
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
           REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
           REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
@@ -287,10 +309,8 @@ jobs:
             ls
             bash
             submit_review
-          # 规则和 schema 保持在可重复读取的中央文件/skills，不灌入一次性 Prompt。
-          prompt: >-
-            执行目标 PR 的中央自动 Review；先完整读取并严格遵守
-            control/prompts/review-rules.md，进入每个阶段时加载其中指定的 skill。
+          # 入口内容来自唯一 prompt 文件；Skill 自己声明必读与按触发选读文件。
+          prompt: ${{ steps.review-prompt.outputs.prompt }}
 
       # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
       - name: Upload review workspace
