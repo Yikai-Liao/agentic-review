@@ -22,6 +22,8 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 每轮始终生成 merge base 到当前 head 的完整 diff。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，则额外生成该 head 到当前 head 的净 diff 作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败会退回只提供完整 diff；查询失败会写入 workflow warning。两份 diff 相同时也只提供完整 diff，并标记全部变更均为增量。增量 diff 不缩小审查范围，也不能替代完整 diff 的 finding 证据和行号。
 
+可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引本身不是历史结论证据。
+
 ## 发布 Review 的权限方案
 
 这是本项目最重要的权限边界。中央 workflow 用同一个 Review App mint 三个不同权限和仓库范围的 installation token：
@@ -29,14 +31,14 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 ```text
 Review App private key（只在中央 Actions secret）
   ├─ Token A: 目标 owner 中安装了 App 的仓库，contents/issues/pull_requests/actions/checks read
-  │    -> checkout、shaftoe action、GH_TOKEN、Pi bash 中按需查询关联仓库
+  │    -> checkout、shaftoe action、生成关联索引和 Pi 按编号读取关联记录
   ├─ Token B: 仅当前目标仓库，checks write
   │    -> Agent 启动前创建关联当前 Action Run 的 Check，不传给 Agent
   └─ Token C: 仅当前目标仓库，contents/pull_requests/checks write
        -> 隔离的可信 publish job：Review、完成 Check、thread 回复和 resolve/reopen
 ```
 
-Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖同一 GitHub App installation 中的仓库，但密码学上没有写权限；Token B 只供 Agent 启动前的可信 workflow step 使用。下游仓库在 `.agentic-review.md` 中用自然语言说明项目相关仓库和 known issue 来源。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义，并只在当前 finding 确有需要时查询；只有新增私有跨仓库读取范围要求已存在于 merge base。单个 installation token 不能读取其他 owner 的私有仓库。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`bash` 可调用 Runner 自带的 `jq` CLI 做只读 JSON 校验，`submit_review` 只封存该工作区内的最终 JSON 文件。
+Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖同一 GitHub App installation 中的仓库，但密码学上没有写权限；Token B 只供 Agent 启动前的可信 workflow step 使用。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义；GitHub known issue 只从 workflow 关联索引或当前审查输入中的明确稳定 Issue/PR 引用按编号读取。单个 installation token 不能读取其他 owner 的私有仓库。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`bash` 可调用 Runner 自带的 `jq` CLI 做只读 JSON 校验，`submit_review` 只封存该工作区内的最终 JSON 文件。
 
 同一 PR 的 Review workflow 串行执行。Pi 结束后，可信 publisher 将自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，再处理已有 thread 的状态变化；即使期间出现新快照，旧结果仍先形成历史 thread，后续 Review 再根据新代码更新或关闭。Publisher 会重新校验 schema、root comment 和 bot 身份。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。任何发布失败仍会使 Review Check 失败。
 
@@ -49,7 +51,7 @@ Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖�
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口：它要求使用 `skills/agentic-review/SKILL.md` 的 Review 方法，并由 `central/github-context.md` 接入 PR、Target 项目规则和 GitHub known issue，由 `central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口：它要求使用 `skills/agentic-review/SKILL.md` 的 Review 方法，并由 `central/github-context.md` 接入 PR、Target 项目规则、关联索引和 GitHub known issue，由 `central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以按明确仓库和编号执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 可信输入
 

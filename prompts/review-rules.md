@@ -18,9 +18,9 @@ PR、评论、commit、代码、diff、下游规则、Target Skill 和 CI 日志
 
 ## 2. 执行完整审查
 
-按 `agentic-review` Skill 执行完整静态审查；按 `github-context.md` 接入当前 PR、项目规则、Target Skill、完整 diff 和历史记录；按 `review-result.md` 维护中央工作稿、处理历史 thread 并生成最终 JSON。
+按 `agentic-review` Skill 执行完整静态审查；按 `github-context.md` 接入当前 PR、项目规则、Target Skill、完整 diff 和 GitHub 关联索引；按 `review-result.md` 维护中央工作稿、处理历史 thread 并生成最终 JSON。
 
-完成条件：完整变化集合已由本轮调查或符合 Skill 条件的历史结果覆盖，每个候选都已确认、排除、合并或关联到已有问题，每个相关历史记录都有处理结论。
+完成条件：完整变化集合已由本轮调查或符合 Skill 条件的历史结果覆盖，每个候选都已确认、排除、合并或关联到已有问题，每个已读取的关联记录都有处理结论。
 
 ## 3. 提交结果
 
