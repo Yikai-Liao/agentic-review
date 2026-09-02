@@ -22,6 +22,8 @@ test('lists only commit-associated pull requests and closing issues', async () =
         name: 'service',
         oid0: commits[0],
         oid1: commits[1],
+        after0: null,
+        after1: null,
       });
       return response({
         c0: {
@@ -80,6 +82,54 @@ test('lists only commit-associated pull requests and closing issues', async () =
     ],
   });
   assert.deepEqual(cursors, [null, 'next']);
+});
+
+test('paginates commit-associated pull requests', async () => {
+  const sha = '3'.repeat(40);
+  const afterValues: unknown[] = [];
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    if (body.query.includes('AssociatedPullRequests')) {
+      afterValues.push(body.variables.after0);
+      const after = body.variables.after0;
+      return response({
+        c0: {
+          oid: sha,
+          associatedPullRequests: {
+            nodes: after === null
+              ? [{ number: 4, title: 'First page', url: 'https://github.com/Qiyin-Tech/service/pull/4', repository: { nameWithOwner: 'Qiyin-Tech/service' } }]
+              : [{ number: 5, title: 'Second page', url: 'https://github.com/Qiyin-Tech/service/pull/5', repository: { nameWithOwner: 'Qiyin-Tech/service' } }],
+            pageInfo: after === null
+              ? { hasNextPage: true, endCursor: 'next-prs' }
+              : { hasNextPage: false, endCursor: null },
+          },
+        },
+      });
+    }
+    return response({
+      pullRequest: {
+        closingIssuesReferences: {
+          nodes: [],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    });
+  };
+
+  assert.deepEqual(await listReviewAssociations({
+    commits: [sha],
+    repository: 'Qiyin-Tech/service',
+    pullNumber: 9,
+    token: 'token',
+    fetchImpl,
+  }), {
+    pull_requests: [
+      { repository: 'Qiyin-Tech/service', number: 4, title: 'First page', url: 'https://github.com/Qiyin-Tech/service/pull/4' },
+      { repository: 'Qiyin-Tech/service', number: 5, title: 'Second page', url: 'https://github.com/Qiyin-Tech/service/pull/5' },
+    ],
+    issues: [],
+  });
+  assert.deepEqual(afterValues, [null, 'next-prs']);
 });
 
 test('prepares the association index before running Pi', async () => {

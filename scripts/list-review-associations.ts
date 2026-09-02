@@ -87,21 +87,24 @@ async function request(
 }
 
 function pullRequestQuery(count: number) {
-  const oids = Array.from({ length: count }, (_, index) => `$oid${index}: GitObjectID!`).join(', ');
+  const variables = Array.from(
+    { length: count },
+    (_, index) => `$oid${index}: GitObjectID!, $after${index}: String`,
+  ).join(', ');
   const commits = Array.from(
     { length: count },
     (_, index) => `c${index}: object(oid: $oid${index}) {
       ... on Commit {
         oid
-        associatedPullRequests(first: 100) {
+        associatedPullRequests(first: 100, after: $after${index}) {
           nodes { number title url repository { nameWithOwner } }
-          pageInfo { hasNextPage }
+          pageInfo { hasNextPage endCursor }
         }
       }
     }`,
   ).join('\n');
   return `
-query AssociatedPullRequests($owner: String!, $name: String!, ${oids}) {
+query AssociatedPullRequests($owner: String!, $name: String!, ${variables}) {
   repository(owner: $owner, name: $name) {
     ${commits}
   }
@@ -132,26 +135,39 @@ export async function listReviewAssociations({
   const pullRequests = new Map<string, Association>();
   for (let offset = 0; offset < commits.length; offset += batchSize) {
     const batch = commits.slice(offset, offset + batchSize);
-    const variables: Record<string, string> = { owner, name };
-    batch.forEach((commit, index) => { variables[`oid${index}`] = commit; });
-    const result = await request(graphql, token, pullRequestQuery(batch.length), variables, fetchImpl);
+    let pending = batch.map((sha) => ({ sha, after: null as string | null }));
+    while (pending.length) {
+      const variables: Record<string, string | null> = { owner, name };
+      pending.forEach((entry, queryIndex) => {
+        variables[`oid${queryIndex}`] = entry.sha;
+        variables[`after${queryIndex}`] = entry.after;
+      });
+      const result = await request(graphql, token, pullRequestQuery(pending.length), variables, fetchImpl);
+      const nextPending: typeof pending = [];
 
-    for (const [index, sha] of batch.entries()) {
-      const commit = result[`c${index}`];
-      if (!isRecord(commit) || commit.oid !== sha || !isRecord(commit.associatedPullRequests)
-        || !Array.isArray(commit.associatedPullRequests.nodes)
-        || !isRecord(commit.associatedPullRequests.pageInfo)
-        || typeof commit.associatedPullRequests.pageInfo.hasNextPage !== 'boolean') {
-        throw new Error('Invalid GitHub GraphQL association response');
+      for (const [queryIndex, entry] of pending.entries()) {
+        const commit = result[`c${queryIndex}`];
+        if (!isRecord(commit) || commit.oid !== entry.sha || !isRecord(commit.associatedPullRequests)
+          || !Array.isArray(commit.associatedPullRequests.nodes)
+          || !isRecord(commit.associatedPullRequests.pageInfo)
+          || typeof commit.associatedPullRequests.pageInfo.hasNextPage !== 'boolean'
+          || (commit.associatedPullRequests.pageInfo.hasNextPage
+            && typeof commit.associatedPullRequests.pageInfo.endCursor !== 'string')) {
+          throw new Error('Invalid GitHub GraphQL association response');
+        }
+        for (const value of commit.associatedPullRequests.nodes) {
+          const association = parseAssociation(value, 'pull request');
+          if (association.repository === repository && association.number === pullNumber) continue;
+          pullRequests.set(`${association.repository}#${association.number}`, association);
+        }
+        if (commit.associatedPullRequests.pageInfo.hasNextPage) {
+          nextPending.push({
+            ...entry,
+            after: commit.associatedPullRequests.pageInfo.endCursor as string,
+          });
+        }
       }
-      if (commit.associatedPullRequests.pageInfo.hasNextPage) {
-        throw new Error(`More than 100 pull requests are associated with commit ${sha}`);
-      }
-      for (const value of commit.associatedPullRequests.nodes) {
-        const association = parseAssociation(value, 'pull request');
-        if (association.repository === repository && association.number === pullNumber) continue;
-        pullRequests.set(`${association.repository}#${association.number}`, association);
-      }
+      pending = nextPending;
     }
   }
 
