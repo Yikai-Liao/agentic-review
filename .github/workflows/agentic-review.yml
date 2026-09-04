@@ -265,8 +265,9 @@ jobs:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
         run: |
-          mkdir -p "$REVIEW_WORKSPACE_PATH"
+          mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
+          cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
               openai: {
@@ -366,7 +367,7 @@ jobs:
             ls
             bash
             submit_review
-          # 入口同时包含固定可信规则，避免 Agent 再逐文件加载。
+          # 入口预载固定可信规则；Pi Skill 注册供 context compaction 后恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
 
       # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。

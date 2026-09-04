@@ -17,7 +17,7 @@ GitHub pull_request webhook
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前变化，再按候选 finding 定向查询，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，注册为 Pi Skill 并在首次 Prompt 预载，context compaction 后仍可通过 Skill 发现恢复；`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前变化，再按候选 finding 定向查询，不加载全量历史。
 
 ## 本地安装与使用
 
@@ -93,7 +93,7 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 - 修改 `src/orders/` 中的状态转换、补偿或事件兼容性时，读取 `.agents/skills/order-domain/SKILL.md`，只用其中的订单状态和事件契约补充调查。
 ```
 
-Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review 规则直接附加到入口 Prompt；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review Skill 由 Pi 发现，其完整规则同时附加到首次 Prompt，避免立即重复读取并保留 context compaction 后的恢复路径；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
 
 相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
 
