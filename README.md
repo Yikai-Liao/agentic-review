@@ -17,7 +17,7 @@ GitHub pull_request webhook
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，注册为 Pi Skill 并在首次 Prompt 预载，context compaction 后仍可通过 Skill 发现恢复；`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义和关联 GitHub 仓库。Agent 先独立审查当前变化，再按候选 finding 定向查询，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，注册为 Pi Skill 并在首次 Prompt 预载，context compaction 后仍可通过 Skill 发现恢复；`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，workflow 还会生成当前 commits 关联的其他 PR 和当前 PR 自动关闭 Issue 的索引。Agent 先独立审查当前变化，再按候选 finding 定向读取关联记录，不加载全量历史。
 
 ## 本地安装与使用
 
@@ -51,8 +51,8 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 - 业务不变量和高风险边界，例如状态转换、租户归属、金额、业务日期、幂等和兼容性要求；
 - 代码难以直接推断的调用关系、消费者、生成文件和不可执行区域；
 - 真实的数据规模、批大小、并发、分页或延迟上限，供性能审查恢复契约；
-- 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，以及项目状态字段的实际含义；
-- 需要联动查询的 GitHub 仓库完整地址，以及什么代码路径或业务对象出现时才需要查询。
+- 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，它们如何影响判断，以及项目状态字段的实际含义；
+- 需要联动查询的 GitHub 仓库完整地址、触发查询的代码路径或业务对象，以及稳定的具体 Issue/PR 链接或编号；
 - 不适合重复写入本文件的已有项目上下文，可以在给出触发条件和用途后，引用具体文件路径，例如 `.agents/skills/order-domain/SKILL.md`。
 
 写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。
@@ -80,8 +80,7 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 
 ## Known issues
 
-- 本仓库带 `known-issue` 或 `qa-acceptance` 标签的 GitHub Issue，以及 Issue 中链接的验收记录，属于 known issue 来源。
-- 修改退款状态、退款事件或对应 API 时，按需查询 `Qiyin-Tech/payment-service` 的相关 Issue、PR 和代码；其他变更不查询该仓库。
+- Issue `Qiyin-Tech/payment-service#389` 记录退款事件的兼容性决定；修改该事件时可读取该记录。
 - 项目字段“已排期”只表示计划中；只有记录中的明确验收结论才能证明问题已修复。
 
 ## 仓库约定
@@ -93,9 +92,9 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 - 修改 `src/orders/` 中的状态转换、补偿或事件兼容性时，读取 `.agents/skills/order-domain/SKILL.md`，只用其中的订单状态和事件契约补充调查。
 ```
 
-Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review Skill 由 Pi 发现，其完整规则同时附加到首次 Prompt，避免立即重复读取并保留 context compaction 后的恢复路径；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review Skill 由 Pi 发现，其完整规则同时附加到首次 Prompt，避免立即重复读取并保留 context compaction 后的恢复路径；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件。
 
-相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
+可信 workflow 在 Agent 启动前把只读 token 的可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大这个集合。在该集合内，自动关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。单个 installation token 不能跨 owner，Agent 也不按关键词、`git blame` 或提交历史扩展 GitHub known issue 查询。
 
 ## 中央仓库配置
 

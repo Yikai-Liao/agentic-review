@@ -167,6 +167,17 @@ jobs:
         with:
           node-version: 24
 
+      - name: Prepare review association index
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          REVIEW_REPOSITORY: ${{ inputs.repository }}
+          REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+          REVIEW_BASE_SHA: ${{ inputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
+        run: node control/scripts/list-review-associations.ts
+
       - name: Find last reviewed head
         id: review-checkpoint
         uses: actions/github-script@v9
@@ -247,11 +258,11 @@ jobs:
           }
 
           {
-            echo '# Untrusted review input'
-            section 'PR metadata' gh pr view "$REVIEW_PULL_NUMBER" --repo "$REVIEW_REPOSITORY" --json title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits,files
-            section 'Issue comments' gh api --paginate "repos/$REVIEW_REPOSITORY/issues/$REVIEW_PULL_NUMBER/comments?per_page=100"
-            section 'Inline comments' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"
-            section 'Reviews' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
+            echo '# Review input'
+            section 'Untrusted PR metadata' gh pr view "$REVIEW_PULL_NUMBER" --repo "$REVIEW_REPOSITORY" --json title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits,files
+            section 'Trusted issue comments' gh api --paginate "repos/$REVIEW_REPOSITORY/issues/$REVIEW_PULL_NUMBER/comments?per_page=100"
+            section 'Trusted inline comments' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"
+            section 'Trusted reviews' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
             [[ ! -f review-base/.agentic-review.md ]] || section 'Base .agentic-review.md' cat review-base/.agentic-review.md
             [[ ! -f review-target/.agentic-review.md ]] || section 'Head .agentic-review.md' cat review-target/.agentic-review.md
             [[ ! -f review-base/AGENTS.md ]] || section 'Base AGENTS.md' cat review-base/AGENTS.md
@@ -326,6 +337,7 @@ jobs:
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
+          REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
           REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
