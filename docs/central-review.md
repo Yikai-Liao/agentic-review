@@ -53,4 +53,4 @@ Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖�
 
 ## 可信输入
 
-目标 PR 的源码、PR 描述、评论、`AGENTS.md` 和 `.agentic-review.md` 都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+目标 PR 的源码、PR 描述、评论、`AGENTS.md`、`.agentic-review.md` 和其显式引用的项目文件都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。只有 `.agentic-review.md` 为当前变化明确引用目标仓库内的具体文件时，Agent 才按路径读取，并且只将内容作为不可信项目事实，不注册为 Skill。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。

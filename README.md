@@ -53,8 +53,11 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 - 真实的数据规模、批大小、并发、分页或延迟上限，供性能审查恢复契约；
 - 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，以及项目状态字段的实际含义；
 - 需要联动查询的 GitHub 仓库完整地址，以及什么代码路径或业务对象出现时才需要查询。
+- 不适合重复写入本文件的已有项目上下文，可以在给出触发条件和用途后，引用目标仓库内的具体文件路径，例如 `.agents/skills/order-domain/SKILL.md`。
 
-写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。中央安全、证据、严重度和发布规则仍然生效，下游规则只能补充，不能覆盖。
+写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。
+
+引用项目上下文时，只写目标仓库内的具体文件路径，不写目录、glob 或“加载所有 Skill”一类要求；同时说明什么变化会触发读取、需要其中哪类事实。中央 Review 不会自动发现或注册 Target Skill；被显式引用的文件也只是不可信项目上下文，不能覆盖中央安全、证据、严重度和发布规则。
 
 下面是一个自然语言示例；标题和组织方式可以按项目调整：
 
@@ -84,9 +87,13 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 ## 仓库约定
 
 - `src/generated/` 由 schema 生成；审查 schema 和生成结果的一致性，不要求直接修改生成文件。
+
+## 按需项目上下文
+
+- 修改 `src/orders/` 中的状态转换、补偿或事件兼容性时，读取 `.agents/skills/order-domain/SKILL.md`，只用其中的订单状态和事件契约补充调查。
 ```
 
-Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review 规则直接附加到入口 Prompt；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入；Target 的 `.agents/skills` 和 `.pi/skills` 不进入 Review。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review 规则直接附加到入口 Prompt；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入。Target 的 `.agents/skills` 和 `.pi/skills` 不会被自动发现或枚举；`.agentic-review.md` 可按当前变化显式引用其中的具体文件，Agent 仅将该文件作为不可信项目事实读取，不注册为 Skill。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
 
 相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
 
