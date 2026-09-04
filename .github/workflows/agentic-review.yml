@@ -327,10 +327,8 @@ jobs:
           auto_compaction: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
           load_builtin_extensions: false
-          # smart-compact 接管 Pi 的原生 session_before_compact；action v2.27.1
-          # 已修复 npm 扩展加载并内置兼容的 Pi 0.84.3。
+          # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
           extensions: |
-            npm:pi-smart-compact@9.5.0
             control/.github/pi-extensions/review-tools.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |
