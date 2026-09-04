@@ -87,7 +87,7 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 
 Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央 workflow 还会列出 Target 的 `.agents/skills` 和 `.pi/skills`：其他项目 Skill 可以按需作为不可信项目上下文读取，所有 frontmatter `name: agentic-review` 的副本都会在进入 Agent 前从清单排除，方法论始终来自中央可信 checkout。
 
-自动关联或明确引用的私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App；单个 installation token 不能跨 owner。Agent 不按关键词、`git blame` 或提交历史扩展 GitHub known issue 查询。
+自动关联索引中的条目或审查输入中的明确稳定 Issue/PR 引用即可按需读取；私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App，单个 installation token 不能跨 owner。Agent 不按关键词、`git blame` 或提交历史扩展 GitHub known issue 查询。
 
 ## 中央仓库配置
 

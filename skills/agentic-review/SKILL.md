@@ -57,7 +57,7 @@ Review 不修改目标 working tree、index、base checkout、历史工作稿或
 
 - 成本随集合、分页、载荷、并发、锁、事务、重试或外部往返变化时，读取 [`references/performance.md`](references/performance.md)；
 - 当前变化涉及测试、fixture、snapshot、mock 或 test helper 时，读取 [`references/test-contracts.md`](references/test-contracts.md)；
-- 已有问题或决定可能改变授权、归因、严重度或状态时，读取 [`references/known-issues.md`](references/known-issues.md)，并只从调用方提供的关联索引或审查输入中的明确稳定引用读取原始记录。
+- 已有问题或决定可能改变业务授权、归因、严重度或状态时，读取 [`references/known-issues.md`](references/known-issues.md)，并只从调用方提供的关联索引或审查输入中的明确稳定引用读取原始记录。
 
 ### 可选委派
 
