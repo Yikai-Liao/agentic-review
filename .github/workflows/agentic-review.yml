@@ -167,13 +167,6 @@ jobs:
         with:
           node-version: 24
 
-      # Target checkout 不参与 Pi 的项目 Skill 自动发现；可信脚本只列出其他项目 Skill，并排除同名 Review Skill。
-      - name: Catalog target project skills
-        env:
-          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
-          REVIEW_TARGET_SKILLS_PATH: ${{ runner.temp }}/target-skills.json
-        run: node control/scripts/list-target-skills.ts
-
       - name: Find last reviewed head
         id: review-checkpoint
         uses: actions/github-script@v9
@@ -241,7 +234,32 @@ jobs:
           fi
           node control/scripts/finalize-review-focus.mjs
 
-      # Pi 不会自动认识组织内的自定义模型和中央运行时 Skill；只从可信 control checkout 安装。
+      - name: Prepare review input
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          REVIEW_REPOSITORY: ${{ inputs.repository }}
+          REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+        run: |
+          section() {
+            printf '\n## %s\n\n' "$1"
+            shift
+            "$@"
+          }
+
+          {
+            echo '# Untrusted review input'
+            section 'PR metadata' gh pr view "$REVIEW_PULL_NUMBER" --repo "$REVIEW_REPOSITORY" --json title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits,files
+            section 'Issue comments' gh api --paginate "repos/$REVIEW_REPOSITORY/issues/$REVIEW_PULL_NUMBER/comments?per_page=100"
+            section 'Inline comments' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"
+            section 'Reviews' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
+            [[ ! -f review-base/.agentic-review.md ]] || section 'Base .agentic-review.md' cat review-base/.agentic-review.md
+            [[ ! -f review-target/.agentic-review.md ]] || section 'Head .agentic-review.md' cat review-target/.agentic-review.md
+            [[ ! -f review-base/AGENTS.md ]] || section 'Base AGENTS.md' cat review-base/AGENTS.md
+            [[ ! -f review-target/AGENTS.md ]] || section 'Head AGENTS.md' cat review-target/AGENTS.md
+            [[ ! -f "$RUNNER_TEMP/review-focus.diff" ]] || section 'Focus diff' cat "$RUNNER_TEMP/review-focus.diff"
+            section 'Full diff' cat "$RUNNER_TEMP/review.diff"
+          } > "$RUNNER_TEMP/review-input.md"
+
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
@@ -282,6 +300,13 @@ jobs:
           {
             echo 'prompt<<REVIEW_PROMPT_EOF'
             cat control/prompts/review-rules.md
+            for file in \
+              control/skills/agentic-review/SKILL.md \
+              control/skills/agentic-review/references/{workspace,evidence,findings}.md \
+              control/central/{github-context,review-result}.md; do
+              printf '\n\n## %s\n\n' "$file"
+              cat "$file"
+            done
             echo 'REVIEW_PROMPT_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -301,7 +326,7 @@ jobs:
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
-          REVIEW_TARGET_SKILLS_PATH: ${{ runner.temp }}/target-skills.json
+          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
           REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
           REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
           REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
@@ -340,7 +365,7 @@ jobs:
             ls
             bash
             submit_review
-          # 入口内容来自唯一 prompt 文件；Skill 自己声明必读与按触发选读文件。
+          # 入口预载固定可信规则；Pi Skill 注册供 context compaction 后恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
 
       # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
