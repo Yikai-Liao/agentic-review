@@ -8,6 +8,7 @@
 
 - 修复必须解决真实根因。不得把失败改成 warning、skip、fallback 或成功状态来伪装问题已解决；若平台能力确实不支持，应明确说明并删除或重新定义该功能。
 - 先确认实际权限边界再修改权限。中央 Review workflow 运行目标 PR 的 Agent shell 中的 `GH_TOKEN` 必须保持只读；该限制只约束 Review 运行期间的 Agent shell，不限制本地开发维护会话正常提交、推送和创建 PR。Review 结果的 GitHub 写操作只能由 Agent 结束后的可信 workflow 使用单独、最小权限的 token 执行，不能为了修复可信发布器而扩大 Review Agent token 权限。
+- Review Agent 的可读仓库集合由可信 workflow 在启动 Agent 前固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大该 token 范围。在这个固定集合内，自动关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需只读；这是已接受的产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明业务授权、风险接受、修复或验收。
 - GitHub Actions 必须引用真实发布版本号（例如 `@v7.0.1`），不得固定 commit SHA，也不得用浮动 major tag 代替明确版本。
 - 不增加没有实际故障证据或明确需求支撑的防御性分支、上限、兼容层和降级路径；先修共享根因，不能只处理表面症状。
 - 当维护者质疑某项变更的合理性时，不得未经判断立即撤回；应先说明变更动机、必要性、影响和替代方案，让维护者据此决定。确认变更确属多余或维护者明确要求撤回后再修改。
