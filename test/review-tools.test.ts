@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
-import { buildFooter, parseReviewResult, publishReview } from '../scripts/publish-review.ts';
+import { buildFooter, publishReview } from '../scripts/publish-review.ts';
+
+import { parseReviewResult } from '../scripts/review-result.ts';
 
 const headSha = 'b'.repeat(40);
 const result = {
@@ -94,6 +96,44 @@ test('submit_review seals one JSON file from the review workspace', async () => 
     const response = await tool.execute('call', { path: sourcePath });
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
     assert.deepEqual(response.details, { queued: true, source: sourcePath });
+    await assert.rejects(tool.execute('call', { path: sourcePath }), /already submitted/);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('submit_review rejects invalid results without sealing and allows correction', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const sourcePath = path.join(workspace, 'final.json');
+    const resultPath = path.join(directory, 'result.json');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = resultPath;
+    let tool: any;
+    reviewTools({ registerTool: (definition) => { tool = definition; } });
+
+    const invalidResults: Array<[string, RegExp]> = [
+      ['{', /JSON/],
+      [JSON.stringify({ ...result, version: '1.0.0', private: true }), /Invalid review result fields/],
+      [JSON.stringify({ ...result, body: '' }), /Invalid review body/],
+      [JSON.stringify({ ...result, comments: [{ ...result.comments[0], start_line: 43 }] }), /start_line/],
+      [JSON.stringify({ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }), /thread status/],
+      [JSON.stringify({ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }), /Duplicate thread update/],
+    ];
+    for (const [content, error] of invalidResults) {
+      await writeFile(sourcePath, content);
+      await assert.rejects(tool.execute('call', { path: sourcePath }), error);
+      await assert.rejects(readFile(resultPath), { code: 'ENOENT' });
+    }
+
+    const content = `${JSON.stringify(result)}\n`;
+    await writeFile(sourcePath, content);
+    await tool.execute('call', { path: sourcePath });
+    assert.equal(await readFile(resultPath, 'utf8'), content);
     await assert.rejects(tool.execute('call', { path: sourcePath }), /already submitted/);
   } finally {
     process.env = originalEnv;

@@ -334,6 +334,8 @@ jobs:
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           REVIEW_BASE_SHA: ${{ inputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+          # compaction 后从控制面恢复规则与中央输出协议。
+          REVIEW_CONTROL_PATH: ${{ github.workspace }}/control
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
@@ -377,7 +379,7 @@ jobs:
             ls
             bash
             submit_review
-          # 入口预载固定可信规则；Pi Skill 注册供 context compaction 后恢复。
+          # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
 
       # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
