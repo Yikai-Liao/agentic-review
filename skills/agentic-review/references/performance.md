@@ -1,4 +1,4 @@
-# Performance cost review
+# 性能成本审查
 
 只审查当前变化新增、扩大或重新激活的执行路径。性能结论比较 base/head 的成本函数，不以 anti-pattern 名称代替证据。
 

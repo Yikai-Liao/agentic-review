@@ -38,7 +38,7 @@ Review App private key（只在中央 Actions secret）
        -> 隔离的可信 publish job：Review、完成 Check、thread 回复和 resolve/reopen
 ```
 
-Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 的可读集合固定为目标 owner 中安装了 Review App 的仓库，并且只授予读权限；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取，这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Token B 只供 Agent 启动前的可信 workflow step 使用；单个 installation token 不能读取其他 owner 的私有仓库。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`bash` 可调用 Runner 自带的 `jq` CLI 做只读 JSON 校验，`submit_review` 只封存该工作区内的最终 JSON 文件。
+Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 的可读集合固定为目标 owner 中安装了 Review App 的仓库，并且只授予读权限；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取，这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Token B 只供 Agent 启动前的可信 workflow step 使用；单个 installation token 不能读取其他 owner 的私有仓库。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`submit_review` 检查 JSON 语法并封存该工作区内的最终结果。
 
 同一 PR 的 Review workflow 串行执行。Pi 结束后，可信 publisher 将自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，再处理已有 thread 的状态变化；即使期间出现新快照，旧结果仍先形成历史 thread，后续 Review 再根据新代码更新或关闭。Publisher 会重新校验 schema、root comment 和 bot 身份。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。任何发布失败仍会使 Review Check 失败。
 
@@ -46,12 +46,12 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 
 中央 workflow 只加载：
 
-- Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及只允许规则使用在 `$REVIEW_WORKSPACE_PATH` 的 `write`；
+- Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及规则限定在 `$REVIEW_WORKSPACE_PATH` 使用的 `write`、`edit`；
 - 本地提交工具：`submit_review`，只接收工作区内最终 JSON 文件路径。
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR、评论、项目规则和 diff 在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`；`central/github-context.md` 接入关联索引和 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。未来其他 known issue 来源只负责提供原始记录，并复用公共 Skill 中的关联和状态判断。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR、评论、项目规则和 diff 在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`；`central/github-context.md` 接入关联索引和 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 输入信任边界
 

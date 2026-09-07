@@ -1,6 +1,6 @@
 # Finding 输出
 
-只有通过 `evidence.md` 反证和归因的候选才能成为 finding；没有存活候选时仍输出行为概述和明确结论。
+没有存活候选时仍输出行为概述和明确结论。
 
 ## 输出门槛
 
@@ -63,20 +63,9 @@ Alert 与标题：
 
 每段使用完整句子，不堆叠标识符。具体表达式构成根因时，在“依据与处理”中放一个带语言标识的最小代码块；不要复制变化位置已经清楚展示的内容。
 
-性能 finding 必须静态量化，例如：
+性能 finding 给出规模、base/head 成本函数及数量级或复杂度证据。
 
-```text
-base: 1 次批量请求处理最多 N 个对象
-head: 1 + N 次远程请求；N=100 时至少 101 次往返
-```
-
-测试 finding 必须给出对应分支的证明：T1 使用 violating probe，T2 change detector 使用 allowed-change probe，T2 redundancy 使用 deletion test、base/sibling 覆盖和缺失 unique witness 的证明。例如：
-
-```text
-错误变化：默认值改错，expected 与实现共用常量；测试仍会通过。
-允许变化：新增合法命令 c，契约仍只要求 a、b 可用；完整列表 equality 会失败。
-删除测试：base 已覆盖相同路径、partition 和 oracle；删除后没有现实契约错误会漏过相关 suite。
-```
+测试 finding 给出对应分支证明：T1 的 violating probe、T2 change detector 的 allowed-change probe，或 T2 redundancy 的 deletion test、base/sibling 覆盖及缺失 unique witness 的证明。
 
 单行足以表达根因时只选单行；只有声明、条件、调用或错误处理共同构成根因时才覆盖连续范围。调用方提供位置字段时，使用其 schema 要求的最小位置。
 
@@ -85,15 +74,3 @@ head: 1 + N 次远程请求；N=100 时至少 101 次往返
 把每个存活候选与调用方提供的已有 finding、问题记录和最新状态比较，一个根因只保留一条。未变化的既有问题只在正文关联；当前变化扩大影响、使历史依据失效或重新引入问题时，输出当前 finding 并说明差异。
 
 生产问题优先于同步测试问题；生产性能后果优先于缺少性能测试；同一根因的 P、T 和人工确认互斥。
-
-## 最终自检
-
-- `workspace.md` 的 change ledger 已满足完成条件；
-- 每条 finding 都有 base/head 差分、现实入口、完整路径和可观察边界；
-- 每条生产 finding 都具体说明 observer 的生产结果、判断、下一步操作或故障恢复发生了什么变化，没有用“可观察”或“用户困惑”代替实质影响；
-- T finding 有 violating、allowed 或 deletion/witness 证明；
-- 性能 finding 有规模、成本函数和数量级或复杂度证据；
-- 上游保护、合法例外、base 行为和已有问题已检查；
-- 同一根因没有同时输出 P、T 和人工确认；
-- 每条 finding 绑定最小根因位置，并能独立阅读；
-- 没有为显示“审查过”而保留低信号 finding。

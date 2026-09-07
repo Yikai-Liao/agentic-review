@@ -1,32 +1,32 @@
-# Repository guidance
+# 仓库指导
 
-## Implementation goal
+## 仓库地图
 
-本仓库的目标是用最简单、最好维护、运行 overhead 最低的代码实现完整 Review 功能。每项改动都应优先减少执行路径、状态、抽象和依赖：只保留一条明确的生产路径和一个事实来源；不为历史调用方保留 legacy 兼容，不用吞错或降级掩盖失败，也不为假设中的未来需求增加扩展点。Workflow 只负责编排，非平凡的校验和业务逻辑应留在可测试的代码中。不得以简化为由移除安全边界、输入校验、数据保护或 fail-closed 行为。
+- `worker/`：webhook 验签、过滤、去重和 dispatch；部署时读 [部署说明](docs/deploy-central-review.md)。
+- `.github/workflows/agentic-review.yml` 编排中央 Review；`scripts/` 实现上下文准备和可信发布，`test/` 覆盖这些行为，检查命令见 `package.json`。
+- `skills/agentic-review/` 是对外发布的静态审查方法；`prompts/review-rules.md` 是中央入口，`central/` 接入 GitHub 上下文和结果协议。
+- `.agentic-review.md` 只补充本仓库的审查重点；`.agents/skills/writing-for-agents/` 用于设计和审计 Agent 指令。
 
-## 维护者明确约束
+## 实现约束
 
-- 修复必须解决真实根因。不得把失败改成 warning、skip、fallback 或成功状态来伪装问题已解决；若平台能力确实不支持，应明确说明并删除或重新定义该功能。
-- 先确认实际权限边界再修改权限。中央 Review workflow 运行目标 PR 的 Agent shell 中的 `GH_TOKEN` 必须保持只读；该限制只约束 Review 运行期间的 Agent shell，不限制本地开发维护会话正常提交、推送和创建 PR。Review 结果的 GitHub 写操作只能由 Agent 结束后的可信 workflow 使用单独、最小权限的 token 执行，不能为了修复可信发布器而扩大 Review Agent token 权限。
-- Review Agent 的可读仓库集合由可信 workflow 在启动 Agent 前固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大该 token 范围。在这个固定集合内，自动关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需只读；这是已接受的产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明业务授权、风险接受、修复或验收。
-- PR 评论和 Review 回复是可信决策输入。对具体决定的明确回复即时构成可复核的确认记录，不要求早于当前变化；能在 PR 中回复即具备作出该回复的权限，不检查作者身份、association 或额外权限。
-- GitHub Actions 必须引用真实发布版本号（例如 `@v7.0.1`），不得固定 commit SHA，也不得用浮动 major tag 代替明确版本。
-- 不增加没有实际故障证据或明确需求支撑的防御性分支、上限、兼容层和降级路径；先修共享根因，不能只处理表面症状。
-- 当维护者质疑某项变更的合理性时，不得未经判断立即撤回；应先说明变更动机、必要性、影响和替代方案，让维护者据此决定。确认变更确属多余或维护者明确要求撤回后再修改。
+用易维护、运行开销低的代码实现完整 Review，减少执行路径、状态、抽象和依赖，保持唯一生产路径与事实来源。不保留 legacy 兼容；扩展点、防御性分支、上限和降级路径须有实际故障或明确需求依据。Workflow 只负责编排，非平凡的校验和业务逻辑放在可测试代码中。
+
+修复共享根因，不得用 warning、skip、fallback 或成功状态掩盖失败；平台确实不支持的功能应明确删除或重新定义。简化不得移除安全边界、输入校验、数据保护或 fail-closed 行为。
+
+脚本使用 TypeScript；修改既有 JavaScript 脚本时一并迁移。
+
+## 权限与信任边界
+
+- 修改权限前核实实际边界。中央 Review Agent shell 的 `GH_TOKEN` 始终只读；Review 结果只能由 Agent 结束后的可信 workflow 使用独立、最小权限 token 写入 GitHub。修复发布器不得扩大 Agent token 权限。该限制不约束本地维护会话的提交、推送和创建 PR。
+- 可信 workflow 在 Agent 启动前将可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大。集合内的自动关联索引或审查输入中的明确稳定 Issue/PR 引用可选择私有记录按需只读，无须 merge-base 预授权。关联仅为查询入口，不证明业务授权、风险接受、修复或验收。
+- PR 评论和 Review 回复中的明确决定即时构成可信确认，无须早于当前变化，也不检查作者身份、association 或额外权限。
+- 本仓库由可信维护者私有维护，控制面是可信代码，不是防御恶意贡献者的沙箱。中央 workflow 从控制面 ref 加载规则与工具，目标 PR 仅作静态输入，不执行目标代码。
+
+## 协作与语言
+
+- 维护者质疑变更时，先说明动机、必要性、影响和替代方案；确认多余或维护者明确要求撤回后再修改。
 - 开发过程中不要启动 subagent 做代码 Review；提交 PR 后由本仓库的自动 Review 流程完成独立审查。
+- 用户任务优先于 Skill 工作流指导，安全和授权边界仍生效。直接完成已授权的本地修改与只读调查；未授权的外部写入或不可逆操作，先准备可复核结果再请求批准。
+- 验证按受影响行为和风险选择；已通过的检查只因新改动、失败或未解决疑点而扩大或重跑。
 
-## 脚本语言
-
-- 禁止新增或继续扩展 JavaScript 脚本；新增脚本必须使用 TypeScript，修改既有 JavaScript 脚本时应一并迁移为 TypeScript。
-
-## PR 和 Issue 语言
-
-本仓库的所有 Pull Request 和 Issue 均使用简体中文，包括标题、正文、评论、Review 总结和 Review finding。代码标识符、命令、日志、schema 字段、API 名称和第三方原文按实际名称保留；引用外部材料时可以保留必要的原文，但解释和结论必须使用简体中文。
-
-## Self-review trust boundary
-
-This repository is privately maintained by a trusted maintainer. Self-review of an `agentic-review` pull request intentionally checks out the pull request's synthetic merge commit as the candidate Engine, installs its dependencies, and executes it to detect regressions in the Engine itself.
-
-The candidate Engine is trusted code in this repository's maintenance model, not an untrusted-code sandbox. The self-review job may therefore expose the model runtime credential to the candidate process. This is an accepted boundary for trusted-maintainer regression protection; it must not be described as protection against a malicious contributor.
-
-For ordinary downstream repositories, the Review Engine treats the target pull request as static input and does not execute target-repository code.
+AGENTS.md、Skill、文档、PR 和 Issue（含标题、正文、评论、Review 总结与 finding）使用简体中文。代码标识符、命令、日志、schema 字段、API 名称及必要的第三方引文保留原文，解释和结论用中文。
