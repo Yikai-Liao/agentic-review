@@ -24,6 +24,8 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引是按需读取入口，不证明条目与候选相关，也不构成业务授权、修复或验收证据。
 
+增量入口直接展开 focus diff，并给出完整 diff 路径和由固定 base/head 生成的完整变更文件清单。模型根据增量影响和历史证据选择 full diff 的读取范围，也可选择完整读取；初审和全部变更均为增量时直接展开 full diff。上一轮 batch 由准备阶段复制到本轮工作区，模型只更新重开的证据，并在新索引记录继承来源和理由，后续 artifact 因而仍包含完整证据。
+
 ## 发布 Review 的权限方案
 
 这是本项目最重要的权限边界。中央 workflow 用同一个 Review App mint 三个不同权限和仓库范围的 installation token：
@@ -47,7 +49,10 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 中央 workflow 只加载：
 
 - Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及规则限定在 `$REVIEW_WORKSPACE_PATH` 使用的 `write`、`edit`；
+- 本地只读工具：`refresh_review_threads`，在代码调查结束后获取目标 PR 最新 thread 状态和完整回复；GraphQL thread 与 REST comments 分别分页；
 - 本地提交工具：`submit_review`，只接收工作区内最终 JSON 文件路径。
+
+封存要求当前进程至少成功刷新一次讨论；刷新失败时不能封存。刷新时点和依据最新决定修正结论由审查规则约束，工具不判断自由文本是否遵循决定，也不保证刷新至 GitHub 发布之间不存在新回复。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码。
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 

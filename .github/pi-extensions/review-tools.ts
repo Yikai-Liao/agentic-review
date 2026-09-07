@@ -1,6 +1,7 @@
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseReviewResult } from '../../scripts/review-result.ts';
+import { readReviewThreads } from '../../scripts/read-review-threads.ts';
 
 type ExtensionAPI = {
   registerTool(tool: {
@@ -10,8 +11,23 @@ type ExtensionAPI = {
   }): void;
 };
 
-export default function reviewTools(pi: ExtensionAPI) {
+export default function reviewTools(pi: ExtensionAPI, readThreads = readReviewThreads) {
   let submitted = false;
+  let threadsRefreshed = false;
+
+  pi.registerTool({
+    name: 'refresh_review_threads',
+    label: '刷新 Review 讨论',
+    description: '代码调查完成后、生成最终 JSON 前调用；只读获取当前 PR 全部 thread 状态和完整回复，按最新决定归纳历史问题。',
+    parameters: { type: 'object', properties: {}, additionalProperties: false } as any,
+    async execute() {
+      if (submitted) throw new Error('the review was already submitted');
+      threadsRefreshed = false;
+      const threads = await readThreads();
+      threadsRefreshed = true;
+      return { content: [{ type: 'text', text: JSON.stringify(threads) }], details: { refreshed: true } };
+    },
+  });
 
   pi.registerTool({
     name: 'submit_review',
@@ -49,6 +65,7 @@ export default function reviewTools(pi: ExtensionAPI) {
       if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
       const content = await readFile(reviewPath, 'utf8');
       parseReviewResult(content);
+      if (!threadsRefreshed) throw new Error('Call refresh_review_threads and reconcile the latest replies before submitting');
       await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       submitted = true;
 

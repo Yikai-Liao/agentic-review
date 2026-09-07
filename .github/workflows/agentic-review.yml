@@ -250,34 +250,29 @@ jobs:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+          REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
+          REVIEW_BASE_SHA: ${{ inputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
+          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
+          REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
         run: |
-          section() {
-            printf '\n## %s\n\n' "$1"
-            shift
-            "$@"
-          }
-
-          {
-            echo '# Review input'
-            section 'Untrusted PR metadata' gh pr view "$REVIEW_PULL_NUMBER" --repo "$REVIEW_REPOSITORY" --json title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits,files
-            section 'Trusted issue comments' gh api --paginate "repos/$REVIEW_REPOSITORY/issues/$REVIEW_PULL_NUMBER/comments?per_page=100"
-            section 'Trusted inline comments' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"
-            section 'Trusted reviews' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
-            [[ ! -f review-base/.agentic-review.md ]] || section 'Base .agentic-review.md' cat review-base/.agentic-review.md
-            [[ ! -f review-target/.agentic-review.md ]] || section 'Head .agentic-review.md' cat review-target/.agentic-review.md
-            [[ ! -f review-base/AGENTS.md ]] || section 'Base AGENTS.md' cat review-base/AGENTS.md
-            [[ ! -f review-target/AGENTS.md ]] || section 'Head AGENTS.md' cat review-target/AGENTS.md
-            [[ ! -f "$RUNNER_TEMP/review-focus.diff" ]] || section 'Focus diff' cat "$RUNNER_TEMP/review-focus.diff"
-            section 'Full diff' cat "$RUNNER_TEMP/review.diff"
-          } > "$RUNNER_TEMP/review-input.md"
+          node control/scripts/prepare-review-input.ts
 
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
+          REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
         run: |
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
+          if [[ -n "$REVIEW_PREVIOUS_WORKSPACE_PATH" && -d "$REVIEW_PREVIOUS_WORKSPACE_PATH/batches" ]]; then
+            cp -R "$REVIEW_PREVIOUS_WORKSPACE_PATH/batches" "$REVIEW_WORKSPACE_PATH/"
+            chmod -R u+w "$REVIEW_WORKSPACE_PATH/batches"
+          fi
           cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
@@ -378,6 +373,7 @@ jobs:
             find
             ls
             bash
+            refresh_review_threads
             submit_review
           # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}

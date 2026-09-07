@@ -18,7 +18,7 @@ mktemp -d "$workspace_root/review.XXXXXX"
 
 本地 Review 成功输出后删除本轮目录；中断或用户要求复核时保留并报告路径。调用方自行规定工作区的 artifact 和保留期。不要记录 token、环境变量值或与审查无关的敏感信息。
 
-`$REVIEW_PREVIOUS_WORKSPACE_PATH` 是上一轮只读结果。读取其 `notes.md`、最终结果及与增量相关的 complete batch，将可复用结论和来源写入本轮索引；不修改或复制历史文件。历史结论仅作调查索引与证据缓存，当前代码、增量 diff 和最新外部记录优先。
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 是上一轮只读结果。先读取其 `notes.md` 和最终结果，再按增量影响读取相关 complete batch，将可复用结论和来源写入本轮索引；不修改历史目录。调用方已将历史 batch 复制到本轮工作区时，保留未受影响文件，只更新重开的 batch；本轮索引记录继承的 checkpoint、batch 路径、覆盖 ID 和前提未受影响的理由。调用方未复制时，在本轮工作区保存需继承的 batch 原文，以便下一轮不依赖更早的 artifact。历史结论仅作调查索引与证据缓存，当前代码、增量 diff 和最新外部记录优先。
 
 ## 结构
 
@@ -43,7 +43,7 @@ change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳
 - 与其他 batch 可能共享的根因、触发路径和 cluster key；
 - `status: complete` 或仍缺少的明确证据。
 
-写完 batch 文件再将索引状态改为 complete；新证据推翻结论时更新原 batch。
+新建或重开的 batch 写完文件后再将索引状态改为 complete；继承项保留证据原文和稳定 ID，不为本轮重新生成证明。新证据推翻结论时更新本轮对应 batch。
 
 ## 工具边界与单写者
 

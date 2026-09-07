@@ -6,6 +6,8 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`，遵循 `workspace.md`；工作稿作为限期、受权限保护的 Actions artifact 保留。
 
+准备阶段已将上一轮 `batches/` 复制到本轮可写目录。根据历史索引判定继承或重开；本轮重新生成 `notes.md` 和最终 JSON，记录有效 batch 及来源，历史文件存在本身不构成本轮覆盖证明。
+
 ## 2. 历史 thread 状态
 
 把存活候选与当前 PR 已有 inline thread 和最新回复比较，一个根因只保留一条：
@@ -23,7 +25,9 @@
 
 ## 3. 最终归纳
 
-按 `workspace.md` 核对 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
+代码调查完成后调用 `refresh_review_threads`，读取最新状态和完整回复，再按第 2 节核定历史问题。已关闭且没有问题重现或风险升级证据的 thread 按 `✅ 已关闭` 表达；UI 关闭不等同于代码已修复，明确回复中的决定按其实际内容记录。仅因启动快照缺少回复不能断言“没有确认”。若刷新引发进一步代码调查，调查完成后再次刷新，再生成结果。
+
+按 `workspace.md` 核对 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON，记录最后刷新时点及改变的判断。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
 
 ## 4. 最终 JSON
 
@@ -61,7 +65,7 @@
 
 中央 inline finding 必须使用 [findings.md 的模板、Alert 和证明要求](../skills/agentic-review/references/findings.md#finding-内容)，段间空一行，不加“等级：”前缀。
 
-提交前重新读取本文件和实际写出的 JSON，核对字段、存活 finding 与历史 thread 状态一致。`submit_review` 与发布器使用同一 schema 校验。
+生成 JSON 时使用本文件已预载的格式，提交前读取实际写出的 JSON，核对字段、存活 finding 与刷新后的历史 thread 状态一致；协议无法准确恢复时从 `$REVIEW_CONTROL_PATH/central/review-result.md` 补读。`submit_review` 与发布器使用同一 schema 校验，且要求本次进程已经成功刷新 thread。
 
 ## 5. 唯一提交
 

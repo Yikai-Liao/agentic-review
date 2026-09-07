@@ -23,7 +23,7 @@ compaction 后先读取本轮 `notes.md`，按其中的调用方规则恢复入�
 
 ## 1. 确定变化范围
 
-使用调用方指定的 base/head、diff 或路径；本地范围按 [`references/target-selection.md`](references/target-selection.md) 解析。完成条件：base/head 或本地变化集合已确定，完整 diff 已读取，截断部分已补齐。
+使用调用方指定的 base/head、diff 或路径；本地范围按 [`references/target-selection.md`](references/target-selection.md) 解析。完成条件：base/head 或本地变化集合已确定，完整变化文件清单已读取。无可信 checkpoint 和可用历史工作稿时完整读取 diff；有历史时先读取增量 diff，再按 `workspace.md` 的继承条件选择完整 diff 的读取范围。所选范围的截断部分必须补齐。
 
 ## 2. 建立持久工作稿
 
