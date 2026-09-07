@@ -9,12 +9,6 @@ import { buildFooter, publishReview } from '../scripts/publish-review.ts';
 import { parseReviewResult } from '../scripts/review-result.ts';
 
 const headSha = 'b'.repeat(40);
-async function submissionTool() {
-  const tools: Record<string, any> = {};
-  reviewTools({ registerTool: (tool) => { tools[tool.name] = tool; } }, async () => []);
-  await tools.refresh_review_threads.execute('refresh', {});
-  return tools.submit_review;
-}
 const result = {
   body: '## Review 总结\n\n这个 PR 修复了清理行为。',
   comments: [{ path: 'src/gc.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
@@ -96,7 +90,8 @@ test('submit_review seals one JSON file from the review workspace', async () => 
     await writeFile(sourcePath, `${JSON.stringify(result)}\n`);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = resultPath;
-    const tool = await submissionTool();
+    let tool: any;
+    reviewTools({ registerTool: (definition) => { tool = definition; } });
 
     const response = await tool.execute('call', { path: sourcePath });
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
@@ -118,7 +113,8 @@ test('submit_review rejects invalid results without sealing and allows correctio
     await mkdir(workspace);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = resultPath;
-    const tool = await submissionTool();
+    let tool: any;
+    reviewTools({ registerTool: (definition) => { tool = definition; } });
 
     const invalidResults: Array<[string, RegExp]> = [
       ['{', /JSON/],
@@ -155,40 +151,9 @@ test('submit_review rejects files outside the review workspace', async () => {
     await writeFile(outside, JSON.stringify(result));
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
-    const tool = await submissionTool();
+    let tool: any;
+    reviewTools({ registerTool: (definition) => { tool = definition; } });
     await assert.rejects(tool.execute('call', { path: outside }), /inside REVIEW_WORKSPACE_PATH/);
-  } finally {
-    process.env = originalEnv;
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test('submission requires a successful discussion refresh and exposes new replies', async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'review-refresh-'));
-  const originalEnv = { ...process.env };
-  try {
-    process.env.REVIEW_WORKSPACE_PATH = directory;
-    process.env.REVIEW_RESULT_PATH = path.join(directory, 'sealed.json');
-    const source = path.join(directory, 'result.json');
-    await writeFile(source, JSON.stringify(result));
-    const tools: Record<string, any> = {};
-    let fail = false;
-    const latest = [{ root_comment_id: 123, isResolved: true, comments: [{ body: '已确认是误报' }] }];
-    reviewTools({ registerTool: (tool) => { tools[tool.name] = tool; } }, async () => {
-      if (fail) throw new Error('API unavailable');
-      return latest;
-    });
-    await assert.rejects(tools.submit_review.execute('submit', { path: source }), /refresh_review_threads/);
-    await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH), { code: 'ENOENT' });
-    const refreshed = await tools.refresh_review_threads.execute('refresh', {});
-    assert.deepEqual(JSON.parse(refreshed.content[0].text), latest);
-    fail = true;
-    await assert.rejects(tools.refresh_review_threads.execute('refresh', {}), /API unavailable/);
-    await assert.rejects(tools.submit_review.execute('submit', { path: source }), /refresh_review_threads/);
-    fail = false;
-    await tools.refresh_review_threads.execute('refresh', {});
-    await tools.submit_review.execute('submit', { path: source });
-    assert.deepEqual(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH, 'utf8')), result);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });

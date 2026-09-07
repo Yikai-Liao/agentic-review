@@ -25,7 +25,7 @@
 
 ## 3. 最终归纳
 
-代码调查完成后调用 `refresh_review_threads`，读取最新状态和完整回复，再按第 2 节核定历史问题。已关闭且没有问题重现或风险升级证据的 thread 按 `✅ 已关闭` 表达；UI 关闭不等同于代码已修复，明确回复中的决定按其实际内容记录。仅因启动快照缺少回复不能断言“没有确认”。若刷新引发进一步代码调查，调查完成后再次刷新，再生成结果。
+代码调查完成后、生成最终 JSON 前，按 `central/github-context.md` 用只读 `gh` 查询当前 PR 的最新 thread 状态和完整回复，再按第 2 节核定历史问题。查询失败或分页未读完时，先补齐证据再完成归纳。已关闭且没有问题重现或风险升级证据的 thread 按 `✅ 已关闭` 表达；UI 关闭不等同于代码已修复，明确回复中的决定按其实际内容记录。仅因启动快照缺少回复不能断言“没有确认”。若刷新引发进一步代码调查，调查完成后再次刷新，再生成结果。
 
 按 `workspace.md` 核对 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON，记录最后刷新时点及改变的判断。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
 
@@ -65,7 +65,7 @@
 
 中央 inline finding 必须使用 [findings.md 的模板、Alert 和证明要求](../skills/agentic-review/references/findings.md#finding-内容)，段间空一行，不加“等级：”前缀。
 
-生成 JSON 时使用本文件已预载的格式，提交前读取实际写出的 JSON，核对字段、存活 finding 与刷新后的历史 thread 状态一致；协议无法准确恢复时从 `$REVIEW_CONTROL_PATH/central/review-result.md` 补读。`submit_review` 与发布器使用同一 schema 校验，且要求本次进程已经成功刷新 thread。
+生成 JSON 时使用本文件已预载的格式，提交前读取实际写出的 JSON，核对字段、存活 finding 与刷新后的历史 thread 状态一致；协议无法准确恢复时从 `$REVIEW_CONTROL_PATH/central/review-result.md` 补读。`submit_review` 与发布器使用同一 schema 校验。
 
 ## 5. 唯一提交
 

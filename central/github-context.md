@@ -12,7 +12,7 @@
 
 ## 2. 获取当前 PR 元数据
 
-`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review 和 inline comments 的启动快照。调查中需要最新 thread 状态时调用 `refresh_review_threads`；最终归纳前的刷新时点见 `central/review-result.md`。普通评论中影响候选的决定也应按需用只读 `gh` 补查。
+`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review 和 inline comments 的启动快照。需要最新 thread 状态时，用只读 `gh api graphql` 查询目标 `$REVIEW_REPOSITORY`、`$REVIEW_PULL_NUMBER` 的 `reviewThreads`，读取 `isResolved`、`isOutdated`、`resolvedBy` 和首条评论的 `databaseId`。完整回复可用 `gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"` 获取，按 root ID 与 `in_reply_to_id` 对应；GraphQL thread 连接也须按 `pageInfo` 读完分页。最终归纳前的刷新时点见 `central/review-result.md`。普通评论中影响候选的决定也应按需用只读 `gh` 补查。
 
 完成条件：输入快照中的元数据和讨论已读取，工作稿记录显式关联线索；thread 最终状态在归纳前核定。
 

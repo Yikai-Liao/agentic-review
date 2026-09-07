@@ -373,7 +373,6 @@ jobs:
             find
             ls
             bash
-            refresh_review_threads
             submit_review
           # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
