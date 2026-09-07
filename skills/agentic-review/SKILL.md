@@ -23,7 +23,7 @@ compaction 后先读取本轮 `notes.md`，按其中的调用方规则恢复入�
 
 ## 1. 确定变化范围
 
-使用调用方指定的 base/head、diff 或路径；本地范围按 [`references/target-selection.md`](references/target-selection.md) 解析。完成条件：base/head 或本地变化集合已确定，完整 diff 已读取，截断部分已补齐。
+使用调用方指定的 base/head、diff 或路径；本地范围按 [`references/target-selection.md`](references/target-selection.md) 解析。先获取完整变更文件清单和规模；小 diff 可直接一次读完，大 diff 的 patch 留到所属 batch 读取。完成条件：base/head 或本地变化集合已确定，完整文件清单已取得，包含新增、删除、重命名和复制的两端路径。
 
 ## 2. 建立持久工作稿
 
@@ -31,7 +31,7 @@ compaction 后先读取本轮 `notes.md`，按其中的调用方规则恢复入�
 
 读取适用的 `.agentic-review.md` 和 `AGENTS.md`，补充业务事实、约束和调查路径，不降低证据门槛。
 
-完成条件：完整变化集合已登记到 ledger，每个文件和非机械性 hunk 都映射到 batch；本轮范围、规则恢复入口和上一轮工作稿来源已写入 `notes.md`。
+完成条件：完整文件清单已登记到 ledger 并映射到 batch，尚未读取的 patch 标为待覆盖；本轮范围、规则恢复入口和上一轮工作稿来源已写入 `notes.md`。非机械性 hunk 在所属 batch 读取时补登记。
 
 ## 3. 完整静态审查
 
