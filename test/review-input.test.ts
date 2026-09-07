@@ -12,6 +12,7 @@ test('prepared input retains complete file navigation without expanding the full
     Object.assign(process.env, {
       REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '60',
       REVIEW_TARGET_PATH: directory, REVIEW_BASE_PATH: directory,
+      REVIEW_WORKSPACE_PATH: directory,
       REVIEW_BASE_SHA: 'a'.repeat(40), REVIEW_HEAD_SHA: 'b'.repeat(40),
       REVIEW_INPUT_PATH: path.join(directory, 'input.md'),
       REVIEW_DIFF_PATH: path.join(directory, 'full.diff'),
@@ -29,7 +30,10 @@ test('prepared input retains complete file navigation without expanding the full
         return fileList;
       }
       assert.equal(command, 'gh');
-      return args.includes('view') ? '{"title":"测试 PR"}' : '[{"body":"明确决定"}]';
+      if (args.includes('graphql')) return JSON.stringify([{ data: { repository: { pullRequest: {
+        reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+      } } } }]);
+      return args.includes('view') ? '{"title":"测试 PR"}' : '[[{"id":1,"body":"明确决定"}]]';
     };
     for (const mode of ['initial', 'incremental_all', 'incremental', 'incremental_unchanged']) {
       process.env.REVIEW_MODE = mode;
@@ -39,6 +43,9 @@ test('prepared input retains complete file navigation without expanding the full
       assert.ok(input.includes(process.env.REVIEW_DIFF_PATH!));
       assert.ok(input.includes('项目约束'));
       assert.ok(input.includes('明确决定'));
+      const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
+      assert.equal(baseline.repository, 'owner/repo');
+      assert.ok(baseline.fingerprints.inline_comments['1']);
       assert.equal(input.includes(full), mode === 'initial' || mode === 'incremental_all');
       assert.equal(input.includes(focus), mode === 'incremental');
       assert.equal(readFileSync(process.env.REVIEW_DIFF_PATH!, 'utf8'), full);

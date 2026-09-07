@@ -51,7 +51,7 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 - Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及规则限定在 `$REVIEW_WORKSPACE_PATH` 使用的 `write`、`edit`；
 - 本地提交工具：`submit_review`，只接收工作区内最终 JSON 文件路径。
 
-最终归纳前，Agent 按中央规则通过只读 `gh` 获取最新 thread 状态和完整回复，并在工作稿记录刷新时点及改变的判断。此要求由审查流程约束，封存工具只校验结果文件，不验证查询是否执行或自由文本是否采用最新决定；刷新至 GitHub 发布之间仍可能出现新回复。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码。
+最终归纳前，Agent 按中央规则执行控制面 `scripts/refresh-review-discussion.ts`，读取相对启动快照新增或编辑的评论和变化的 thread 状态，并在工作稿记录刷新时点及改变的判断。脚本使用只读 `gh`，普通评论和 inline 回复按 `since` 拉取，Review 正文及 thread 状态完整查询后仅输出变化；重复刷新始终对照固定启动基线，失败直接报错。删除评论不在增量协议内，有线索时按 ID 补查。这里有意采用 Skill 流程约束，不设置刷新工具或封存门禁；封存工具只校验结果文件，不证明 Agent 执行了刷新或采纳了最新决定，刷新至发布之间也仍可能有新回复。此取舍不改变只读 Agent / 独立可信 publisher 的权限边界。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码；封装前恢复控制面格式，成功封存后立即结束 Agent 回合。
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 

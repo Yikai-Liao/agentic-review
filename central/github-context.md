@@ -12,7 +12,15 @@
 
 ## 2. 获取当前 PR 元数据
 
-`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review 和 inline comments 的启动快照。需要最新 thread 状态时，用只读 `gh api graphql` 查询目标 `$REVIEW_REPOSITORY`、`$REVIEW_PULL_NUMBER` 的 `reviewThreads`，读取 `isResolved`、`isOutdated`、`resolvedBy` 和首条评论的 `databaseId`。完整回复可用 `gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"` 获取，按 root ID 与 `in_reply_to_id` 对应；GraphQL thread 连接也须按 `pageInfo` 读完分页。最终归纳前的刷新时点见 `central/review-result.md`。普通评论中影响候选的决定也应按需用只读 `gh` 补查。
+`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review、inline comments 和 thread 状态的启动快照。准备阶段同时保存本轮 `discussion-baseline.json`。最终归纳前执行控制面只读脚本：
+
+```bash
+node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
+```
+
+脚本通过 `gh` 读完分页，只输出相对启动快照新增或编辑的普通评论、inline 回复、Review 正文及变化的 thread 状态。完整读取输出，截断时补齐；以 ID 覆盖快照中的旧记录，按 `root_comment_id`、`in_reply_to_id` 关联 thread，结合已读原文判断，空数组表示该类没有增量。刷新时点遵循 `central/review-result.md`。
+
+基线固定为本轮启动快照，重复调用仍返回本轮全部增量，不因一次输出未读完而丢失评论。普通评论和 inline 回复使用 `since` 增量拉取；Reviews API 不支持 `since`，thread 状态也需完整枚举，这两类在本地比对后只输出变化。脚本不检测已删除评论；有删除或上下文缺失线索时按 ID 用只读 `gh` 补查原记录。任一请求或分页失败时脚本报错，不能把失败当成“无新回复”。
 
 完成条件：输入快照中的元数据和讨论已读取，工作稿记录显式关联线索；thread 最终状态在归纳前核定。
 

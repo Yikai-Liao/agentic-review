@@ -247,6 +247,7 @@ jobs:
 
       - name: Prepare review input
         env:
+          REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}

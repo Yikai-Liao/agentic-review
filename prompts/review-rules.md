@@ -8,4 +8,6 @@
 
 第一步完整读取 `$REVIEW_INPUT_PATH`；若工具截断，按 offset 继续直到读完。输入包括当前 PR 元数据、讨论快照、项目规则、完整变更文件清单和本轮 diff。完整 diff 始终在 `$REVIEW_DIFF_PATH` 可读；按 `central/github-context.md` 选择读取范围和刷新讨论，不重复读取已展开的 diff。已有历史工作稿时接着读取历史索引，再选择需要调查的代码与 batch。
 
-按附带规则完成静态审查；工作稿、历史 thread、最终 JSON 和提交遵循 `central/review-result.md`。
+按附带规则完成静态审查；工作稿和历史 thread 遵循控制面中央适配器。
+
+最终封装从以下读取动作开始：用 `read` 完整读取 `$REVIEW_CONTROL_PATH/central/review-result.md`，按其中的最终 JSON 模板写文件，再按其中的唯一提交规则结束本轮。以工具返回的绝对路径确认读到的是控制面：读取 `$REVIEW_TARGET_PATH/central/review-result.md` 只算恢复调查对象，不算完成此步骤。不能从目标协议或其他审查结果推测当前接口的字段。
