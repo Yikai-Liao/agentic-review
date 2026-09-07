@@ -257,6 +257,7 @@ jobs:
           path: ${{ runner.temp }}/previous-request-workspace
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
+          run-id: ${{ steps.previous-request.outputs.run_id }}
 
       - name: Activate previous requested workspace
         id: previous-request-workspace
