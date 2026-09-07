@@ -61,14 +61,14 @@
 
 中央 inline finding 必须使用 [findings.md 的模板、Alert 和证明要求](../skills/agentic-review/references/findings.md#finding-内容)，段间空一行，不加“等级：”前缀。
 
-确认 JSON 与存活 finding 一致；语法由 `submit_review` 检查，schema 由发布器校验。
+提交前重新读取本文件和实际写出的 JSON，核对字段、存活 finding 与历史 thread 状态一致。`submit_review` 与发布器使用同一 schema 校验。
 
 ## 5. 唯一提交
 
-最后恰好调用一次：
+最后调用以下工具，直到成功封存一次；校验失败时按错误和本文件修正 JSON 后重试：
 
 ```text
 submit_review({"path":"<REVIEW_WORKSPACE_PATH>/review-result.json"})
 ```
 
-`submit_review` 只封存该文件；可信 publisher 会重新验证 schema，把 `body` 与全部 inline comments 发布到本轮审查的 head，处理历史 thread，并追加运行元数据。不要通过其他工具发布，也不要在提交后继续修改结果文件。
+`submit_review` 先校验该文件，通过后才封存；校验失败不会封存，也不会消耗成功提交机会。可信 publisher 会重新验证 schema，把 `body` 与全部 inline comments 发布到本轮审查的 head，处理历史 thread，并追加运行元数据。不要通过其他工具发布，也不要在提交后继续修改结果文件。
