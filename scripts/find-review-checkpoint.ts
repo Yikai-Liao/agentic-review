@@ -170,7 +170,7 @@ export async function findReviewWorkspaceArtifact({
       throw new Error('Invalid GitHub artifact response');
     }
   }
-  const name = `review-workspace-${repositoryId}-${pullNumber}-${source}-${runId}-${runAttempt}`;
+  const name = `review-completed-workspace-${repositoryId}-${pullNumber}-${source}-${runId}-${runAttempt}`;
   const artifact = body.artifacts.find((item) => item.name === name && !item.expired);
   if (!artifact) return null;
   return String(artifact.id);
@@ -261,7 +261,7 @@ export async function main() {
       api,
     })
     : null;
-  if (artifactId === undefined) checkpoint = null;
+  if (!artifactId) checkpoint = null;
   await appendFile(output, [
     `head_sha=${checkpoint?.headSha ?? ''}`,
     `run_id=${checkpointRunId ?? checkpoint?.runId ?? ''}`,

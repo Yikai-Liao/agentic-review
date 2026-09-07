@@ -1,7 +1,9 @@
+import path from 'node:path';
+import { parseReviewCoverage, validateCoverageCompletion } from './review-coverage.ts';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
-import { buildReviewRequest, validateReviewScope, type ReviewCoverage } from './review-request.ts';
+import { buildReviewRequest, validateReviewScope } from './review-request.ts';
 
 type FooterMetadata = {
   runUrl: string;
@@ -304,18 +306,19 @@ function requiredEnv(name: string) {
 async function main() {
   const result = parseReviewResult(await readFile(requiredEnv('REVIEW_RESULT_PATH'), 'utf8'));
   const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
-  const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
+  const coverage = parseReviewCoverage(JSON.parse(await readFile(coveragePath, 'utf8')));
   const repository = requiredEnv('REPOSITORY');
   const pullNumber = Number(requiredEnv('PULL_NUMBER'));
   const headSha = requiredEnv('HEAD_SHA');
   const baseSha = requiredEnv('BASE_SHA');
   const triggerSource = requiredEnv('REVIEW_TRIGGER_SOURCE');
-  const request = buildReviewRequest({ source: triggerSource, commentId: process.env.REVIEW_COMMENT_ID, rootCommentId: process.env.REVIEW_COMMENT_ROOT_ID, text: process.env.REVIEW_COMMENT_BODY, repository, pullNumber, baseSha, headSha, comparisonStart: coverage.request?.comparison_start, runId: requiredEnv('REVIEW_RUN_ID'), runAttempt: requiredEnv('REVIEW_RUN_ATTEMPT'), now: coverage.request?.requested_at });
+  const request = buildReviewRequest({ source: triggerSource, commentId: process.env.REVIEW_COMMENT_ID, rootCommentId: process.env.REVIEW_COMMENT_ROOT_ID, text: process.env.REVIEW_COMMENT_BODY, repository, pullNumber, baseSha, headSha, comparisonStart: requiredEnv('REVIEW_COMPARISON_START'), runId: requiredEnv('REVIEW_RUN_ID'), runAttempt: requiredEnv('REVIEW_RUN_ATTEMPT'), now: coverage.request?.requested_at });
   if (!coverage.request || JSON.stringify(coverage.request) !== JSON.stringify(request)) throw new Error('Published review request metadata does not match trusted workflow inputs');
   if (!coverage.scope || coverage.scope.id !== result.scope_id) throw new Error('Missing published review scope');
   validateReviewScope(coverage.scope, request);
   if (triggerSource === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
   if (triggerSource !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
+  await validateCoverageCompletion(coverage, path.dirname(coveragePath), requiredEnv('REVIEW_INVENTORY_DIGEST'));
   const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${coverage.scope.targets.join(', ')})`;
   const threadReplyOnly = triggerSource === 'thread' && coverage.scope.mode === 'focused';
   const footer = buildFooter({
@@ -345,7 +348,7 @@ async function main() {
     requestRootCommentId: process.env.REVIEW_COMMENT_ROOT_ID,
     threadReplyOnly,
   });
-  await writeFile(coveragePath, `${JSON.stringify({ ...coverage, status: 'published', complete_audit: triggerSource === 'automatic' && coverage.scope.mode !== 'focused', updated_at: new Date().toISOString() })}\n`, { encoding: 'utf8', mode: 0o600 });
+  await writeFile(coveragePath, `${JSON.stringify({ ...coverage, status: 'published', complete_audit: triggerSource === 'automatic' && coverage.scope.mode === 'full', updated_at: new Date().toISOString() })}\n`, { encoding: 'utf8', mode: 0o600 });
   console.log(`Published review: ${url}`);
 }
 

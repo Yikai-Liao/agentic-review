@@ -116,7 +116,7 @@ test('set_review_scope persists concrete coverage and submit requires its scope 
       request: {
         version: 1, source: 'pr_comment', comment_id: '8', root_comment_id: '8', text: '@review-app auth',
         repository: 'owner/repo', pull_number: 7, base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), comparison_start: 'a'.repeat(40), requested_at: '2026-01-01T00:00:00Z', run_id: '99', run_attempt: '1',
-      }, status: 'requested', completed_batches: [], complete_audit: false,
+      }, status: 'requested', completed_batches: [], ledger: [{ path: 'src/auth.ts', status: 'pending', batches: [] }], complete_audit: false,
     }));
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_COVERAGE_PATH = coveragePath;
@@ -129,6 +129,7 @@ test('set_review_scope persists concrete coverage and submit requires its scope 
     });
     const saved = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(saved.status, 'draft');
+    assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending', batches: [] }]);
     assert.equal(saved.scope.id, '99:1:scope');
     const resultPath = path.join(workspace, 'result.json');
     await writeFile(resultPath, JSON.stringify({ body: '总结', scope_id: 'wrong', comments: [], thread_updates: [], request_reply: null }));

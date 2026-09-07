@@ -43,7 +43,7 @@ export default function reviewTools(pi: ExtensionAPI) {
       const id = `${coverage.request.run_id}:${coverage.request.run_attempt}:scope`;
       const scope: ReviewScope = { ...input, id, decided_at: new Date().toISOString() };
       validateReviewScope(scope, coverage.request);
-      const output = `${JSON.stringify({ request: coverage.request, scope, status: 'draft', completed_batches: coverage.completed_batches, complete_audit: false, updated_at: scope.decided_at })}\n`;
+      const output = `${JSON.stringify({ ...coverage, scope, status: 'draft', completed_batches: coverage.completed_batches, complete_audit: false, updated_at: scope.decided_at })}\n`;
       await persistReviewCoverage(coveragePath, JSON.parse(output) as ReviewCoverage);
       return { content: [{ type: 'text', text: 'Review scope recorded.' }], details: { scope_id: id } };
     },

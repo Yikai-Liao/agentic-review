@@ -35,10 +35,10 @@ export async function findLatestReviewWorkspace(options: {
     const source = parts.at(-3);
     const runId = parts.at(-2);
     const runAttempt = parts.at(-1);
-    return source === 'thread' || !/^\d+$/.test(runId ?? '') || !/^\d+$/.test(runAttempt ?? '') || `${runId}:${runAttempt}` === options.currentRun
+    return !['automatic', 'pr_comment'].includes(source ?? '') || !/^\d+$/.test(runId ?? '') || !/^\d+$/.test(runAttempt ?? '') || `${runId}:${runAttempt}` === options.currentRun
       ? null
-      : { artifactId: String(artifact.id), runId: runId!, runAttempt: runAttempt!, source: source!, createdAt: typeof artifact.created_at === 'string' ? artifact.created_at : '' };
-  }).filter((candidate): candidate is { artifactId: string; runId: string; runAttempt: string; source: string; createdAt: string } => candidate !== null);
+      : { artifactId: String(artifact.id), runId: runId!, runAttempt: runAttempt!, source: source!, published: prefix === prefixes[1], createdAt: typeof artifact.created_at === 'string' ? artifact.created_at : '' };
+  }).filter((candidate): candidate is { artifactId: string; runId: string; runAttempt: string; source: string; published: boolean; createdAt: string } => candidate !== null);
   return candidates.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || Number(b.runId) - Number(a.runId))[0] ?? null;
 }
 
@@ -51,7 +51,7 @@ export async function main() {
     currentRun: `${process.env.GITHUB_RUN_ID}:${process.env.GITHUB_RUN_ATTEMPT}`,
     api: process.env.GITHUB_API_URL,
   });
-  await appendFile(process.env.GITHUB_OUTPUT!, `run_id=${found?.runId ?? ''}\nrun_attempt=${found?.runAttempt ?? ''}\nartifact_id=${found?.artifactId ?? ''}\n`);
+  await appendFile(process.env.GITHUB_OUTPUT!, `run_id=${found?.runId ?? ''}\nrun_attempt=${found?.runAttempt ?? ''}\nartifact_id=${found?.artifactId ?? ''}\nsource=${found?.source ?? ''}\npublished=${found?.published ?? false}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });

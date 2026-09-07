@@ -134,7 +134,7 @@ test('finds the unexpired workspace artifact for the reviewed run', async () => 
         artifacts: [
           { id: 1, name: 'review-workspace-98', expired: false },
           { id: 2, name: 'review-workspace-99', expired: true },
-          { id: 3, name: 'review-workspace-1-7-automatic-99-1', expired: false },
+          { id: 3, name: 'review-completed-workspace-1-7-automatic-99-1', expired: false },
         ],
       });
     }) as typeof fetch,
@@ -154,7 +154,7 @@ test('returns no workspace artifact when it is unavailable', async () => {
     runAttempt: '1',
     token: 'control-token',
     fetchImpl: (async () => Response.json({
-      artifacts: [{ id: 2, name: 'review-workspace-1-7-automatic-99-1', expired: true }],
+      artifacts: [{ id: 2, name: 'review-completed-workspace-1-7-automatic-99-1', expired: true }],
     })) as typeof fetch,
   }), null);
 });
@@ -212,7 +212,7 @@ test('finds the newest PR workspace artifact independently of the current commit
       ] });
     }) as typeof fetch,
   });
-  assert.deepEqual(found, { artifactId: '10', runId: '100', runAttempt: '1', source: 'pr_comment', createdAt: '2026-01-01T00:00:00Z' });
+  assert.deepEqual(found, { artifactId: '10', runId: '100', runAttempt: '1', source: 'pr_comment', published: false, createdAt: '2026-01-01T00:00:00Z' });
   assert.deepEqual(pages, ['https://api.github.test/repos/control/review/actions/artifacts?per_page=100&page=1']);
 });
 

@@ -62,6 +62,8 @@ jobs:
       workspace_artifact_id: ${{ steps.review-workspace.outputs.artifact-id }}
       result_artifact_id: ${{ steps.review-result.outputs.artifact-id }}
       run_attempt: ${{ github.run_attempt }}
+      inventory_digest: ${{ steps.request-scope.outputs.inventory_digest }}
+      comparison_start: ${{ steps.review-diffs.outputs.comparison_start }}
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -268,7 +270,7 @@ jobs:
           chmod -R a-w "$PREVIOUS_WORKSPACE_PATH"
           echo "path=$PREVIOUS_WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
 
-      # 上一轮工作稿只作为可选历史证据；下载失败时后续自动改为完整 Review。
+      # 完整基线只接入可信发布器写出的完成工作区。
       - name: Download previous review workspace
         id: previous-workspace-download
         if: steps.review-checkpoint.outputs.workspace_artifact_id != ''
@@ -284,11 +286,16 @@ jobs:
       - name: Activate previous review workspace
         id: previous-review-workspace
         if: steps.previous-workspace-download.outcome == 'success'
-        continue-on-error: true
         env:
           PREVIOUS_WORKSPACE_PATH: ${{ runner.temp }}/previous-review-workspace
           CHECKPOINT_HEAD: ${{ steps.review-checkpoint.outputs.head_sha }}
+          CHECKPOINT_BASE: ${{ steps.snapshot.outputs.base_sha }}
+          CHECKPOINT_RUN: ${{ steps.review-checkpoint.outputs.run_id }}
+          CHECKPOINT_ATTEMPT: ${{ steps.review-checkpoint.outputs.run_attempt }}
+          REPOSITORY: ${{ inputs.repository }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
         run: |
+          node control/scripts/review-coverage.ts
           chmod -R a-w "$PREVIOUS_WORKSPACE_PATH"
           {
             echo "path=$PREVIOUS_WORKSPACE_PATH"
@@ -317,6 +324,7 @@ jobs:
           node control/scripts/finalize-review-focus.mjs
 
       - name: Persist requested review scope
+        id: request-scope
         env:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
@@ -330,6 +338,10 @@ jobs:
           REVIEW_COMPARISON_START: ${{ steps.review-diffs.outputs.comparison_start }}
           REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
+          REVIEW_PREVIOUS_RUN_ID: ${{ steps.previous-request.outputs.run_id }}
+          REVIEW_PREVIOUS_RUN_ATTEMPT: ${{ steps.previous-request.outputs.run_attempt }}
+          REVIEW_PREVIOUS_SOURCE: ${{ steps.previous-request.outputs.source }}
+          REVIEW_PREVIOUS_PUBLISHED: ${{ steps.previous-request.outputs.published }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: node control/scripts/review-request.ts
@@ -558,6 +570,8 @@ jobs:
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ needs.review.outputs.base_sha }}
           HEAD_SHA: ${{ needs.review.outputs.head_sha }}
+          REVIEW_INVENTORY_DIGEST: ${{ needs.review.outputs.inventory_digest }}
+          REVIEW_COMPARISON_START: ${{ needs.review.outputs.comparison_start }}
           REVIEW_RUN_ID: ${{ github.run_id }}
           REVIEW_RUN_ATTEMPT: ${{ needs.review.outputs.run_attempt }}
           REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
