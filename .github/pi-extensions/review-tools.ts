@@ -14,15 +14,15 @@ export default function reviewTools(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: 'submit_review',
-    label: 'Submit review',
-    description: 'Submit a finalized review-result JSON file from the private review workspace.',
+    label: '提交 Review',
+    description: '封存私有 Review 工作区内的最终 JSON，交给可信发布器。',
     parameters: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
           minLength: 1,
-          description: 'Path to the finalized JSON file inside REVIEW_WORKSPACE_PATH.',
+          description: 'REVIEW_WORKSPACE_PATH 内最终 JSON 文件的路径。',
         },
       },
       required: ['path'],

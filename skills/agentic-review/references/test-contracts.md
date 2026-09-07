@@ -1,6 +1,6 @@
-# Test contract review
+# 测试契约审查
 
-只审查当前变化改动的测试、parameter row、assertion、fixture、snapshot、mock、test helper，以及生产变更使既有测试错误判定重新可达的情况。单纯缺少测试、覆盖率或更多用例不属于本专项。
+范围限于当前改动的测试、parameter row、assertion、fixture、snapshot、mock、test helper，或生产变更使既有测试错误判定重新可达的情况；不报告单纯缺少测试、覆盖率或用例。
 
 测试审查有三种彼此独立的失败模式：
 
@@ -8,11 +8,11 @@
 - **T2 change detector**：测试拒绝契约允许的变化；
 - **T2 zero-marginal signal**：测试本身可以正确，但相对现有 suite 没有新增故障检测能力，只增加重复失败信号和维护点。
 
-第三类是 suite 级问题。新增判定需要一个现实、契约相关的 **unique witness**：没有它时相关测试集合仍会接受某个局部错误，加入后才失败。以下示例只帮助恢复责任、选择探针和追踪 verdict，不是逐项执行或按形状匹配的 checklist，也不能直接决定 finding。
+冗余是 suite 级问题。**unique witness** 指现实契约中的局部错误：其余相关测试会接受，加入当前判定后才失败。示例只帮助调查，不是必做清单或 finding 依据。
 
 ## 1. 建立 census、fingerprint 与 evidence batch
 
-先枚举，不同时完成全部分析。为变化集合中每个新增或修改的 test case、parameter row、assertion、snapshot、fixture、mock 和 test helper 建立稳定 census ID；同一 test 内的每条 changed assertion 都进入 assertion 扫描。生产变更使既有测试错误判定重新可达时，也加入对应测试。
+先为范围内每个 test case、parameter row、assertion、snapshot、fixture、mock 和 helper 建立稳定 census ID，再分析；同一 test 的每条 changed assertion 分别纳入。
 
 每行只记录：
 
@@ -25,15 +25,13 @@ census ID / 类型 / 位置
 
 **contract family** 只共享测试责任、生产边界和测试层级。**contract fingerprint** 在 family 内进一步绑定 partition/boundary role、actual path、oracle/verdict path、failure mode 和独立风险维度；任一字段不同都建立独立 fingerprint。
 
-fixture、mock 或 helper 可以同时关联多个 family 和 fingerprint；每条 `census item → fingerprint` 关联都必须得到结论，不能要求共享 item 恰好属于一个 family、fingerprint 或 batch。
+fixture、mock 或 helper 可关联多个 family、fingerprint 和 batch；每条 `census item → fingerprint` 关联都须有结论。
 
-**evidence batch** 只负责复用读取和控制推理规模：需要相同 base/head 测试、生产文件和独立契约来源的 fingerprint 放在同一 batch。一个 batch 可以包含多个 family、fingerprint 和最终 finding cluster；同批处理不代表同根因。小变化的直接证据相同时只建立一个 batch。
-
-完成条件：全部 census item 及其受影响 fingerprint 关联已经枚举；没有用“这组 matrix 总体有价值”代替逐项覆盖。
+共享 base/head 测试、生产文件和独立契约的 fingerprint 放入同一 **evidence batch**；batch 可跨 family 和 finding cluster，不代表同根因。小变化证据相同时只建一批。
 
 ## 2. 每个 batch 单遍建立共享证据
 
-一次读取当前 batch 所需的 base/head 测试、生产代码和当前变化之前的独立契约。在进入下一 batch 前完成本节至第 7 节；后续章节是同一次 fingerprint 分析的字段，不是对全 suite 的多轮扫描。
+读取当前 batch 所需的 base/head 测试、生产代码及变化前的独立契约，完成第 2–7 节后再进入下一批，不多轮扫描全 suite。
 
 每个 family 只共享以下字段：
 
@@ -53,7 +51,7 @@ requirement/risk dimension：权限、租户、平台、并发、兼容性等独
 base / retained representative：现有覆盖和最小代表
 ```
 
-member 只记录相对 fingerprint 和代表的真实语义差异；没有差异时写 `none`。测试名、变化说明、注释、当前 assertion 和 literal 只用于导航，不能自行创造 responsibility、partition 或 boundary。
+member 只记录相对 fingerprint 和代表的语义差异，无差异写 `none`。测试名、变化说明、注释、当前 assertion 和 literal 仅导航，不能创造 responsibility、partition 或 boundary。
 
 ## 3. 先规范化输入，再选择代表
 
@@ -67,15 +65,15 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 | collection | 空、单个、多个、重复、乱序、上限、分页边界 | 同一规模和顺序语义下更换普通成员 literal |
 | 状态与身份 | 未认证、角色/租户/归属、前置态、终态、重试态 | 未参与 guard、权限或输出的任意名称变化 |
 
-同一路径不自动证明冗余，不同数据点也不自动证明价值。显式有限集合中的权限、identity 或协议成员可能各有 witness；集合外的多个普通值通常仍属同一 partition。无分支公式的额外输入只有能区分漏项、错项、错误比较符、精度或溢出等现实局部错误时才有价值；不得为区分样本虚构生产代码不存在的数据特判。
+同路径不证明冗余，不同数据点不证明价值。有限权限、identity 或协议集合的成员可各有 witness；集合外普通值通常仍属同一 partition。无分支公式的额外输入须能区分漏项、错项、比较符、精度或溢出等现实局部错误，不得臆造数据特判。
 
-生产 guard、schema 或协议明确区分的恰好边界是独立 boundary role；下界、边界、内部值、上界和上界外不能因当前实现偶然返回相同值而互相蕴含。若 base 没有覆盖同一个明确 boundary role，该 case 通过独立价值 veto，不得要求用相邻 partition 的当前实现构造额外 witness；只有测试名或 literal 自称“boundary”、但生产代码和当前变化前的契约没有对应分界时，才按普通值处理。
+生产 guard、schema 或协议的明确边界是独立 boundary role；下界、边界、内部值、上界及上界外不因当前返回值相同而互相蕴含。base 未覆盖该 role 时直接通过独立价值 veto，无须对相邻 partition 另造 witness。仅测试名或 literal 自称“boundary”，而生产代码及变化前契约无分界时，按普通值处理。
 
-每个 data family 选择 base 或最小 retained representative；member 只与同一 fingerprint 的代表比较，不做 family 内或全 suite 两两比较。发现独立责任、partition、actual/oracle path、failure mode、风险维度或测试层级后建立新的 fingerprint；共享证据相同时仍可留在同一 batch，最终 finding 再按 cluster key 去重。
+每个 data family 选择 base 或最小 retained representative；member 仅与同一 fingerprint 的代表比较，不做两两比较。责任、partition、actual/oracle path、failure mode、风险维度或层级不同则拆 fingerprint；共享证据仍可同批，finding 按 cluster key 去重。
 
-## 4. Branch router：只进入有触发依据的分支
+## 4. 分支触发
 
-先按 changed item 对 verdict 的作用路由。形状只决定调查分支，不决定 finding；无法确定是否适用时进入该分支，不能用 router 排除风险。
+按 changed item 对 verdict 的作用选择分支；不确定时进入调查，形状不决定 finding。
 
 | 当前变化 | 必查分支 |
 |---|---|
@@ -85,13 +83,13 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 | assertion 固定顺序、完整对象、私有字段、精确诊断或调用形状 | change-detector |
 | production 变化使既有测试的错误判定重新可达 | T1 |
 
-同一 fingerprint 中的 member 共享 router 结论；member 只覆盖自身差异。未触发分支记录共享的 `not applicable` 及触发规则，不逐 member 重复展开三套完整证明。
+同一 fingerprint 共享路由结论，member 只分析自身差异；未触发分支统一记录 `not applicable` 和触发规则。
 
 ## 5. 对适用分支完成最小证明
 
 ### 5.1 T1 false confidence：违反探针
 
-先锁定 changed test 的实际责任。mock/stub 提供下层错误、返回值或副作用以测试调用方的传播、映射或展示时，responsibility 是最近的未 mock 调用方边界，不自动包含被替换的下层 producer contract。只有当前变化前的独立契约要求该 case 执行真实 producer 路径，或当前变化使 suite 失去该 producer 的独立真实路径判定时，才按绕过下层边界进入 T1；测试名、预制错误文本和 mock 自身不能扩张责任。
+mock/stub 提供下层错误、返回值或副作用以测调用方传播、映射或展示时，责任止于最近的未 mock 调用方，不自动包含下层 producer。仅当变化前的独立契约要求执行真实 producer，或当前变化使 suite 丢失其独立真实路径判定时，才按绕过下层边界进入 T1；测试名、预制错误文本和 mock 不扩张责任。
 
 从当前变化之前的独立契约构造一个测试声称拒绝的最小错误，分别追踪：
 
@@ -108,7 +106,7 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 
 ### 5.3 T2 zero-marginal：先 veto，再做 deletion proof
 
-先检查独立价值：不同生产 guard、生产代码或契约明确划分且 base 未覆盖的 boundary role、权限/租户/归属、状态机分支、平台/runtime、编码、外部 consumer、真实 unit/integration/contract 层级或独立 oracle，能静态证明时立即保留该 member 并结束 redundancy 分支。相邻 partition 的测试不能替代明确边界本身。
+先检查独立价值：不同生产 guard、base 未覆盖的明确 boundary role、权限/租户/归属、状态机分支、平台/runtime、编码、外部 consumer、真实 unit/integration/contract 层级或独立 oracle。静态证明任一项即保留 member 并结束 redundancy 分支。
 
 没有独立价值 veto 时，对 family/cluster 执行以下 sweep；代码形状只产生候选：
 
@@ -134,7 +132,7 @@ member 只记录相对 fingerprint 和代表的真实语义差异；没有差异
 
 常见有效 witness 包括新 guard 两侧与恰好边界、独立权限/租户/敏感信息边界、异常或终态、平台/runtime/编码/精度、并发时序和清理、不同 consumer 或一个现有测试杀不死但可从当前生产结构推导的漏字段、漏项、错误映射或比较符。不同 test 名、普通 literal、局部变量、fixture 描述、重复同一路径以及“多一个样本更保险”不构成 witness。
 
-“实现可能硬编码 base fixture 的 literal 或 expected”也不构成 witness；只有生产代码、当前变化的生产/契约变更，或当前变化之前的独立契约已存在按该 literal、数据表、枚举成员或对应来源分支的静态证据时，才能据此区分 member。待审查的 test、fixture、assertion、expected 以及同一次变化为其新增的说明不能提供该例外。不得仅因为第二个样本能击败臆造的 hard-code，就保留同一普通 partition 的额外代表。
+“实现可能硬编码 base fixture 的 literal 或 expected”不构成 witness。只有生产代码、当前生产/契约变更或变化前独立契约中，存在按该 literal、数据表、枚举成员或对应来源分支的静态证据，才可据此区分 member；待审 test、fixture、assertion、expected 及同期新增说明不能提供该例外。
 
 base 已有代表时，没有 witness 的新增成员进入候选；base 没有代表时保留覆盖该 fingerprint 的最小成员，其余成员必须提供 witness。参数化只减少代码重复，不增加故障检测能力。
 
@@ -144,13 +142,13 @@ base 已有代表时，没有 witness 的新增成员进入候选；base 没有�
 
 同时确认 base 是否已有同一误判/冗余、当前变化是否新引入/扩大/重新激活，以及生产 finding 是否已覆盖同一根因。生产代码已构成 P0/P1/P2、测试只是同步背书时只报告生产 finding；测试误判具有独立根因时保留 T finding。
 
-## 7. 分类与 finding granularity
+## 7. 分类与 finding 粒度
 
 - **T1 测试失真**：当前变化新增、修改或放宽测试判定，且静态证明一个有独立契约的错误仍得到成功 verdict；
 - **T2 测试过约束**：现实允许变化会被新增/修改测试拒绝、被固定属性没有独立契约，并能指出更窄且完整的判定边界；
 - **T2 冗余测试信号**：candidate oracle 已被蕴含，或与代表具有相同 responsibility、partition、path、oracle、failure mode 和层级；deletion test 找不到 witness；独立价值 veto 失败；后果是零边际检测、重复失败信号或重复维护点。
 
-finding 按 redundancy cluster 去重，只合并相同 focal behavior、partition/boundary role、oracle、failure mode 和测试层级的成员。不同生产符号、业务责任、外部边界或 failure mode 不能因为位于同一 evidence batch、来自“AI 批量生成”或都“重复 base coverage”而合并。同一 cluster 内的 exact clone、alpha rename、普通 literal family、subsumed assertion 和 duplicate assertion 是同一根因的不同证据，不得各自生成 finding。
+按 redundancy cluster 去重，只合并相同 focal behavior、partition/boundary role、oracle、failure mode 和测试层级的成员；不按 batch、生成方式或“重复 base coverage”合并不同生产符号、业务责任或外部边界。同一 cluster 的 exact clone、alpha rename、普通 literal family、subsumed assertion 和 duplicate assertion 只作一条 finding 的证据。
 
 同一 test 整体冗余且内部还有 duplicate assertion 时，优先报告可删除整个 test 的 finding，并把重复 assertion 作为补充证据；若 test 有独立 witness，则只报告 duplicate assertion。
 
@@ -178,14 +176,4 @@ candidate proof：violating / allowed / deletion / none
 cluster index：cluster key → 全部 member ID → 唯一 finding 草稿 / none
 ```
 
-正常情况下 complete batch 不复制进后续工作稿。新证据改变结论时重新打开并精确更新原文件；不能为遵守 checkpoint 形式保留已失效结论。
-
-最终完成条件：
-
-- 每个 census item 的全部 `item → fingerprint` 关联都被 complete batch 覆盖；
-- 每个 family 只共享责任、生产边界和测试层级；每个 fingerprint 分别记录 partition、actual/oracle 路径、failure mode、风险维度和 branch 结论；member 只记录语义差异；
-- 每个适用分支满足对应的 violating、allowed 或 deletion/witness 证明；
-- 每个 literal-varying family 有最小代表集，每个保留的新 member 有独立 boundary 或 witness；
-- finding cluster 没有因 batch 分组而过度合并；相同 cluster key 在全部 batch 中恰好对应一个 finding 草稿；
-- 最终只汇总 complete batch 的结论和 surviving finding 草稿，除关联冲突外不重新执行无 finding batch；
-- 没有以测试通过、CI 绿色、输入不同、代码形状或“只是 smell”为由跳过静态可证明的问题。
+完成条件：全部 `census item → fingerprint` 关联有 complete batch 结论，适用分支有对应证明，保留的新 member 有独立 boundary 或 witness；同一 cluster key 跨 batch 仅对应一条 finding。测试通过或 CI 绿色不替代静态证明。工作稿更新与最终重读遵循 `workspace.md`。

@@ -27,7 +27,7 @@ GitHub pull_request webhook
 npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 ```
 
-随后可以要求当前 Agent 审查未提交变化、指定 commit 或与某个分支的差异。本地工作稿默认放在当前 worktree 的 Git 管理目录 `agentic-review/review.*` 下，不污染 working tree 或 `git status`，成功输出后删除；调用方设置 `REVIEW_WORKSPACE_PATH` 时改用该路径。当前环境已经提供 Agent delegation 工具且存在多个独立 batch 时，主 Agent 可以委派一层 worker；否则按同一方法顺序完成，不依赖 Pi、Codex、Claude Code 或特定插件名称。
+随后可以要求当前 Agent 审查未提交变化、指定 commit 或与某个分支的差异。本地工作稿默认放在当前 worktree 的 Git 管理目录 `agentic-review/review.*` 下，不污染 working tree 或 `git status`，成功输出后删除；调用方设置 `REVIEW_WORKSPACE_PATH` 时改用该路径。调用方允许委派、环境已有 delegation 工具且存在多个独立 batch 时，主 Agent 可以按 [委派协议](skills/agentic-review/references/delegation.md) 分配一层 worker；否则顺序完成。
 
 本地受信任运行时提供的持久记忆也可以作为 known issue 来源。主 Agent 应恢复可复核的原始记录；无法恢复原文的摘要只用于定位，不能单独证明“已修复”或“已确认”。
 
@@ -109,7 +109,7 @@ Repository secrets：
 - `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
 - `REVIEW_AGENT_API_KEY`：模型 API key。
 
-Review App 必须安装到目标仓库以及需要作为关联上下文读取的同 owner 仓库，并拥有 `Contents: read`、`Issues: read`、`Pull requests: write`、`Checks: write`、`Actions: read`。单个 installation token 不能跨 owner；其他 owner 的私有仓库不在当前读取范围。Dispatcher App 只安装到中央仓库，拥有 `Actions: write`，由 Worker 使用。
+App 安装范围与权限以 [部署说明](docs/deploy-central-review.md) 为准；App 权限与各任务签发的 token 权限需要区分。
 
 ## 本地检查
 

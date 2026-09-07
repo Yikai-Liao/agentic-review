@@ -1,6 +1,6 @@
-# Review Workspace
+# Review 工作稿
 
-工作稿用于在长审查、context compaction 和可选委派之间保存事实来源，不是最终 finding 的追加列表。
+工作稿保存跨 context compaction、增量审查和委派的证据与覆盖状态。
 
 ## 路径和生命周期
 
@@ -14,11 +14,11 @@ chmod 700 "$workspace_root"
 mktemp -d "$workspace_root/review.XXXXXX"
 ```
 
-将 `mktemp` 输出的绝对路径作为本轮工作区。它位于 Git 管理目录，不进入 working tree、`git status`、变化集合或提交内容；唯一目录也避免并行或后续 Review 读到旧笔记。
+使用 `mktemp` 输出的绝对路径；工作稿不进入 working tree 或变化集合。
 
 本地 Review 成功输出后删除本轮目录；中断或用户要求复核时保留并报告路径。调用方自行规定工作区的 artifact 和保留期。不要记录 token、环境变量值或与审查无关的敏感信息。
 
-调用方提供 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 时，该目录是上一轮 Reviewer 的只读结果，不是本轮工作区。先读取其中的 `notes.md`、最终结果和与本轮新增变化相关的 complete batch；把可复用结论及来源写入本轮 `notes.md`，不修改、复制或续写历史文件。历史工作稿可能遗漏问题或包含已过时判断，只能作为调查索引和证据缓存，当前代码、增量 diff 和最新外部记录优先。
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 是上一轮只读结果。读取其 `notes.md`、最终结果及与增量相关的 complete batch，将可复用结论和来源写入本轮索引；不修改或复制历史文件。历史结论仅作调查索引与证据缓存，当前代码、增量 diff 和最新外部记录优先。
 
 ## 结构
 
@@ -31,7 +31,7 @@ review-workspace/
   final-review.md 或调用方要求的最终结果
 ```
 
-`notes.md` 只保存当前上下文、change ledger、evidence batch 状态、候选根因关系和最终覆盖状态，不复制每个 batch 的完整证据。
+`notes.md` 保存上下文、change ledger、batch 状态、候选根因关系和最终覆盖状态；完整证据留在 batch 文件。
 
 change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳定 ID，分别标记为生产行为、测试行为、性能路径或机械变化，并映射到一个或多个 evidence batch。每项结束时必须是“已审查无 finding、候选已反证、新 finding、已有问题覆盖或继承自上一轮 complete batch”。继承只适用于 checkpoint 后未变化且前提未受影响的代码；增量变化触及其契约、调用方、数据流或反证，最新评论提出冲突证据，或历史 batch 不完整时，必须重新打开调查。
 
@@ -43,12 +43,12 @@ change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳
 - 与其他 batch 可能共享的根因、触发路径和 cluster key；
 - `status: complete` 或仍缺少的明确证据。
 
-完成一个 batch 后写入对应文件，再把 `notes.md` 中该 batch 状态改为 complete。新证据推翻早期结论时精确更新原 batch；准确性优先于“只写一次”。
+写完 batch 文件再将索引状态改为 complete；新证据推翻结论时更新原 batch。
 
 ## 工具边界与单写者
 
 `write` 和 `edit` 只能修改本轮工作区内的工作稿与调用方要求的最终结果，不能修改目标 working tree、index 或 base checkout。`bash` 只用于创建或删除本轮工作区及静态调查；调用方若提供专用 JSON 校验工具，只能按其权限和输出协议使用。Review 使用的外部凭证保持调用方规定的权限边界，不用于未经授权的发布。
 
-主 Agent 是工作稿的唯一写入者。Sub-agent 只通过 delegation 返回指定 batch 的调查结果；主 Agent 复核后写入 batch 文件。不要让多个 Agent 并发修改 `notes.md`，也不要为工作稿引入锁或合并协议。
+主 Agent 独占工作稿写入，复核 Sub-agent 返回的 batch 结果后落盘；不引入多写者、锁或合并协议。
 
 最终归纳先读取 `notes.md`、complete batch 的结论和 finding 草稿。只有存活 finding、跨 batch 根因冲突、覆盖状态不一致或无法准确确认约束时，才重新读取相关 batch 的完整证明；不重新执行已经完成且无关联候选的分析。
