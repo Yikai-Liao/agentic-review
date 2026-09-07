@@ -6,7 +6,9 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`，遵循 `workspace.md`；工作稿作为限期、受权限保护的 Actions artifact 保留。
 
-请求范围先由 Agent 调用 `set_review_scope` 写入 `review-coverage.json`，再开始 batch。`scope` 至少记录 `kind`、`mode`、`targets`、`comparison_start`、`comparison_end`、`rationale`、`explicit_text`、继承 run 和 `decided_at`；`scope.id` 是本轮唯一 `scope_id`。`completed_batches`、`status` 和 `complete_audit` 记录覆盖状态，不能用最终 Review 的局部成功替代完整 audit checkpoint。
+调查前调用 `set_review_scope` 记录实际范围、比较区间和判断依据，保留返回的 `scope_id`。工具参数定义字段；targets 应足以让下一轮恢复覆盖范围。
+
+每个 batch 完成后更新 `review-coverage.json` 的 `completed_batches`；中断时保留未完成状态。`published` 和 `complete_audit` 由可信发布器决定，局部成功不代表完整 audit。
 
 ## 2. 历史 thread 状态
 
@@ -21,11 +23,11 @@
 
 正文每个历史 thread 只列一行状态、finding 标题和链接；状态用 `⏳ 仍未解决`、`⚠️ 风险升级`、`🔁 问题重现`、`✅ 已关闭`，完整证据只写入 thread update。T2→T1、P2→P1/P0 或性能从有界路径变为无界/常见路径属风险升级；测试问题升级为生产问题时更新原 thread。
 
-使用原 thread 的 root comment ID，每轮最多更新一次；最新 `Pi thread 状态更新` 相同时不重复。thread @ 请求无论结论是否变化，都必须在 `request_reply` 中准备针对原请求的答复；publisher 以请求 comment ID marker 幂等回复 root。publisher 只对 Review App bot 创建的 root thread 执行 resolve/reopen；人工 root 可以回复，但不能自动改变状态。正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
+使用原 thread 的 root comment ID，每轮最多更新一次；最新 `Pi thread 状态更新` 相同时不重复。publisher 只对 Review App bot 创建的 root thread 执行 resolve/reopen；人工 root 可以回复，但不能自动改变状态。正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
 
 ## 3. 最终归纳
 
-按 `workspace.md` 核对 scope 内 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。完整 diff 可提供上下文；scope 是局部时，正文必须明确局部结论，不能声称全 PR 已完成；full diff 没有对应位置时不生成 inline finding。
+按 `workspace.md` 核对 scope 内 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。局部 scope 的正文应明确结论范围。
 
 ## 4. 最终 JSON
 

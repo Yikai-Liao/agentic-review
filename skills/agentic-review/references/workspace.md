@@ -20,8 +20,6 @@ mktemp -d "$workspace_root/review.XXXXXX"
 
 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 是上一轮只读结果。读取其 `notes.md`、最终结果及与增量相关的 complete batch，将可复用结论和来源写入本轮索引；不修改或复制历史文件。历史结论仅作调查索引与证据缓存，当前代码、增量 diff 和最新外部记录优先。
 
-调用方若提供结构化 `request` 或范围 manifest，先把它作为本轮不可变输入写入 `notes.md`，再按调用方指定的自然语言范围决定 ledger 覆盖。请求范围与代码变化范围是两个字段：完整 diff 可以作为上下文，不能把未纳入请求 scope 的内容记为已审查。上一轮请求工作稿若存在，按调用方的身份匹配规则只读接入；找不到历史、artifact 过期和查询失败保持不同记录，不能静默改变本轮 scope。
-
 ## 结构
 
 ```text
@@ -35,21 +33,7 @@ review-workspace/
 
 `notes.md` 保存上下文、change ledger、batch 状态、候选根因关系和最终覆盖状态；完整证据留在 batch 文件。
 
-调用方需要机器可读覆盖时，可在工作区保存 `review-coverage.json`：
-
-```json
-{
-  "request": "调用方定义的不可变请求记录",
-  "scope": "调用方定义的结构化范围",
-  "status": "requested | draft | failed | published",
-  "completed_batches": ["B1"],
-  "complete_audit": false
-}
-```
-
-`scope` 必须在第一个 batch 前确定，`completed_batches` 只列已有完整证据的 batch；失败或局部完成不能把 `complete_audit` 提前置为 `true`。具体字段、状态和发布条件由调用方适配器定义，通用 Skill 不把某个中央 workflow 的事件模式或范围解析规则带入本地 Review。
-
-change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳定 ID，分别标记为生产行为、测试行为、性能路径或机械变化，并映射到一个或多个 evidence batch；scope 外条目可以登记为 out-of-scope 或待覆盖，登记本身不等于完成审查。scope 内每项结束时必须是“已审查无 finding、候选已反证、新 finding、已有问题覆盖或继承自上一轮 complete batch”。继承只适用于 checkpoint 后未变化且前提未受影响的代码；增量变化触及其契约、调用方、数据流或反证，最新评论提出冲突证据，或历史 batch 不完整时，必须重新打开调查。
+change ledger 为完整变化集合的每个文件和非机械性 hunk 分配稳定 ID，分别标记为生产行为、测试行为、性能路径或机械变化，并映射到一个或多个 evidence batch；调用方限定范围时，将 scope 外条目标为 out-of-scope，不计为已审查。scope 内每项结束时必须是“已审查无 finding、候选已反证、新 finding、已有问题覆盖或继承自上一轮 complete batch”。继承只适用于 checkpoint 后未变化且前提未受影响的代码；增量变化触及其契约、调用方、数据流或反证，最新评论提出冲突证据，或历史 batch 不完整时，必须重新打开调查。
 
 每个 batch 文件记录：
 
