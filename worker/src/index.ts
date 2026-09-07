@@ -23,6 +23,7 @@ export interface Env {
   CONTROL_REPOSITORY: string;
   CONTROL_WORKFLOW_REF: string;
   ALLOWED_OWNER: string;
+  REVIEW_BOT_MENTION: string;
   DELIVERIES: DurableObjectNamespace;
 }
 
@@ -38,7 +39,27 @@ type PullRequestPayload = {
   };
 };
 
+type CommentPayload = {
+  action: string;
+  repository: { id: number; full_name: string; owner: { login: string } };
+  issue?: {
+    number: number;
+    pull_request?: { url?: string };
+  };
+  pull_request?: { number: number; base?: { sha: string }; head?: { sha: string } };
+  comment: {
+    id: number;
+    body: string;
+    user?: { login?: string; type?: string };
+    in_reply_to_id?: number | null;
+    pull_request_review_id?: number;
+    path?: string;
+    line?: number | null;
+  };
+};
+
 const acceptedActions = new Set(['opened', 'reopened', 'synchronize', 'ready_for_review']);
+const commentEvents = new Set(['issue_comment', 'pull_request_review_comment']);
 const api = 'https://api.github.com';
 
 type DeploymentConfig = {
@@ -90,11 +111,15 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
   const event = request.headers.get('x-github-event');
   if (event === 'ping') return new Response('pong');
-  if (event !== 'pull_request') return new Response(null, { status: 204 });
+  if (!event || (event !== 'pull_request' && !commentEvents.has(event))) return new Response(null, { status: 204 });
 
   const config = deploymentConfig(env);
-  const payload = JSON.parse(body) as PullRequestPayload;
-  if (!shouldDispatch(payload, config.allowedOwner)) return new Response(null, { status: 204 });
+  const payload = JSON.parse(body) as PullRequestPayload | CommentPayload;
+  if (event !== 'pull_request' && !validBotMention(env.REVIEW_BOT_MENTION)) return new Response('Missing valid REVIEW_BOT_MENTION', { status: 500 });
+  const dispatch = event === 'pull_request'
+    ? shouldDispatch(payload as PullRequestPayload, config.allowedOwner)
+    : shouldDispatchComment(payload as CommentPayload, config.allowedOwner, env.REVIEW_BOT_MENTION, event);
+  if (!dispatch) return new Response(null, { status: 204 });
   const deliveryId = request.headers.get('x-github-delivery');
   if (!deliveryId) return new Response('Missing delivery id', { status: 400 });
 
@@ -105,7 +130,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (!claim.ok) return new Response('Delivery claim failed', { status: 502 });
 
   try {
-    await dispatchReview(payload, env, config);
+    await dispatchReview(payload, env, config, event);
     return new Response('Accepted', { status: 202 });
   } catch (error) {
     try {
@@ -124,6 +149,58 @@ export function shouldDispatch(payload: PullRequestPayload, allowedOwner: string
     && !payload.pull_request.draft;
 }
 
+/** Remove examples from quoted/fenced/inline code before looking for a real mention. */
+export function commentMention(body: string, mention: string): boolean {
+  if (!body || !mention || !mention.startsWith('@')) return false;
+  const withoutFences = body.replace(/```[\s\S]*?```/g, '\n').replace(/~~~[\s\S]*?~~~/g, '\n');
+  const withoutQuotes = withoutFences.split('\n').filter((line) => !/^\s*>/.test(line)).join('\n');
+  const withoutInlineCode = withoutQuotes.replace(/`[^`\n]*`/g, '');
+  const escaped = mention.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^\\w])${escaped}(?=$|[^\\w-])`, 'i').test(withoutInlineCode);
+}
+
+export function validBotMention(value: string | undefined): value is string {
+  return typeof value === 'string' && /^@[A-Za-z0-9][A-Za-z0-9._-]*(?:\[bot\])?$/.test(value);
+}
+
+export function isBotComment(comment: CommentPayload['comment']): boolean {
+  return comment.user?.type?.toLowerCase() === 'bot' || /\[bot\]$/i.test(comment.user?.login ?? '');
+}
+
+export function shouldDispatchComment(
+  payload: CommentPayload,
+  allowedOwner: string,
+  mention: string,
+  event: string,
+): boolean {
+  const isPullRequest = event === 'pull_request_review_comment'
+    ? Boolean(payload.pull_request?.number)
+    : Boolean(payload.issue?.pull_request && payload.issue.number);
+  return payload.action === 'created'
+    && isPullRequest
+    && payload.repository.owner.login.toLowerCase() === allowedOwner.toLowerCase()
+    && !isBotComment(payload.comment)
+    && commentMention(payload.comment.body, mention);
+}
+
+function commentDispatchInput(payload: CommentPayload, event: string, baseSha: string, headSha: string) {
+  const pullNumber = payload.pull_request?.number ?? payload.issue?.number;
+  if (!pullNumber) throw new Error('Comment does not identify a pull request');
+  const source = event === 'pull_request_review_comment' ? 'thread' : 'pr_comment';
+  return {
+    repository: payload.repository.full_name,
+    repository_id: String(payload.repository.id),
+    pull_number: String(pullNumber),
+    base_sha: baseSha,
+    head_sha: headSha,
+    trigger_source: source,
+    comment_id: String(payload.comment.id),
+    comment_body: payload.comment.body,
+    comment_root_id: String(payload.comment.in_reply_to_id ?? payload.comment.id),
+  };
+}
+
+
 export async function verifySignature(body: string, signature: string, secret: string): Promise<boolean> {
   if (!signature.startsWith('sha256=')) return false;
   const expected = hexToBytes(signature.slice(7));
@@ -138,7 +215,12 @@ export async function verifySignature(body: string, signature: string, secret: s
   return crypto.subtle.verify('HMAC', key, expected, new TextEncoder().encode(body));
 }
 
-async function dispatchReview(payload: PullRequestPayload, env: Env, config: DeploymentConfig): Promise<void> {
+async function dispatchReview(
+  payload: PullRequestPayload | CommentPayload,
+  env: Env,
+  config: DeploymentConfig,
+  event: string,
+): Promise<void> {
   const jwt = await createAppJwt(env.DISPATCH_CLIENT_ID, env.DISPATCH_PRIVATE_KEY_PKCS8);
   const installationsResponse = await githubFetch('/app/installations?per_page=100', {
     method: 'GET',
@@ -153,18 +235,33 @@ async function dispatchReview(payload: PullRequestPayload, env: Env, config: Dep
     body: JSON.stringify({ repositories: [config.controlRepository], permissions: { actions: 'write' } }),
   });
   const { token } = await tokenResponse.json() as { token: string };
-  const pr = payload.pull_request;
+  const pr = 'pull_request' in payload && payload.pull_request;
+  let inputs;
+  if (event === 'pull_request') {
+    if (!pr || !pr.base?.sha || !pr.head?.sha) throw new Error('Invalid pull request payload');
+    inputs = {
+      repository: payload.repository.full_name,
+      repository_id: String(payload.repository.id),
+      pull_number: String(pr.number),
+      base_sha: pr.base.sha,
+      head_sha: pr.head.sha,
+      trigger_source: 'automatic',
+      comment_id: '',
+      comment_body: '',
+      comment_root_id: '',
+    };
+  } else {
+    const commentPayload = payload as CommentPayload;
+    // Comment events have no immutable PR snapshot. The workflow resolves the current open PR after it enters the queue.
+    inputs = commentDispatchInput(commentPayload, event, '', '');
+  }
   await githubFetch(`/repos/${config.controlFullName}/actions/workflows/agentic-review.yml/dispatches`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       ref: config.workflowRef,
       inputs: {
-        repository: payload.repository.full_name,
-        repository_id: String(payload.repository.id),
-        pull_number: String(pr.number),
-        base_sha: pr.base.sha,
-        head_sha: pr.head.sha,
+        ...inputs,
       },
     }),
   });

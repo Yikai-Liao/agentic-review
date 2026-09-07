@@ -6,6 +6,8 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`，遵循 `workspace.md`；工作稿作为限期、受权限保护的 Actions artifact 保留。
 
+请求范围先由 Agent 调用 `set_review_scope` 写入 `review-coverage.json`，再开始 batch。`scope` 至少记录 `kind`、`mode`、`targets`、`comparison_start`、`comparison_end`、`rationale`、`explicit_text`、继承 run 和 `decided_at`；`scope.id` 是本轮唯一 `scope_id`。`completed_batches`、`status` 和 `complete_audit` 记录覆盖状态，不能用最终 Review 的局部成功替代完整 audit checkpoint。
+
 ## 2. 历史 thread 状态
 
 把存活候选与当前 PR 已有 inline thread 和最新回复比较，一个根因只保留一条：
@@ -19,19 +21,20 @@
 
 正文每个历史 thread 只列一行状态、finding 标题和链接；状态用 `⏳ 仍未解决`、`⚠️ 风险升级`、`🔁 问题重现`、`✅ 已关闭`，完整证据只写入 thread update。T2→T1、P2→P1/P0 或性能从有界路径变为无界/常见路径属风险升级；测试问题升级为生产问题时更新原 thread。
 
-使用原 thread 的 root comment ID，每轮最多更新一次；最新 `Pi thread 状态更新` 相同时不重复。publisher 负责回复和 resolve/reopen；正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
+使用原 thread 的 root comment ID，每轮最多更新一次；最新 `Pi thread 状态更新` 相同时不重复。thread @ 请求无论结论是否变化，都必须在 `request_reply` 中准备针对原请求的答复；publisher 以请求 comment ID marker 幂等回复 root。publisher 只对 Review App bot 创建的 root thread 执行 resolve/reopen；人工 root 可以回复，但不能自动改变状态。正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
 
 ## 3. 最终归纳
 
-按 `workspace.md` 核对 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
+按 `workspace.md` 核对 scope 内 ledger/census 覆盖和继承，按 `findings.md` 归纳最深共享根因、严重度与证据；更新 `notes.md` 最终状态后再生成 JSON。batch 重读条件遵循 `workspace.md`；历史 thread、known issue 或规则无法准确恢复时补读相关来源。完整 diff 可提供上下文；scope 是局部时，正文必须明确局部结论，不能声称全 PR 已完成；full diff 没有对应位置时不生成 inline finding。
 
 ## 4. 最终 JSON
 
-完成全部 batch 和最终根因归纳后，将文件写到 `$REVIEW_WORKSPACE_PATH/review-result.json`。文件必须是 UTF-8 JSON 对象，且只包含以下三个字段：
+完成 scope 内全部 batch 和最终根因归纳后，将文件写到 `$REVIEW_WORKSPACE_PATH/review-result.json`。文件必须是 UTF-8 JSON 对象，并引用已由 `set_review_scope` 写入的 `scope_id`：
 
 ```json
 {
   "body": "完整的 Markdown Review 正文",
+  "scope_id": "本轮 scope manifest 的 id",
   "comments": [
     {
       "path": "仓库相对路径",
@@ -46,7 +49,8 @@
       "status": "resolved",
       "evidence": "状态变化的完整证据"
     }
-  ]
+  ],
+  "request_reply": null
 }
 ```
 
@@ -56,8 +60,9 @@
 - 标题：有新 finding 或人工确认用 `## 自动代码审查 ⬆️`，否则有未解决历史问题用 `## 自动代码审查 ❌`，其余用 `## 自动代码审查 ✅`。正文分组遵循 `findings.md`，历史状态按第 2 节；
 - `comments` 只保留最终归纳后的新 finding，每项恰好包含 `path`、`line`、`start_line`、`body`；路径必须是仓库相对路径，单行使用 `start_line: null`，多行起始行不得大于 `line`；
 - `thread_updates` 只保留当前 PR 中状态实际变化的历史 inline thread，每项恰好包含 `root_comment_id`、`status`、`evidence`；`status` 只能是 `resolved`、`severity_increased` 或 `reintroduced`；
+- `scope_id` 必须匹配本轮工作稿的结构化范围；`request_reply` 必须存在，thread @ 请求填写针对原 thread 的答复，即使结论没有变化，其他请求填写 `null`；
 - 没有新 finding 或 thread update 时使用空数组，仍提供完整 `body`；
-- 文件不得超过 1 MB，不得包含额外字段、注释、Markdown fence 或 trailing text。
+- 文件不得超过 1 MB，不得包含未定义字段、注释、Markdown fence 或 trailing text。
 
 中央 inline finding 必须使用 [findings.md 的模板、Alert 和证明要求](../skills/agentic-review/references/findings.md#finding-内容)，段间空一行，不加“等级：”前缀。
 
@@ -71,4 +76,4 @@
 submit_review({"path":"<REVIEW_WORKSPACE_PATH>/review-result.json"})
 ```
 
-`submit_review` 先校验该文件，通过后才封存；校验失败不会封存，也不会消耗成功提交机会。可信 publisher 会重新验证 schema，把 `body` 与全部 inline comments 发布到本轮审查的 head，处理历史 thread，并追加运行元数据。不要通过其他工具发布，也不要在提交后继续修改结果文件。
+`submit_review` 先校验该文件、`scope_id` 与工作稿 scope，通过后才封存；校验失败不会封存，也不会消耗成功提交机会。可信 publisher 会再次验证 schema、scope、请求身份、root comment 和 bot ownership，把 `body` 与全部 inline comments 发布到本轮审查的 head，处理历史 thread，并追加运行元数据。不要通过其他工具发布，也不要在提交后继续修改结果文件。

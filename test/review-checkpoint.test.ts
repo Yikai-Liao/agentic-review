@@ -9,6 +9,7 @@ import {
   findReviewWorkspaceArtifact,
   findReviewWorkspaceArtifactSafely,
 } from '../scripts/find-review-checkpoint.ts';
+import { findLatestReviewWorkspace } from '../scripts/find-review-request.ts';
 // @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
 import { finalizeReviewFocus } from '../scripts/finalize-review-focus.mjs';
 
@@ -22,7 +23,7 @@ function check(headSha: string, overrides: Record<string, unknown> = {}) {
     name: 'Agentic Review / audit',
     status: 'COMPLETED',
     conclusion: 'SUCCESS',
-    externalId: `1:7:${base}:${headSha}:99`,
+    externalId: `1:7:${base}:${headSha}:automatic:99:1`,
     ...overrides,
   };
 }
@@ -58,8 +59,8 @@ test('finds the newest valid checkpoint in one GraphQL request', async () => {
           c0: commit(current, [check(current)], 'another-app'),
           c1: commit(cancelled, [check(cancelled, { conclusion: 'NEUTRAL' })]),
           c2: commit(reviewed, [
-            check(reviewed, { externalId: `1:8:${base}:${reviewed}:98` }),
-            check(reviewed, { externalId: `1:7:${'e'.repeat(40)}:${reviewed}:98` }),
+            check(reviewed, { externalId: `1:8:${base}:${reviewed}:automatic:98:1` }),
+            check(reviewed, { externalId: `1:7:${'e'.repeat(40)}:${reviewed}:automatic:98:1` }),
             check(reviewed),
           ]),
         },
@@ -67,7 +68,7 @@ test('finds the newest valid checkpoint in one GraphQL request', async () => {
     });
   };
 
-  assert.deepEqual(await find(fetchImpl as typeof fetch), { headSha: reviewed, runId: '99' });
+  assert.deepEqual(await find(fetchImpl as typeof fetch), { headSha: reviewed, runId: '99:1' });
   assert.equal(requested.length, 1);
   assert.equal(requested[0].url, 'https://api.github.test/graphql');
   assert.match(String(requested[0].body.query), /checkSuites/);
@@ -100,7 +101,7 @@ test('queries at most 100 commits per GraphQL request', async () => {
     appSlug: 'review-app',
     token: 'read-token',
     fetchImpl: fetchImpl as typeof fetch,
-  }), { headSha: commits.at(-1), runId: '99' });
+  }), { headSha: commits.at(-1), runId: '99:1' });
   assert.equal(requests, 2);
 });
 
@@ -110,7 +111,7 @@ test('returns no checkpoint when no successful review exists', async () => {
       repository: {
         c0: commit(current),
         c1: commit(cancelled),
-        c2: commit(reviewed, [check(reviewed, { externalId: `1:7:${'e'.repeat(40)}:${reviewed}:99` })]),
+        c2: commit(reviewed, [check(reviewed, { externalId: `1:7:${'e'.repeat(40)}:${reviewed}:automatic:99:1` })]),
       },
     },
   })), null);
@@ -120,7 +121,11 @@ test('finds the unexpired workspace artifact for the reviewed run', async () => 
   const requested: string[] = [];
   const artifactId = await findReviewWorkspaceArtifact({
     repository: 'control/review',
+    repositoryId: '1',
+    pullNumber: '7',
+    source: 'automatic',
     runId: '99',
+    runAttempt: '1',
     token: 'control-token',
     api: 'https://api.github.test',
     fetchImpl: (async (input: string | URL | Request) => {
@@ -129,7 +134,7 @@ test('finds the unexpired workspace artifact for the reviewed run', async () => 
         artifacts: [
           { id: 1, name: 'review-workspace-98', expired: false },
           { id: 2, name: 'review-workspace-99', expired: true },
-          { id: 3, name: 'review-workspace-99', expired: false },
+          { id: 3, name: 'review-workspace-1-7-automatic-99-1', expired: false },
         ],
       });
     }) as typeof fetch,
@@ -142,10 +147,14 @@ test('finds the unexpired workspace artifact for the reviewed run', async () => 
 test('returns no workspace artifact when it is unavailable', async () => {
   assert.equal(await findReviewWorkspaceArtifact({
     repository: 'control/review',
+    repositoryId: '1',
+    pullNumber: '7',
+    source: 'automatic',
     runId: '99',
+    runAttempt: '1',
     token: 'control-token',
     fetchImpl: (async () => Response.json({
-      artifacts: [{ id: 2, name: 'review-workspace-99', expired: true }],
+      artifacts: [{ id: 2, name: 'review-workspace-1-7-automatic-99-1', expired: true }],
     })) as typeof fetch,
   }), null);
 });
@@ -154,7 +163,11 @@ test('discards incremental context when workspace lookup fails', async () => {
   const warnings: string[] = [];
   assert.equal(await findReviewWorkspaceArtifactSafely({
     repository: 'control/review',
+    repositoryId: '1',
+    pullNumber: '7',
+    source: 'automatic',
     runId: '99',
+    runAttempt: '1',
     token: 'control-token',
     fetchImpl: async () => new Response(null, { status: 503 }),
   }, (warning: string) => warnings.push(warning)), undefined);
@@ -181,6 +194,23 @@ test('uses a checkpoint only after the previous workspace is ready', async () =>
   assert.match(workflow, /id: previous-workspace-download[\s\S]*?continue-on-error: true/);
   assert.match(workflow, /if: steps\.previous-workspace-download\.outcome == 'success'[\s\S]*?checkpoint_head=\$CHECKPOINT_HEAD/);
   assert.match(workflow, /CHECKPOINT_HEAD: \$\{\{ steps\.previous-review-workspace\.outputs\.checkpoint_head \}\}/);
+});
+
+test('finds the newest PR workspace artifact independently of the current commit history', async () => {
+  const pages: string[] = [];
+  const found = await findLatestReviewWorkspace({
+    repositoryId: '1', pullNumber: '7', controlRepository: 'control/review', token: 'token', currentRun: '300:2', api: 'https://api.github.test',
+    fetchImpl: (async (input: string | URL | Request) => {
+      pages.push(String(input));
+      return Response.json({ artifacts: [
+        { id: 10, name: 'review-workspace-1-7-pr_comment-100-1', expired: false, created_at: '2026-01-01T00:00:00Z' },
+        { id: 11, name: 'review-completed-workspace-1-7-automatic-300-2', expired: false, created_at: '2026-01-02T00:00:00Z' },
+        { id: 12, name: 'review-workspace-1-7-thread-400-1', expired: false, created_at: '2026-01-03T00:00:00Z' },
+      ] });
+    }) as typeof fetch,
+  });
+  assert.deepEqual(found, { artifactId: '10', runId: '100', runAttempt: '1', source: 'pr_comment', createdAt: '2026-01-01T00:00:00Z' });
+  assert.deepEqual(pages, ['https://api.github.test/repos/control/review/actions/artifacts?per_page=100&page=1']);
 });
 
 test('keeps only a distinct non-empty focus diff', async () => {

@@ -31,11 +31,11 @@ compaction 后先读取本轮 `notes.md`，按其中的调用方规则恢复入�
 
 读取适用的 `.agentic-review.md` 和 `AGENTS.md`，补充业务事实、约束和调查路径，不降低证据门槛。
 
-完成条件：完整变化集合已登记到 ledger，每个文件和非机械性 hunk 都映射到 batch；本轮范围、规则恢复入口和上一轮工作稿来源已写入 `notes.md`。
+完成条件：完整变化集合已登记到 ledger，每个文件和非机械性 hunk 都映射到 batch 或明确标记为 scope 外/待覆盖；登记不等于完成审查。本轮范围、规则恢复入口和上一轮工作稿来源已写入 `notes.md`。
 
 ## 3. 完整静态审查
 
-按 `evidence.md` 调查每个 batch；有可信 checkpoint 和上一轮工作稿时优先调查增量及影响面，按 `workspace.md` 判定旧 batch 能否继承。
+按 `evidence.md` 调查本轮 scope 内的每个 batch；有可信 checkpoint 和上一轮工作稿时优先调查增量及影响面，按 `workspace.md` 判定旧 batch 能否继承。调用方提供限定 scope 时，完整 diff 只用于上下文、ledger 和证据定位，scope 外条目不构成本轮已完成审查。
 
 按触发加载：
 

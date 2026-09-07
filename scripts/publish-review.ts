@@ -1,6 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
+import { buildReviewRequest, validateReviewScope, type ReviewCoverage } from './review-request.ts';
 
 type FooterMetadata = {
   runUrl: string;
@@ -13,6 +14,7 @@ type FooterMetadata = {
   cost?: number;
   piVersion?: string;
   actionVersion?: string;
+  scopeDescription?: string;
 };
 type PublishOptions = {
   result: ReviewResult;
@@ -23,6 +25,10 @@ type PublishOptions = {
   expectedHeadSha: string;
   footer: string;
   api: string;
+  requestSource?: string;
+  requestCommentId?: string;
+  requestRootCommentId?: string;
+  threadReplyOnly?: boolean;
   fetchImpl?: typeof fetch;
 };
 type ReviewComment = {
@@ -138,6 +144,7 @@ export function buildFooter({
   cost,
   piVersion,
   actionVersion,
+  scopeDescription,
 }: FooterMetadata) {
   const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
   if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
@@ -148,6 +155,7 @@ export function buildFooter({
   if (Number.isFinite(cost) && cost !== 0) parts.push(`Cost: $${Math.abs(cost!).toFixed(2)}`);
   if (piVersion) parts.push(`Pi SDK v${piVersion}`);
   if (actionVersion) parts.push(`Action v${actionVersion}`);
+  if (scopeDescription) parts.push(`审查范围: ${scopeDescription}`);
   return parts.join(' | ');
 }
 
@@ -160,6 +168,10 @@ export async function publishReview({
   expectedHeadSha,
   footer,
   api,
+  requestSource = 'automatic',
+  requestCommentId = '',
+  requestRootCommentId = '',
+  threadReplyOnly = false,
   fetchImpl = fetch,
 }: PublishOptions) {
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)) throw new Error('Invalid repository');
@@ -172,8 +184,11 @@ export async function publishReview({
     thread: ReviewThread;
     previousStatus?: string;
   }> = [];
-  if (result.thread_updates.length) {
-    const [comments, threads] = await Promise.all([
+  const needsComments = result.thread_updates.length || requestSource === 'thread';
+  let comments: ReviewComment[] = [];
+  let threads: ReviewThread[] = [];
+  if (needsComments) {
+    [comments, threads] = await Promise.all([
       reviewComments(fetchImpl, api, token, repository, pullNumber),
       reviewThreads(fetchImpl, api, token, repository, pullNumber),
     ]);
@@ -197,27 +212,56 @@ export async function publishReview({
     }
   }
 
-  const review = await github<{ html_url: string }>(
-    fetchImpl,
-    api,
-    token,
-    `/repos/${repository}/pulls/${pullNumber}/reviews`,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        body: `${result.body}\n\n---\n\n${footer}`,
-        commit_id: expectedHeadSha,
-        event: 'COMMENT',
-        comments: result.comments.map((comment) => ({
-          path: comment.path,
-          line: comment.line,
-          side: 'RIGHT',
-          body: comment.body,
-          ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
-        })),
-      }),
-    },
-  );
+  let requestReplyRoot: ReviewComment | undefined;
+  if (requestSource === 'thread') {
+    if (!/^[0-9]+$/.test(requestRootCommentId)) throw new Error('Thread request is missing its root comment');
+    requestReplyRoot = comments.find((comment) => comment.id === Number(requestRootCommentId) && comment.in_reply_to_id == null);
+    if (!requestReplyRoot) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
+  }
+
+  const review = threadReplyOnly && result.comments.length === 0
+    ? { html_url: '' }
+    : await github<{ html_url: string }>(
+      fetchImpl,
+      api,
+      token,
+      `/repos/${repository}/pulls/${pullNumber}/reviews`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          body: `${result.body}\n\n---\n\n${footer}`,
+          commit_id: expectedHeadSha,
+          event: 'COMMENT',
+          comments: result.comments.map((comment) => ({
+            path: comment.path,
+            line: comment.line,
+            side: 'RIGHT',
+            body: comment.body,
+            ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
+          })),
+        }),
+      },
+    );
+
+  if (requestReplyRoot) {
+    const marker = `<!-- agentic-review-request:${requestCommentId}:${expectedHeadSha} -->`;
+    const alreadyReplied = comments.some((comment) =>
+      comment.in_reply_to_id === requestReplyRoot!.id && comment.user?.login?.toLowerCase() === botLogin.toLowerCase() && comment.body.includes(marker));
+    if (!alreadyReplied) {
+      await github(
+        fetchImpl,
+        api,
+        token,
+        `/repos/${repository}/pulls/${pullNumber}/comments/${requestReplyRoot.id}/replies`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            body: `${marker}\n${result.request_reply?.body ?? result.body}\n\n${footer}`,
+          }),
+        },
+      );
+    }
+  }
 
   for (const { update, thread, previousStatus } of preparedUpdates) {
     const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
@@ -259,6 +303,21 @@ function requiredEnv(name: string) {
 
 async function main() {
   const result = parseReviewResult(await readFile(requiredEnv('REVIEW_RESULT_PATH'), 'utf8'));
+  const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
+  const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
+  const repository = requiredEnv('REPOSITORY');
+  const pullNumber = Number(requiredEnv('PULL_NUMBER'));
+  const headSha = requiredEnv('HEAD_SHA');
+  const baseSha = requiredEnv('BASE_SHA');
+  const triggerSource = requiredEnv('REVIEW_TRIGGER_SOURCE');
+  const request = buildReviewRequest({ source: triggerSource, commentId: process.env.REVIEW_COMMENT_ID, rootCommentId: process.env.REVIEW_COMMENT_ROOT_ID, text: process.env.REVIEW_COMMENT_BODY, repository, pullNumber, baseSha, headSha, comparisonStart: coverage.request?.comparison_start, runId: requiredEnv('REVIEW_RUN_ID'), runAttempt: requiredEnv('REVIEW_RUN_ATTEMPT'), now: coverage.request?.requested_at });
+  if (!coverage.request || JSON.stringify(coverage.request) !== JSON.stringify(request)) throw new Error('Published review request metadata does not match trusted workflow inputs');
+  if (!coverage.scope || coverage.scope.id !== result.scope_id) throw new Error('Missing published review scope');
+  validateReviewScope(coverage.scope, request);
+  if (triggerSource === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
+  if (triggerSource !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
+  const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${coverage.scope.targets.join(', ')})`;
+  const threadReplyOnly = triggerSource === 'thread' && coverage.scope.mode === 'focused';
   const footer = buildFooter({
     runUrl: requiredEnv('REVIEW_RUN_URL'),
     workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
@@ -270,17 +329,23 @@ async function main() {
     cost: optionalNumber(process.env.REVIEW_COST),
     piVersion: process.env.REVIEW_PI_VERSION,
     actionVersion: process.env.REVIEW_ACTION_VERSION,
+    scopeDescription,
   });
   const url = await publishReview({
     result,
-    repository: requiredEnv('REPOSITORY'),
-    pullNumber: Number(requiredEnv('PULL_NUMBER')),
+    repository,
+    pullNumber,
     botLogin: requiredEnv('REVIEW_BOT_LOGIN'),
     token: requiredEnv('GH_TOKEN'),
-    expectedHeadSha: requiredEnv('HEAD_SHA'),
+    expectedHeadSha: headSha,
     footer,
     api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
+    requestSource: triggerSource,
+    requestCommentId: process.env.REVIEW_COMMENT_ID,
+    requestRootCommentId: process.env.REVIEW_COMMENT_ROOT_ID,
+    threadReplyOnly,
   });
+  await writeFile(coveragePath, `${JSON.stringify({ ...coverage, status: 'published', complete_audit: triggerSource === 'automatic' && coverage.scope.mode !== 'focused', updated_at: new Date().toISOString() })}\n`, { encoding: 'utf8', mode: 0o600 });
   console.log(`Published review: ${url}`);
 }
 

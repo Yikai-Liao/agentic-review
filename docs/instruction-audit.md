@@ -100,7 +100,7 @@
 | 调整 workflow token | 读取 `.github/AGENTS.md`，核对版本与实际权限；发布器需求不扩大 Agent token。 |
 | 审查本地未提交变化 | 纳入 staged、unstaged、删除及 untracked；工作稿在 Git 管理目录，不污染 diff。 |
 | 干净目录且未给 Review 范围 | 仍询问具体范围，避免审错对象。 |
-| 中央增量 Review 及发生 compaction | 每个 full diff 文件都有覆盖状态；仅前提不变的 complete batch 可继承，无法恢复规则时重载。 |
+| 中央增量 Review 及发生 compaction | full diff 文件和 hunk 都有覆盖状态，可区分本轮 scope、scope 外和待覆盖；仅前提不变的 complete batch 可继承，无法恢复规则时重载。 |
 | PR 回复接受当前边界变化 | 明确回复即时生效，不查作者/association，不重复要求确认；超出接受范围才重开。 |
 | 引用同 owner 私有 Issue | 候选成立后按固定集合只读，允许 merge base 未声明的引用；不扩张 token 或按主题泛搜。 |
 | 测试内部值重复 vs 新增明确边界 | 保留 census/fingerprint、独立边界 veto 和真实 witness 区分，不凭样本不同或虚构硬编码判价值。 |

@@ -3,6 +3,9 @@ main = "worker/src/index.ts"
 compatibility_date = "2026-08-17"
 workers_dev = true
 
+[vars]
+REVIEW_BOT_MENTION = ""
+
 [[durable_objects.bindings]]
 name = "DELIVERIES"
 class_name = "DeliveryDeduplicator"
