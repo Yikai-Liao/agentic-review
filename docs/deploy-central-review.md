@@ -156,13 +156,13 @@ gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
 
 Review job 的 `Verify Lark user token` 通过 `lark-cli api GET /open-apis/authen/v1/user_info --as user` 验证当前 UAT，并校验成功响应。它只证明登录有效，不证明文档权限；外部 token 模式下 CLI 禁用 `auth` 管理命令，不能用 `auth check` 或 `auth status` 验收。
 
-把测试来源及真实触发条件先合并进下游 `.agentic-review.md`，再用会触发该查询的测试 PR 验收：工作稿应包含 `docs +fetch` 的相关正文、Wiki 解析后的读取结果，以及 Base 的表、字段和目标记录原值。登录检查成功或 Review 总体成功都不能替代这些实际读取证据。权限错误按层处理：缺 scope 时在应用后台开通、发布并重新用户授权；文档 ACL 不足时向授权身份共享；Base 记录缺失时检查该用户角色的行列权限。
+用需要读取测试链接的 PR 验收：工作稿应包含 `docs +fetch` 的相关正文、Wiki 解析后的读取结果，以及 Base 的表、字段和目标记录原值。登录检查成功或 Review 总体成功都不能替代这些实际读取证据。权限错误按层处理：缺 scope 时在应用后台开通、发布并重新用户授权；文档 ACL 不足时向授权身份共享；Base 记录缺失时检查该用户角色的行列权限。
 
 高级权限 Base 同样遵守该用户所属角色的表、字段和记录范围。Lark CLI 不会越过用户 ACL；Figma 等第三方 iframe 仍只能取得飞书返回的链接或占位元数据。
 
 ### 下游规则
 
-在下游仓库 `.agentic-review.md` 逐条写清楚完整 URL、触发查询的路径/业务对象，以及多维表格的 Issue 表、关键字段和状态语义。例如：
+飞书读取遵循 `central/lark-context.md`，无需预先合并来源白名单。下游可在 `.agentic-review.md` 补充长期适用的链接、业务触发条件和表格状态语义，例如：
 
 ```markdown
 ## 飞书 Known issues
@@ -174,7 +174,7 @@ Review job 的 `Verify Lark user token` 通过 `lark-cli api GET /open-apis/auth
 - Issue 表的“已排期”只表示计划中；“已验收”或正文中的验收结论才表示已修复。
 ```
 
-先合并规则；当前 PR 新增的飞书 URL 或搜索范围不会在同一轮被读取。Agent 只在形成候选 finding 后读取已声明来源，并对 Base 使用服务端筛选和最小字段投影。
+Agent 可按审查需要读取明确提及的链接，继续读取相关且有权限的引用文档，不主动搜索文档；Base 表内记录定位使用筛选和最小字段投影。
 
 ## 5. Review 发布权限验证
 

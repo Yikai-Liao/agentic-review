@@ -12,6 +12,6 @@
 
 按附带规则完成静态审查；工作稿和历史 thread 遵循控制面中央适配器。
 
-候选 finding 需要核对飞书文档、Wiki、PRD、多维表格 Issue 或验收记录时，完整读取 `$REVIEW_CONTROL_PATH/central/lark-context.md`，按其来源范围和用户身份查询，再接入 known issue 判断。
+需要读取明确提及的飞书文档、Wiki 或多维表格链接时，完整读取 `$REVIEW_CONTROL_PATH/central/lark-context.md`，按其只读规则使用 Lark CLI。
 
 最终封装从以下读取动作开始：用 `read` 完整读取 `$REVIEW_CONTROL_PATH/central/review-result.md`，按其中的最终 JSON 模板写文件，再按其中的唯一提交规则结束本轮。以工具返回的绝对路径确认读到的是控制面：读取 `$REVIEW_TARGET_PATH/central/review-result.md` 只算恢复调查对象，不算完成此步骤。不能从目标协议或其他审查结果推测当前接口的字段。
