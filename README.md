@@ -82,6 +82,7 @@ npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 
 - Issue `Qiyin-Tech/payment-service#389` 记录退款事件的兼容性决定；修改该事件时可读取该记录。
 - 项目字段“已排期”只表示计划中；只有记录中的明确验收结论才能证明问题已修复。
+- 修改订单、支付或退款状态时，按需查询 PRD `https://example.feishu.cn/wiki/wikcnRefundPRD`、验收记录 `https://example.feishu.cn/docx/doxcnRefundQA` 和 Issue 表 `https://example.feishu.cn/base/bascnIssues?table=tblIssues`；Issue 表的“已排期”只表示计划中，“已验收”才表示修复完成。其他变更不查询这些来源。
 
 ## 仓库约定
 
@@ -96,18 +97,30 @@ Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.
 
 可信 workflow 在 Agent 启动前把只读 token 的可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大这个集合。在该集合内，自动关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。单个 installation token 不能跨 owner，Agent 也不按关键词、`git blame` 或提交历史扩展 GitHub known issue 查询。
 
+## 飞书登录和文件读取
+
+使用维护者本人 OAuth 授权的用户身份读取飞书资料。你在浏览器确认一次授权后，可信任务每小时用 refresh token 换取新 token 并保存到 GitHub Environment Secrets；每轮 Actions 向 Lark CLI 注入短期 UAT，无需保存 runner、复制 CLI 登录目录或重复扫码。授权撤销、refresh token 失效或轮换中断导致新 refresh token 丢失时，需要重新授权。
+
+实际读取权限是“应用已开通且用户已同意的 API scope”和“授权的企业用户身份对文档的访问权限”的交集。应用只申请所需读取权限，因此即使你能编辑文档，Review 也只获得这组只读能力。切换企业后的另一个身份不自动属于同一 UAT；跨企业文档需要共享给当前授权身份，并通过实际 API 读取验收。
+
+从 `.env` 开始登录、验证文档及更换 App/用户，按[飞书操作手册](docs/lark-operations.md)执行；生产配置和续期机制见[飞书接入步骤](docs/deploy-central-review.md#4-飞书用户-oauth-与自动续期)。下游在已合并的 `.agentic-review.md` 声明文档 URL 或搜索范围和触发条件，Agent 形成候选后通过 `central/lark-context.md` 按需读取。
+
 ## 中央仓库配置
 
 Repository variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
 - `REVIEW_AGENT_MODEL`：模型名称，必填；当前 workflow 使用 OpenAI-compatible provider；
-- `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址，必填。
+- `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址，必填；
+- `AGENTIC_REVIEW_LARK_APP_ID`：飞书企业自建应用 App ID；
+- `AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID`：只安装到中央仓库的 Lark Secret Rotator GitHub App Client ID。
 
 Repository secrets：
 
 - `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
 - `REVIEW_AGENT_API_KEY`：模型 API key。
+
+飞书长期凭证放在 `lark-rotation` Environment，Review 的 UAT 放在 `lark-review` Environment；具体名称与配置命令见部署说明。
 
 App 安装范围与权限以 [部署说明](docs/deploy-central-review.md) 为准；App 权限与各任务签发的 token 权限需要区分。
 

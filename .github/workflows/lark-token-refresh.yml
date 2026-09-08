@@ -1,0 +1,46 @@
+name: Refresh Lark User Token
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  repository_dispatch:
+    types: [authorize-lark-user, refresh-lark-user]
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    environment: lark-rotation
+    concurrency:
+      group: lark-user-token-refresh
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout control repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Mint secret rotation token
+        id: secret-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID }}
+          private-key: ${{ secrets.AGENTIC_REVIEW_LARK_ROTATOR_PRIVATE_KEY }}
+          permission-environments: write
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+
+      - name: Refresh and rotate Lark user token
+        env:
+          GH_TOKEN: ${{ steps.secret-token.outputs.token }}
+          LARK_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
+          LARK_APP_SECRET: ${{ secrets.AGENTIC_REVIEW_LARK_APP_SECRET }}
+          LARK_REFRESH_TOKEN: ${{ secrets.AGENTIC_REVIEW_LARK_REFRESH_TOKEN }}
+          LARK_AUTHORIZE: ${{ github.event.action == 'authorize-lark-user' }}
+        run: node scripts/refresh-lark-user-token.ts
