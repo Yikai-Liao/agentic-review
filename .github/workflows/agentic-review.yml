@@ -45,6 +45,7 @@ jobs:
         with:
           path: ${{ runner.tool_cache }}/lark-cli-archives/${{ env.LARK_CLI_VERSION }}
           key: lark-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.LARK_CLI_VERSION }}
+          lookup-only: true
 
       - name: Download Lark CLI archive
         if: steps.lark-cli-cache.outputs.cache-hit != 'true'

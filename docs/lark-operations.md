@@ -24,7 +24,7 @@ App ID / App Secret 标识应用，应用后台的只读权限决定它可以申
 
 ## 本地验证：已有 `.env` 时照着执行
 
-这一步用于维护者测试，不在 Review Agent 中运行。需要 Node.js 24、npm，以及可访问飞书的网络。`.env` 内容如下，其中占位值替换为真实配置；本仓库已忽略 `.env`：
+这一步用于维护者测试，不在 Review Agent 中运行。以下命令适用于 Linux x86_64（与 Actions 相同），需要 Node.js 24、curl、tar、sha256sum、awk，以及可访问 GitHub 和飞书的网络。`.env` 内容如下，其中占位值替换为真实配置；本仓库已忽略 `.env`：
 
 ```dotenv
 APP_ID=cli_你的应用ID
@@ -34,13 +34,23 @@ APP_SECRET=你的应用密钥
 ### 1. 准备 CLI 和独立配置目录
 
 ```bash
+set -euo pipefail
 chmod 600 .env
-npm install -g @larksuite/cli@1.0.88
+lark_cli_version="$(awk '$1 == "LARK_CLI_VERSION:" { print $2 }' .github/workflows/agentic-review.yml)"
+lark_cli_sha256="$(awk '$1 == "LARK_CLI_SHA256_LINUX_AMD64:" { print $2 }' .github/workflows/agentic-review.yml)"
+lark_cli_dir="$(mktemp -d)"
+lark_cli_archive="lark-cli-$lark_cli_version-linux-amd64.tar.gz"
+curl --fail --location --silent --show-error \
+  "https://github.com/larksuite/cli/releases/download/v$lark_cli_version/$lark_cli_archive" \
+  --output "$lark_cli_dir/$lark_cli_archive"
+echo "$lark_cli_sha256  $lark_cli_dir/$lark_cli_archive" | sha256sum --check --strict
+tar --extract --gzip --file "$lark_cli_dir/$lark_cli_archive" --directory "$lark_cli_dir" lark-cli
+export PATH="$lark_cli_dir:$PATH"
 lark-cli --version
 export LARKSUITE_CLI_CONFIG_DIR="$(mktemp -d)"
 ```
 
-版本应与 `.github/workflows/agentic-review.yml` 的 `LARK_CLI_VERSION` 一致。以上是当前固定版本的安装命令；已有匹配版本可直接使用。官方 CLI 安装与认证说明见 [larksuite/cli](https://github.com/larksuite/cli/tree/v1.0.88#readme)。
+版本和预期 SHA-256 均读取当前可信 checkout 的 `.github/workflows/agentic-review.yml`，复用 Actions 的官方归档及完整性校验；校验失败必须停止，不能解压执行或继续输入凭证。即使本机已有同版本 CLI，也使用本次校验后解压的文件，版本号本身不证明完整性。其他操作系统或架构需先确定对应发布物及可信校验值，不能套用 Linux 归档或跳过校验。官方 CLI 安装与认证说明见 [larksuite/cli](https://github.com/larksuite/cli/tree/v1.0.88#readme)。
 
 后续命令使用同一个终端及配置目录，避免覆盖其他 CLI 身份。此目录会包含本地凭证，不提交、不上传为 Actions cache。不要在这个终端设置 `LARKSUITE_CLI_USER_ACCESS_TOKEN` 等外部凭证变量，否则 CLI 的 `auth` 管理命令不可用。
 
