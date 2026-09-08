@@ -20,11 +20,11 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 接受的事件是非 draft PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`。workflow_dispatch 携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open、非 draft 快照。
 
-每轮始终生成 merge base 到当前 head 的完整 diff。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，则额外生成该 head 到当前 head 的净 diff 作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败会退回只提供完整 diff；查询失败会写入 workflow warning。两份 diff 相同时也只提供完整 diff，并标记全部变更均为增量。增量 diff 不缩小审查范围，也不能替代完整 diff 的 finding 证据和行号。
+每轮固定 merge base 到当前 head 的完整审查区间，Agent 从本地 Git 获取文件清单和规模。小 diff 直接一次读完，用一个 batch 完成审查；大 diff 按路径和 hunk 分批读取。workflow 不生成聚合 diff 文件。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，且对应工作稿已成功接入，则以该 head 到当前 head 的净变化作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败时执行完整审查；查询失败会写入 workflow warning。增量区间没有净变化时仍处理最新讨论和历史未完成项。增量 diff 不缩小审查范围，也不能替代完整区间 patch 的 finding 证据和行号。
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引是按需读取入口，不证明条目与候选相关，也不构成业务授权、修复或验收证据。
 
-增量入口直接展开 focus diff，并给出完整 diff 路径和由固定 base/head 生成的完整变更文件清单。模型根据增量影响和历史证据选择 full diff 的读取范围，也可选择完整读取；初审和全部变更均为增量时直接展开 full diff。上一轮 batch 由准备阶段复制到本轮工作区，模型只更新重开的证据，并在新索引记录继承来源和理由，后续 artifact 因而仍包含完整证据。
+输入只包含 PR 元数据、讨论快照和项目规则；模型按固定 SHA 从本地 Git 获取完整变更清单与规模，小 diff 一次读取，大 diff 按 batch 读取。有历史工作稿时优先调查 focus 区间及其影响面，再按继承条件补充 full 区间。上一轮 batch 由准备阶段复制到本轮工作区，模型只更新重开的证据，并在新索引记录继承来源和理由，后续 artifact 因而仍包含完整证据。
 
 ## 发布 Review 的权限方案
 
@@ -55,7 +55,7 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR、评论、项目规则和 diff 在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`；`central/github-context.md` 接入关联索引和 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。必读规则的预载成本固定；随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 输入信任边界
 

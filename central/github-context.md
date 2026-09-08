@@ -28,16 +28,35 @@ node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 
 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `workspace.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。
 
-输入始终给出完整变更文件清单和 full diff 路径；full diff 文件始终可读。无历史工作稿或全部变更均为增量时，输入直接展开 full diff；增量轮只展开 focus diff，无净变化时不展开代码差分。`$REVIEW_MODE`：
+本地 Git 是 diff 的唯一来源。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
-- `initial`：没有可用 checkpoint；
-- `incremental_all`：完整 diff 都在 checkpoint 之后；
-- `incremental`：focus diff 是 checkpoint 到当前 head 的净变化；
-- `incremental_unchanged`：该区间没有净代码变化。
+先查询 full 区间的完整文件清单和规模：
 
-增量轮先读上一轮 `notes.md` 和最终结果，将完整文件清单与历史 ledger 对齐，再根据 focus、讨论和契约影响选择 full diff 的相关部分及 batch。共享契约影响广泛、历史证据不完整或无法判定继承时，可选择完整读取 full diff。完整文件清单用于登记覆盖，不能单独证明某个 hunk 已审查；未继承项必须读取并调查。
+```bash
+git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
+  --find-renames --find-copies --name-status "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
 
-finding 的差分证据与评论行号只能来自 full diff，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文，不重复读取或生成已有 diff。
+git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
+  --find-renames --find-copies --numstat "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
+```
+
+小 diff 能在工具输出和剩余上下文内完整容纳时，直接一次读取 full patch，用一个 batch 完成审查，无须拆分调用。规模还需考虑长行和上下文展开，不能仅以变更行数判断。大 diff 按当前 batch 的路径读取，例如：
+
+```bash
+git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff --no-textconv \
+  --find-renames --find-copies --no-color --unified=3 \
+  "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA" -- 'path/to/file'
+```
+
+小 diff 使用同一 patch 命令并省略 `-- 'path/to/file'`。
+
+清单同时保留旧路径、新路径和变更类型；读取重命名或复制的 patch 时传入两端路径。路径含特殊字符时用 `--name-status -z` 解析清单，按字面路径传参。文件清单很长时也分段登记，直到完整覆盖。
+
+单文件过大时从 `--unified=0` 输出中过滤 hunk 头定位，再通过行区间分页读取 patch，所需源码上下文也按行读取。工具截断后继续补齐未读区间，记录覆盖进度。diff 直接从 Git 读取，不预生成或合并为单个文件。
+
+无历史工作稿时逐批覆盖全部变化；有历史时用相同 Git 选项查询 focus 区间，优先调查其文件、hunk 和影响面，再从 full 区间补充历史未完成项及 finding 位置，其余按继承条件复用。focus 清单为空只表示没有净代码变化，仍需处理最新讨论和历史未完成项；focus 中已从 full 清单消失的路径也要检查撤销变化对旧结论的影响。
+
+finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文；要确认 merge-base 版本时从目标 Git 按 full 区间的 merge-base SHA 读取，base checkout 是 `$REVIEW_BASE_SHA` 的快照。
 
 完成条件：checkpoint 后的每项变化及其影响面已经调查，最新讨论已归类；完整 diff 中每个文件都进入本轮 ledger，并标为本轮覆盖、待覆盖或满足 `workspace.md` 条件的历史继承。
 

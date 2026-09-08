@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import {
   findReviewCheckpoint,
@@ -9,8 +7,6 @@ import {
   findReviewWorkspaceArtifact,
   findReviewWorkspaceArtifactSafely,
 } from '../scripts/find-review-checkpoint.ts';
-// @ts-expect-error The workflow helper is plain Node.js so it needs no build step.
-import { finalizeReviewFocus } from '../scripts/finalize-review-focus.mjs';
 
 const current = 'c'.repeat(40);
 const cancelled = 'b'.repeat(40);
@@ -180,28 +176,5 @@ test('uses a checkpoint only after the previous workspace is ready', async () =>
   const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
   assert.match(workflow, /id: previous-workspace-download[\s\S]*?continue-on-error: true/);
   assert.match(workflow, /if: steps\.previous-workspace-download\.outcome == 'success'[\s\S]*?checkpoint_head=\$CHECKPOINT_HEAD/);
-  assert.match(workflow, /CHECKPOINT_HEAD: \$\{\{ steps\.previous-review-workspace\.outputs\.checkpoint_head \}\}/);
-});
-
-test('keeps only a distinct non-empty focus diff', async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'review-focus-'));
-  const fullDiffPath = path.join(directory, 'full.diff');
-  const focusDiffPath = path.join(directory, 'focus.diff');
-  try {
-    await writeFile(fullDiffPath, 'full');
-    assert.equal(await finalizeReviewFocus({ checkpointHead: '', fullDiffPath, focusDiffPath }), 'initial');
-
-    await writeFile(`${focusDiffPath}.tmp`, '');
-    assert.equal(await finalizeReviewFocus({ checkpointHead: reviewed, fullDiffPath, focusDiffPath }), 'incremental_unchanged');
-
-    await writeFile(`${focusDiffPath}.tmp`, 'full');
-    assert.equal(await finalizeReviewFocus({ checkpointHead: reviewed, fullDiffPath, focusDiffPath }), 'incremental_all');
-
-    await writeFile(`${focusDiffPath}.tmp`, 'focus');
-    assert.equal(await finalizeReviewFocus({ checkpointHead: reviewed, fullDiffPath, focusDiffPath }), 'incremental');
-    assert.equal(await readFile(focusDiffPath, 'utf8'), 'focus');
-    await access(focusDiffPath);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  assert.match(workflow, /REVIEW_CHECKPOINT_HEAD: \$\{\{ steps\.previous-review-workspace\.outputs\.checkpoint_head \}\}/);
 });
