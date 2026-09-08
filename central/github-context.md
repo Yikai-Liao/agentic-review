@@ -7,7 +7,7 @@
 读取输入中的 `Review request`，使用已固定的请求原文与快照。显式自然语言范围优先于默认计划；“只看鉴权”限定范围，“重点看鉴权”只调整优先级。
 
 - `automatic`：完整 PR 审查。
-- `pr_comment`：按 `default_plan` 的区间与 targets 调查；重开上次范围时重新取证。有新增变化时覆盖整个比较区间及直接影响，并纳入 `pending_scope` 的原始区间和 targets，避免遗漏上次未完成工作。
+- `pr_comment`：按 `default_plan.ranges` 中每个区间及其 targets 调查；重开上次范围时重新取证。该集合已包含失败轮次的未完成范围和本轮新增变化，分别读取各区间 patch，不能用首尾净 diff 抵消中间变化。
 - `thread`：读取根评论、完整 thread、当前位置及 outdated/resolved 状态，默认复核当前问题和直接影响；原文要求全 PR 时扩大，不继承 PR 级请求范围。
 
 `$REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH` 提供最近 PR 级请求的只读工作稿，用于恢复实际范围和未完成 batch；`$REVIEW_PREVIOUS_WORKSPACE_PATH` 是成功完整 audit 的证据参考。两者不互相替代。按 [结果协议](review-result.md) 记录本轮 scope 和覆盖状态。

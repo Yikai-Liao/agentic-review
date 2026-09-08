@@ -10,7 +10,7 @@ function fixture() {
   const request = buildReviewRequest({ source: 'automatic', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '20' });
   return { ...initialReviewCoverage(request), status: 'draft' as const, completed_batches: ['B1'],
     ledger: [{ path: 'src/a.ts', status: 'complete' as const, batches: ['B1'] }],
-    scope: { id: '20:1:scope', kind: 'pr' as const, mode: 'full' as const, rationale: 'complete PR', inherited_from_run: null, explicit_text: '', targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha, decided_at: request.requested_at } };
+    scope: { id: '20:1:scope', kind: 'pr' as const, mode: 'full' as const, rationale: 'complete PR', inherited_from_run: null, explicit_text: '', ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }], decided_at: request.requested_at } };
 }
 
 test('publication rejects omissions, pending coverage, excluded automatic files and missing batch evidence', async () => {
@@ -34,7 +34,7 @@ test('publication rejects omissions, pending coverage, excluded automatic files 
 test('automatic scope cannot use incremental mode or shrink its comparison interval', () => {
   const value = fixture();
   assert.throws(() => validateReviewScope({ ...value.scope, mode: 'incremental' }, value.request), /complete PR/);
-  assert.throws(() => validateReviewScope({ ...value.scope, comparison_start: value.request.head_sha }, value.request), /complete PR/);
+  assert.throws(() => validateReviewScope({ ...value.scope, ranges: [{ ...value.scope.ranges[0], comparison_start: value.request.head_sha }] }, value.request), /complete PR/);
 });
 
 test('history rejects invalid request, scope, state and duplicate ledger records', () => {
@@ -43,7 +43,7 @@ test('history rejects invalid request, scope, state and duplicate ledger records
   for (const bad of [
     { ...value, status: 'success' }, { ...value, complete_audit: true },
     { ...value, request: { ...value.request, version: 2 } },
-    { ...value, scope: { ...value.scope, comparison_end: 'c'.repeat(40) } },
+    { ...value, scope: { ...value.scope, ranges: [{ ...value.scope.ranges[0], comparison_end: 'c'.repeat(40) }] } },
     { ...value, ledger: [value.ledger[0], value.ledger[0]] },
     { ...value, ledger: [{ ...value.ledger[0], batches: ['../../secret'] }] },
   ]) assert.throws(() => parseReviewCoverage(bad));

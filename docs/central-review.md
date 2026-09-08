@@ -26,7 +26,7 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 评论请求的审查范围由原文驱动并单独持久化：显式自然语言范围优先于 thread 隐含范围，thread 隐含范围优先于 PR 默认规则。普通 PR 评论重新调查最近一次 PR 级请求的实际范围；无变化也要重新审查并给出当前证据，有变化要审查新增变化和直接影响并补齐此前失败或未完成的覆盖。thread 默认调查当前问题和直接影响，原文明确要求全 PR 时才扩大，且不继承 PR 级范围历史。限定范围可以限制本轮覆盖；关注点只改变调查优先级。完整 diff 仍用于上下文和确认新增 inline 位置；限定范围内读取直接影响上下文不能声称完成全 PR，full diff 之外的位置不能伪造 inline finding。
 
-每轮开始后 Agent 通过 `set_review_scope` 持久化 `kind`、`mode`、`targets`、比较起止 SHA、继承 run 和判断依据，最终 JSON 的 `scope_id` 必须匹配该 manifest。`review-coverage.json` 记录请求、scope、已完成 batch 和状态；局部成功或 thread 成功不能推进完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，失败、草稿和跳过发布的工作稿也可提供范围历史，排除 thread 与当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
+每轮开始后 Agent 通过 `set_review_scope` 持久化 `kind`、`mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、继承 run 和判断依据，最终 JSON 的 `scope_id` 必须匹配该 manifest。`review-coverage.json` 记录请求、scope、已完成 batch 和状态；局部成功或 thread 成功不能推进完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，失败、草稿和跳过发布的工作稿也可提供范围历史，排除 thread 与当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引是按需读取入口，不证明条目与候选相关，也不构成业务授权、修复或验收证据。
 

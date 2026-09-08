@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { buildReviewRequest, validateReviewScope, type ReviewCoverage } from './review-request.ts';
+import { buildReviewRequest, validateReviewScope, validateReviewRanges, type ReviewCoverage } from './review-request.ts';
 
 export type CoverageEntry = { path: string; status: 'pending' | 'complete' | 'out_of_scope'; batches: string[] };
 const record = (value: unknown): value is Record<string, any> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -25,6 +25,14 @@ export function parseReviewCoverage(value: unknown): ReviewCoverage {
   if (Object.keys(r).length !== Object.keys(rebuilt).length || Object.entries(rebuilt).some(([key, item]) => r[key] !== item)) throw new Error('Invalid coverage request');
   if (!['requested', 'draft', 'published', 'failed'].includes(value.status) || typeof value.complete_audit !== 'boolean'
     || !strings(value.completed_batches) || typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))) throw new Error('Invalid coverage state');
+  if (value.default_plan !== undefined) {
+    const plan = value.default_plan;
+    if (!record(plan) || !['pr', 'thread'].includes(plan.kind) || !['full', 'incremental', 'focused'].includes(plan.mode)
+      || !['thread_default', 'no_history', 'reopen_unchanged_scope', 'resume_failed_scope', 'continue_published_scope'].includes(plan.reason)
+      || (plan.previous_status !== null && !['requested', 'draft', 'published', 'failed'].includes(plan.previous_status))
+      || (plan.inherited_from_run !== null && (typeof plan.inherited_from_run !== 'string' || !/^[A-Za-z0-9._:-]+$/.test(plan.inherited_from_run)))) throw new Error('Invalid default review plan');
+    validateReviewRanges(plan.ranges);
+  }
   if (value.scope !== undefined) validateReviewScope(value.scope, rebuilt);
   if ((value.status === 'draft' || value.status === 'published') && !value.scope) throw new Error('Missing coverage scope');
   if (value.complete_audit && (value.status !== 'published' || r.source !== 'automatic' || value.scope?.mode !== 'full')) throw new Error('Invalid complete audit');

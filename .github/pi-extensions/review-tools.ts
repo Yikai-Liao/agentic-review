@@ -27,11 +27,21 @@ export default function reviewTools(pi: ExtensionAPI) {
         rationale: { type: 'string', minLength: 1 },
         inherited_from_run: { type: ['string', 'null'] },
         explicit_text: { type: 'string' },
-        targets: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string' } },
-        comparison_start: { type: 'string', pattern: '^[0-9a-f]{40}$' },
-        comparison_end: { type: 'string', pattern: '^[0-9a-f]{40}$' },
+        ranges: {
+          type: 'array', minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              targets: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+              comparison_start: { type: 'string', pattern: '^[0-9a-f]{40}$' },
+              comparison_end: { type: 'string', pattern: '^[0-9a-f]{40}$' },
+            },
+            required: ['targets', 'comparison_start', 'comparison_end'],
+            additionalProperties: false,
+          },
+        },
       },
-      required: ['kind', 'mode', 'rationale', 'inherited_from_run', 'explicit_text', 'targets', 'comparison_start', 'comparison_end'],
+      required: ['kind', 'mode', 'rationale', 'inherited_from_run', 'explicit_text', 'ranges'],
       additionalProperties: false,
     } as any,
     async execute(_toolCallId, input: Omit<ReviewScope, 'id' | 'decided_at'>) {

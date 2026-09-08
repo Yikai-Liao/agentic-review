@@ -152,9 +152,23 @@ export function shouldDispatch(payload: PullRequestPayload, allowedOwner: string
 /** Remove examples from quoted/fenced/inline code before looking for a real mention. */
 export function commentMention(body: string, mention: string): boolean {
   if (!body || !mention || !mention.startsWith('@')) return false;
-  const withoutFences = body.replace(/```[\s\S]*?```/g, '\n').replace(/~~~[\s\S]*?~~~/g, '\n');
-  const withoutQuotes = withoutFences.split('\n').filter((line) => !/^\s*>/.test(line)).join('\n');
-  const withoutInlineCode = withoutQuotes.replace(/`[^`\n]*`/g, '');
+  let fence: { marker: string; length: number } | null = null;
+  const prose: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    if (fence) {
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (closing && closing[1][0] === fence.marker && closing[1].length >= fence.length) fence = null;
+      continue;
+    }
+    if (/^\s*>/.test(line)) continue;
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (opening && (opening[1][0] === '~' || !opening[2].includes('`'))) {
+      fence = { marker: opening[1][0], length: opening[1].length };
+      continue;
+    }
+    prose.push(line);
+  }
+  const withoutInlineCode = prose.join('\n').replace(/`[^`\n]*`/g, '');
   const escaped = mention.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(^|[^\\w])${escaped}(?=$|[^\\w-])`, 'i').test(withoutInlineCode);
 }

@@ -126,7 +126,7 @@ test('set_review_scope persists concrete coverage and submit requires its scope 
     reviewTools({ registerTool: (definition) => tools.set(definition.name, definition) });
     const scope = await tools.get('set_review_scope').execute('call', {
       kind: 'pr', mode: 'focused', rationale: '用户明确限定鉴权链路。', inherited_from_run: null, explicit_text: '只看 auth',
-      targets: ['src/auth/**'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40),
+      ranges: [{ targets: ['src/auth/**'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40) }],
     });
     const saved = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(saved.status, 'draft');
@@ -168,7 +168,7 @@ test('automatic reviews cannot record a focused partial scope', async () => {
     process.env.REVIEW_COVERAGE_PATH = coveragePath;
     let scopeTool: any;
     reviewTools({ registerTool: (definition) => { if (definition.name === 'set_review_scope') scopeTool = definition; } });
-    await assert.rejects(scopeTool.execute('call', { kind: 'pr', mode: 'focused', rationale: '只看一个文件。', inherited_from_run: null, explicit_text: '只看 auth', targets: ['src/auth.ts'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40) }), /complete PR scope/);
+    await assert.rejects(scopeTool.execute('call', { kind: 'pr', mode: 'focused', rationale: '只看一个文件。', inherited_from_run: null, explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40)  }]}), /complete PR scope/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });

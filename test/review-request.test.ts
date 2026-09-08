@@ -18,25 +18,25 @@ function previous(status: ReviewCoverage['status'], previousHead = oldHead): Rev
   const value = request('pr_comment', previousHead);
   return {
     request: value, status, completed_batches: ['auth'], ledger: [], complete_audit: false, updated_at: value.requested_at,
-    scope: { id: '10:1:scope', kind: 'pr', mode: 'focused', rationale: 'auth', inherited_from_run: null, explicit_text: 'auth', targets: ['auth'], comparison_start: base, comparison_end: previousHead, decided_at: value.requested_at },
+    scope: { id: '10:1:scope', kind: 'pr', mode: 'focused', rationale: 'auth', inherited_from_run: null, explicit_text: 'auth', ranges: [{ targets: ['auth'], comparison_start: base, comparison_end: previousHead }], decided_at: value.requested_at },
   };
 }
 
 test('reopens the prior actual PR scope when head is unchanged', () => {
   const plan = prepareDefaultReviewPlan(request('pr_comment', oldHead), previous('published', oldHead), () => true);
   assert.equal(plan.reason, 'reopen_unchanged_scope');
-  assert.deepEqual(plan.targets, ['auth']);
-  assert.equal(plan.comparison_start, base);
+  assert.deepEqual(plan.ranges.at(-1)!.targets, ['auth']);
+  assert.equal(plan.ranges.at(-1)!.comparison_start, base);
 });
 
 test('resumes failed scope and compares failed head to new head', () => {
   const plan = prepareDefaultReviewPlan(request('pr_comment', head), previous('failed'), () => true);
   assert.equal(plan.reason, 'resume_failed_scope');
-  assert.equal(plan.comparison_start, oldHead);
-  assert.deepEqual(plan.targets, ['all changes in comparison interval and direct impact']);
-  assert.deepEqual(plan.pending_scope?.targets, ['auth']);
-  assert.equal(plan.pending_scope?.comparison_start, base);
-  assert.equal(plan.pending_scope?.comparison_end, oldHead);
+  assert.equal(plan.ranges.at(-1)!.comparison_start, oldHead);
+  assert.deepEqual(plan.ranges.at(-1)!.targets, ['all changes in comparison interval and direct impact']);
+  assert.deepEqual(plan.ranges[0]?.targets, ['auth']);
+  assert.equal(plan.ranges[0]?.comparison_start, base);
+  assert.equal(plan.ranges[0]?.comparison_end, oldHead);
   assert.equal(plan.inherited_from_run, '20:1');
 });
 
@@ -50,20 +50,20 @@ test('thread default does not inherit PR scope history', () => {
 
 test('published focused history does not restrict new changes to old targets', () => {
   const plan = prepareDefaultReviewPlan(request('pr_comment'), previous('published'), () => true);
-  assert.deepEqual(plan.targets, ['all changes in comparison interval and direct impact']);
-  assert.equal(plan.pending_scope, undefined);
+  assert.deepEqual(plan.ranges.at(-1)!.targets, ['all changes in comparison interval and direct impact']);
+  assert.equal(plan.ranges.length, 1);
 });
 
 test('automatic review keeps complete PR scope after a focused request', () => {
   const plan = prepareDefaultReviewPlan(request('automatic', oldHead), previous('published'), () => true);
   assert.equal(plan.mode, 'full');
-  assert.deepEqual(plan.targets, ['complete pull request']);
+  assert.deepEqual(plan.ranges.at(-1)!.targets, ['complete pull request']);
 });
 
 test('base changes and unavailable history cannot reopen an unchanged scope', () => {
   const changedBase = { ...request('pr_comment', oldHead), base_sha: head };
   assert.equal(prepareDefaultReviewPlan(changedBase, previous('published'), () => true).mode, 'full');
-  assert.equal(prepareDefaultReviewPlan(request('pr_comment'), previous('failed'), () => false).reason, 'no_history');
+  assert.throws(() => prepareDefaultReviewPlan(request('pr_comment'), previous('failed'), () => false), /comparison is unavailable/);
 });
 
 
@@ -85,15 +85,38 @@ test('real commit history retains failed auth interval and includes new payments
     const c = git('rev-parse', 'HEAD');
     const old = previous('draft');
     old.request = { ...old.request, base_sha: a, head_sha: b };
-    old.scope = { ...old.scope!, comparison_start: a, comparison_end: b };
+    old.scope = { ...old.scope!, ranges: [{ targets: ['auth'], comparison_start: a, comparison_end: b }] };
     const current = { ...request('pr_comment'), base_sha: a, head_sha: c, comparison_start: a };
     const plan = prepareDefaultReviewPlan(current, old, (start, end) => comparisonUsable(dir, start, end));
-    assert.equal(git('diff', '--name-only', plan.comparison_start, plan.comparison_end), 'payments.ts');
-    assert.equal(git('diff', '--name-only', plan.pending_scope!.comparison_start, plan.pending_scope!.comparison_end), 'auth.ts');
-    assert.deepEqual(plan.pending_scope!.targets, ['auth']);
+    assert.equal(git('diff', '--name-only', plan.ranges.at(-1)!.comparison_start, plan.ranges.at(-1)!.comparison_end), 'payments.ts');
+    assert.equal(git('diff', '--name-only', plan.ranges[0].comparison_start, plan.ranges[0].comparison_end), 'auth.ts');
+    assert.deepEqual(plan.ranges[0].targets, ['auth']);
     assert.equal(comparisonUsable(dir, 'f'.repeat(40), c), false);
     assert.equal(comparisonUsable(dir, c, b), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('consecutive failures preserve every interval, including retries before scope is recorded', () => {
+  const secondRequest = request('pr_comment', head);
+  const secondPlan = prepareDefaultReviewPlan(secondRequest, previous('failed'), () => true);
+  const second: ReviewCoverage = {
+    request: secondRequest, default_plan: secondPlan, status: 'requested',
+    completed_batches: [], ledger: [], complete_audit: false, updated_at: secondRequest.requested_at,
+  };
+  const sameHead = prepareDefaultReviewPlan(secondRequest, second, () => true);
+  assert.deepEqual(sameHead.ranges, secondPlan.ranges);
+  const nextRequest = request('pr_comment', 'd'.repeat(40));
+  for (const saved of [
+    second,
+    { ...second, status: 'failed' as const, scope: { ...previous('failed').scope!, ranges: secondPlan.ranges } },
+  ]) {
+    const next = prepareDefaultReviewPlan(nextRequest, saved, () => true);
+    assert.deepEqual(next.ranges.map(({ comparison_start, comparison_end }) => [comparison_start, comparison_end]),
+      [[base, oldHead], [oldHead, head], [head, nextRequest.head_sha]]);
+    assert.deepEqual(next.ranges[0].targets, ['auth']);
+  }
+  const published = { ...second, status: 'published' as const, scope: { ...previous('failed').scope!, ranges: secondPlan.ranges } };
+  assert.equal(prepareDefaultReviewPlan(nextRequest, published, () => true).ranges.length, 1);
 });

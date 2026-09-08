@@ -20,6 +20,12 @@ export type ReviewRequest = {
   run_attempt: string;
 };
 
+export type ReviewRange = {
+  targets: string[];
+  comparison_start: string;
+  comparison_end: string;
+};
+
 export type ReviewScope = {
   id: string;
   kind: 'pr' | 'thread';
@@ -27,9 +33,7 @@ export type ReviewScope = {
   rationale: string;
   inherited_from_run: string | null;
   explicit_text: string;
-  targets: string[];
-  comparison_start: string;
-  comparison_end: string;
+  ranges: ReviewRange[];
   decided_at: string;
 };
 
@@ -47,13 +51,10 @@ export type ReviewCoverage = {
 export type DefaultReviewPlan = {
   kind: 'pr' | 'thread';
   mode: 'full' | 'incremental' | 'focused';
-  targets: string[];
-  comparison_start: string;
-  comparison_end: string;
+  ranges: ReviewRange[];
   inherited_from_run: string | null;
   reason: 'thread_default' | 'no_history' | 'reopen_unchanged_scope' | 'resume_failed_scope' | 'continue_published_scope';
   previous_status: ReviewCoverage['status'] | null;
-  pending_scope?: ReviewScope;
 };
 
 const sha = /^[0-9a-f]{40}$/;
@@ -123,46 +124,75 @@ export function prepareDefaultReviewPlan(
   previous: ReviewCoverage | null,
   usable: (start: string, end: string) => boolean,
 ): DefaultReviewPlan {
+  const range = (targets: string[], start = request.comparison_start): ReviewRange => ({
+    targets, comparison_start: start, comparison_end: request.head_sha,
+  });
   if (request.source === 'thread') return {
-    kind: 'thread', mode: 'focused', targets: ['current thread and direct impact'], comparison_start: request.comparison_start,
-    comparison_end: request.head_sha, inherited_from_run: null, reason: 'thread_default', previous_status: null,
+    kind: 'thread', mode: 'focused', ranges: [range(['current thread and direct impact'])],
+    inherited_from_run: null, reason: 'thread_default', previous_status: null,
   };
   const full: DefaultReviewPlan = {
-    kind: 'pr', mode: 'full', targets: ['complete pull request'], comparison_start: request.comparison_start,
-    comparison_end: request.head_sha, inherited_from_run: null, reason: 'no_history', previous_status: null,
+    kind: 'pr', mode: 'full', ranges: [range(['complete pull request'])],
+    inherited_from_run: null, reason: 'no_history', previous_status: null,
   };
   if (request.source === 'automatic') return full;
-  const scope = previous?.scope;
+  // 未记录实际范围就失败时，默认计划本身仍是尚未完成的义务。
+  const scope = previous?.scope ?? previous?.default_plan;
   if (!previous || !scope || scope.kind !== 'pr' || previous.request.repository !== request.repository
-    || previous.request.pull_number !== request.pull_number || scope.comparison_end !== previous.request.head_sha
-    || !scope.targets.length || !usable(scope.comparison_start, scope.comparison_end)) return full;
+    || previous.request.pull_number !== request.pull_number) return full;
+  if (scope.ranges.some((item) => !usable(item.comparison_start, item.comparison_end))) {
+    throw new Error('Previous review comparison is unavailable');
+  }
   const inherited = `${previous.request.run_id}:${previous.request.run_attempt}`;
   if (previous.request.head_sha === request.head_sha && previous.request.base_sha === request.base_sha) return {
-    kind: 'pr', mode: scope.mode, targets: [...scope.targets], comparison_start: scope.comparison_start,
-    comparison_end: request.head_sha, inherited_from_run: inherited,
+    kind: 'pr', mode: scope.mode, ranges: structuredClone(scope.ranges), inherited_from_run: inherited,
     reason: 'reopen_unchanged_scope', previous_status: previous.status,
   };
   const failed = previous.status !== 'published';
   const incremental = previous.request.base_sha === request.base_sha && usable(previous.request.head_sha, request.head_sha);
+  const current = incremental
+    ? range(['all changes in comparison interval and direct impact'], previous.request.head_sha)
+    : full.ranges[0];
   return {
     kind: 'pr', mode: incremental ? 'incremental' : 'full',
-    targets: incremental ? ['all changes in comparison interval and direct impact'] : full.targets,
-    comparison_start: incremental ? previous.request.head_sha : request.comparison_start,
-    comparison_end: request.head_sha, inherited_from_run: inherited,
+    ranges: [...(failed ? structuredClone(scope.ranges) : []), current],
+    inherited_from_run: inherited,
     reason: failed ? 'resume_failed_scope' : 'continue_published_scope', previous_status: previous.status,
-    ...(failed ? { pending_scope: scope } : {}),
   };
+}
+
+export function validateReviewRanges(ranges: ReviewRange[]): void {
+  if (!Array.isArray(ranges) || !ranges.length) throw new Error('Invalid review ranges');
+  for (const item of ranges) {
+    if (!item || !Array.isArray(item.targets) || !item.targets.length
+      || item.targets.some((target) => typeof target !== 'string' || !target.trim())) throw new Error('Invalid review scope targets');
+    if (typeof item.comparison_start !== 'string' || !sha.test(item.comparison_start)
+      || typeof item.comparison_end !== 'string' || !sha.test(item.comparison_end)) throw new Error('Invalid review scope comparison');
+  }
+}
+
+export function reviewInventory(targetPath: string, request: ReviewRequest, plan: DefaultReviewPlan): string[] {
+  // 完整 PR 保留显式扩大范围的入口；所有历史区间独立枚举，撤销不能抵消待审文件。
+  const files = new Set<string>();
+  const intervals = new Set([request.comparison_start + '..' + request.head_sha,
+    ...plan.ranges.map((item) => item.comparison_start + '..' + item.comparison_end)]);
+  for (const interval of intervals) {
+    const diff = spawnSync('git', ['-C', targetPath, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', interval], { encoding: 'utf8' });
+    if (diff.status !== 0) throw new Error('Could not enumerate review changes');
+    diff.stdout.split('\0').filter(Boolean).forEach((file) => files.add(file));
+  }
+  return [...files].sort();
 }
 
 export function validateReviewScope(scope: ReviewScope, request: ReviewRequest): void {
   if (!scope || !['pr', 'thread'].includes(scope.kind)) throw new Error('Invalid review scope kind');
   if (typeof scope.id !== 'string' || !scope.id || !/^[A-Za-z0-9._:-]+$/.test(scope.id)) throw new Error('Invalid review scope id');
   if ((request.source === 'thread') !== (scope.kind === 'thread')) throw new Error('Review scope kind does not match request');
-  if (request.source === 'automatic' && (scope.mode !== 'full' || scope.comparison_start !== request.comparison_start)) throw new Error('Automatic audit requires complete PR scope');
+  validateReviewRanges(scope.ranges);
+  if (!scope.ranges.some((item) => item.comparison_end === request.head_sha)) throw new Error('Review scope does not include current snapshot');
+  if (request.source === 'automatic' && (scope.mode !== 'full' || scope.ranges.length !== 1 || scope.ranges[0].comparison_start !== request.comparison_start)) throw new Error('Automatic audit requires complete PR scope');
   if (!['full', 'incremental', 'focused'].includes(scope.mode)) throw new Error('Invalid review scope mode');
   if (typeof scope.rationale !== 'string' || !scope.rationale.trim()) throw new Error('Invalid review scope rationale');
-  if (!Array.isArray(scope.targets) || scope.targets.length < 1 || scope.targets.some((target) => typeof target !== 'string' || !target.trim())) throw new Error('Invalid review scope targets');
-  if (!sha.test(scope.comparison_start) || scope.comparison_end !== request.head_sha) throw new Error('Invalid review scope comparison');
   if (scope.inherited_from_run !== null && (typeof scope.inherited_from_run !== 'string' || !/^[A-Za-z0-9._:-]+$/.test(scope.inherited_from_run))) throw new Error('Invalid inherited review run');
   if (typeof scope.explicit_text !== 'string') throw new Error('Invalid explicit review scope');
   if (typeof scope.decided_at !== 'string' || !Number.isFinite(Date.parse(scope.decided_at))) throw new Error('Invalid review scope timestamp');
@@ -204,11 +234,10 @@ export async function main() {
     }
   }
   const coverage = initialReviewCoverage(request);
-  const diff = spawnSync('git', ['-C', process.env.REVIEW_TARGET_PATH!, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', `${request.base_sha}...${request.head_sha}`], { encoding: 'utf8' });
-  if (diff.status !== 0) throw new Error('Could not enumerate review changes');
-  coverage.ledger = diff.stdout.split('\0').filter(Boolean).map((file) => ({ path: file, status: 'pending', batches: [] }));
-  await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\n`);
   coverage.default_plan = prepareDefaultReviewPlan(request, previous, (start, end) => comparisonUsable(process.env.REVIEW_TARGET_PATH!, start, end));
+  coverage.ledger = reviewInventory(process.env.REVIEW_TARGET_PATH!, request, coverage.default_plan)
+    .map((file) => ({ path: file, status: 'pending', batches: [] }));
+  await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\n`);
   await persistReviewCoverage(output, coverage);
 }
 

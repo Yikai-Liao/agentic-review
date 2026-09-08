@@ -51,7 +51,7 @@ test('trusted request and publisher CLIs bind the snapshot and reject incomplete
     const coverage = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.deepEqual(coverage.ledger, [{ path: 'auth.ts', status: 'pending', batches: [] }]);
     coverage.scope = { id: '20:1:scope', kind: 'pr', mode: 'full', rationale: '完整审查', inherited_from_run: null,
-      explicit_text: '', targets: ['complete pull request'], comparison_start: base, comparison_end: head, decided_at: coverage.updated_at };
+      explicit_text: '', ranges: [{ targets: ['complete pull request'], comparison_start: base, comparison_end: head }], decided_at: coverage.updated_at };
     coverage.status = 'draft';
     // Agent 重写 JSON 时键顺序可以变化，身份校验应比较字段值。
     coverage.request = Object.fromEntries(Object.entries(coverage.request).reverse());
@@ -79,6 +79,76 @@ test('trusted request and publisher CLIs bind the snapshot and reject incomplete
     assert.equal(published.complete_audit, true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('trusted inventory includes reverted incremental files and intervals from repeated failures', async () => {
+  const { buildReviewRequest, initialReviewCoverage, prepareDefaultReviewPlan, reviewInventory } = await import('../scripts/review-request.ts');
+  const { inventoryDigest, validateCoverageCompletion } = await import('../scripts/review-coverage.ts');
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-reverted-'));
+  const git = (...args: string[]) => execFileSync('git', ['-C', directory, ...args], { encoding: 'utf8' }).trim();
+  try {
+    git('init', '-q');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'Test');
+    await writeFile(path.join(directory, 'auth.ts'), 'base');
+    git('add', '.'); git('commit', '-qm', 'base');
+    const a = git('rev-parse', 'HEAD');
+    await writeFile(path.join(directory, 'auth.ts'), 'changed');
+    await writeFile(path.join(directory, 'payments.ts'), 'payments');
+    git('add', '.'); git('commit', '-qm', 'first');
+    const b = git('rev-parse', 'HEAD');
+    await writeFile(path.join(directory, 'auth.ts'), 'base');
+    git('add', '.'); git('commit', '-qm', 'revert auth');
+    const c = git('rev-parse', 'HEAD');
+    assert.equal(git('diff', '--name-only', a, c), 'payments.ts');
+    const oldRequest = buildReviewRequest({ source: 'pr_comment', commentId: '1', rootCommentId: '1',
+      repository: 'owner/repo', pullNumber: 7, baseSha: a, headSha: b, runId: '10' });
+    const old = { ...initialReviewCoverage(oldRequest), status: 'draft',
+      scope: { id: '10:1:scope', kind: 'pr', mode: 'focused', rationale: '只看鉴权', inherited_from_run: null,
+        explicit_text: '只看鉴权', ranges: [{ targets: ['auth.ts'], comparison_start: a, comparison_end: b }],
+        decided_at: oldRequest.requested_at } };
+    const nextRequest = { ...oldRequest, head_sha: c };
+    const publishedPlan = prepareDefaultReviewPlan(nextRequest, { ...old, status: 'published',
+      scope: { ...old.scope, kind: 'pr', mode: 'focused' } }, () => true);
+    assert.deepEqual(publishedPlan.ranges.map((range) => [range.comparison_start, range.comparison_end]), [[b, c]]);
+    assert.deepEqual(reviewInventory(directory, nextRequest, publishedPlan), ['auth.ts', 'payments.ts']);
+    const oldWorkspace = path.join(directory, 'previous');
+    const workspace = path.join(directory, 'workspace');
+    await mkdir(oldWorkspace);
+    await mkdir(workspace);
+    await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify(old));
+    const coveragePath = path.join(workspace, 'review-coverage.json');
+    const outputPath = path.join(directory, 'outputs');
+    const env = { ...process.env, REVIEW_TARGET_PATH: directory, REVIEW_COVERAGE_PATH: coveragePath,
+      REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '7', REVIEW_BASE_SHA: a, REVIEW_HEAD_SHA: c,
+      REVIEW_TRIGGER_SOURCE: 'pr_comment', REVIEW_COMMENT_ID: '2', REVIEW_COMMENT_ROOT_ID: '2', REVIEW_COMMENT_BODY: '',
+      GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath,
+      REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: oldWorkspace, REVIEW_PREVIOUS_RUN_ID: '10',
+      REVIEW_PREVIOUS_RUN_ATTEMPT: '1', REVIEW_PREVIOUS_SOURCE: 'pr_comment', REVIEW_PREVIOUS_PUBLISHED: 'false' };
+    await exec(process.execPath, ['scripts/review-request.ts'], { env });
+    const coverage = JSON.parse(await readFile(coveragePath, 'utf8'));
+    const outputs = Object.fromEntries((await readFile(outputPath, 'utf8')).trim().split('\n').map((line) => line.split('=')));
+    assert.deepEqual(coverage.ledger.map((entry: { path: string }) => entry.path), ['auth.ts', 'payments.ts']);
+    assert.equal(outputs.inventory_digest, inventoryDigest(['auth.ts', 'payments.ts']));
+    coverage.scope = { ...old.scope, id: '20:1:scope', mode: 'incremental', ranges: coverage.default_plan.ranges };
+    coverage.status = 'draft';
+    coverage.ledger[1].status = 'out_of_scope';
+    await assert.rejects(validateCoverageCompletion(coverage, workspace, outputs.inventory_digest), /Incomplete coverage: auth.ts/);
+    await assert.rejects(validateCoverageCompletion({ ...coverage, ledger: [coverage.ledger[1]] }, workspace, outputs.inventory_digest), /inventory/);
+    // 第二轮保存实际范围后仍失败；第三轮必须继续携带 A→B 和 B→C。
+    await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify(coverage));
+    await writeFile(path.join(directory, 'payments.ts'), 'new payments');
+    git('add', 'payments.ts'); git('commit', '-qm', 'third');
+    const d = git('rev-parse', 'HEAD');
+    await exec(process.execPath, ['scripts/review-request.ts'], { env: { ...env,
+      REVIEW_HEAD_SHA: d, GITHUB_RUN_ID: '30', REVIEW_PREVIOUS_RUN_ID: '20' } });
+    const third = JSON.parse(await readFile(coveragePath, 'utf8'));
+    assert.deepEqual(third.default_plan.ranges.map((range: { comparison_start: string; comparison_end: string }) =>
+      [range.comparison_start, range.comparison_end]), [[a, b], [b, c], [c, d]]);
+    assert.deepEqual(third.ledger.map((entry: { path: string }) => entry.path), ['auth.ts', 'payments.ts']);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

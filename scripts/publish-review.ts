@@ -320,7 +320,7 @@ async function main() {
   if (triggerSource === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
   if (triggerSource !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
   await validateCoverageCompletion(coverage, path.dirname(coveragePath), requiredEnv('REVIEW_INVENTORY_DIGEST'));
-  const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${coverage.scope.targets.join(', ')})`;
+  const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${[...new Set(coverage.scope.ranges.flatMap((range) => range.targets))].join(', ')})`;
   const threadReplyOnly = triggerSource === 'thread' && coverage.scope.mode === 'focused';
   const footer = buildFooter({
     runUrl: requiredEnv('REVIEW_RUN_URL'),

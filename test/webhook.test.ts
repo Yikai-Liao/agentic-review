@@ -82,3 +82,22 @@ test('accepts real mentions and rejects quoted/code examples and bot loops', () 
   assert.equal(validBotMention('@review-app[bot]'), true);
   assert.equal(validBotMention('review-app'), false);
 });
+
+
+test('mentions inside fenced code remain ignored through EOF and mismatched closing fences', () => {
+  const mention = '@review-app';
+  for (const body of [
+    '```text\n@review-app',
+    '~~~\n@review-app',
+    '````\n```\n@review-app\n````',
+    '```\n~~~\n@review-app',
+    '   ~~~text\r\n@review-app',
+    '```\n```still code\n@review-app',
+  ]) assert.equal(commentMention(body, mention), false, body);
+  for (const body of [
+    '```\nexample\n```\n@review-app',
+    '~~~\nexample\n~~~~\n@review-app',
+    '@review-app\n```\nexample',
+    '> ```\n@review-app',
+  ]) assert.equal(commentMention(body, mention), true, body);
+});

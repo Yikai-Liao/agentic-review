@@ -6,9 +6,9 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`，遵循 `workspace.md`；工作稿作为限期、受权限保护的 Actions artifact 保留。
 
-调查前调用 `set_review_scope` 记录实际范围、比较区间和判断依据，保留返回的 `scope_id`。工具参数定义字段；targets 应足以让下一轮恢复覆盖范围。
+调查前调用 `set_review_scope` 记录实际范围、比较区间和判断依据，保留返回的 `scope_id`。用 `ranges` 保存全部实际区间，每项包含比较起止 SHA 和足以恢复范围的 targets。以 `default_plan.ranges` 为默认值；显式请求改变范围时记录原文和依据，其他情况下保留全部区间。最新实际 scope 是下一轮恢复范围的唯一来源；记录 scope 前失败则恢复默认计划。
 
-workflow 在 Agent 启动前为完整 PR 生成 `review-coverage.json` 的 `ledger`（文件清单），并将清单摘要独立传给可信发布器。保留每个条目的 `path`；每个文件及其非机械 hunk 的证明写入 `batches/<batch-id>.md`，batch ID 只用字母、数字、下划线和连字符。完成后把对应条目写为 `{"path":"src/example.ts","status":"complete","batches":["B1"]}`，并将所有已完成 batch ID 记入 `completed_batches`。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope` 和空 `batches`，full 范围不允许排除条目。中央 ledger 提供文件级完成校验，hunk、census 与证据充分性仍遵循 `workspace.md`。
+workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `review-coverage.json` 的 `ledger`（文件清单），并将清单摘要独立传给可信发布器。保留每个条目的 `path`；每个文件及其非机械 hunk 的证明写入 `batches/<batch-id>.md`，batch ID 只用字母、数字、下划线和连字符。完成后把对应条目写为 `{"path":"src/example.ts","status":"complete","batches":["B1"]}`，并将所有已完成 batch ID 记入 `completed_batches`。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope` 和空 `batches`，full 范围不允许排除条目。中央 ledger 提供文件级完成校验，hunk、census 与证据充分性仍遵循 `workspace.md`。
 
 发布器校验清单未缺失、scope 内条目全部完成、batch 清单一致且证据文件非空；任一不满足就失败。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级。`published` 和 `complete_audit` 由可信发布器决定，局部成功不代表完整 audit。
 
