@@ -59,6 +59,8 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 
 ## 4. 飞书用户 OAuth 与自动续期
 
+首次接入、不清楚 `.env` 后如何关联个人文档，或需要更换 App/用户时，先按[飞书 App 与授权用户操作手册](lark-operations.md)执行。本文集中说明生产配置和续期机制。
+
 ### 登录状态保存在哪里
 
 Actions runner 每轮都是新机器。持久化的是 OAuth token，CLI 每轮通过环境变量使用 UAT；不缓存 CLI 登录目录，不在 Review 中执行 `auth login`。一个授权企业用户身份对应一条续期链路：

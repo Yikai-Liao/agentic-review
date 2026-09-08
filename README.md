@@ -103,7 +103,7 @@ Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.
 
 实际读取权限是“应用已开通且用户已同意的 API scope”和“授权的企业用户身份对文档的访问权限”的交集。应用只申请所需读取权限，因此即使你能编辑文档，Review 也只获得这组只读能力。切换企业后的另一个身份不自动属于同一 UAT；跨企业文档需要共享给当前授权身份，并通过实际 API 读取验收。
 
-部署、首次授权、续期恢复和文档验收见[飞书接入步骤](docs/deploy-central-review.md#4-飞书用户-oauth-与自动续期)。下游在已合并的 `.agentic-review.md` 声明文档 URL 或搜索范围和触发条件，Agent 形成候选后通过 `central/lark-context.md` 按需读取。
+从 `.env` 开始登录、验证文档及更换 App/用户，按[飞书操作手册](docs/lark-operations.md)执行；生产配置和续期机制见[飞书接入步骤](docs/deploy-central-review.md#4-飞书用户-oauth-与自动续期)。下游在已合并的 `.agentic-review.md` 声明文档 URL 或搜索范围和触发条件，Agent 形成候选后通过 `central/lark-context.md` 按需读取。
 
 ## 中央仓库配置
 
