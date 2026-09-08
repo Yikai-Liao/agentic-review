@@ -14,7 +14,7 @@
 
 ## 1. 读取项目规则
 
-`$REVIEW_INPUT_PATH` 已包含 merge base 与 head 中存在的 `.agentic-review.md` 和 `AGENTS.md`。按 head 理解预期合并后的项目规则，并把 base/head 差异作为当前变化的一部分。
+`$REVIEW_INPUT_PATH` 已包含 base 与 head 中存在的 `.agentic-review.md` 和 `AGENTS.md`。按 head 理解预期合并后的项目规则，并把 base/head 差异作为当前变化的一部分。
 
 不自动枚举 Target Skill；按 head 的 `.agentic-review.md` 为当前变化显式给出的文件路径读取相关项目上下文。
 
@@ -22,22 +22,51 @@
 
 ## 2. 获取当前 PR 元数据
 
-`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review 和 inline comments，不重复查询。需要判断当前 PR thread 状态时，用 `gh api graphql` 读取 `reviewThreads` 的 `isResolved`、`isOutdated`、`resolvedBy` 和完整 comments，并用首条评论的 `databaseId` 对应 root comment。
+`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review、inline comments 和 thread 状态的启动快照。准备阶段同时保存本轮 `discussion-baseline.json`。最终归纳前执行控制面只读脚本：
 
-完成条件：当前 PR 元数据和全部讨论已读取一次，工作稿记录显式关联线索和当前 thread 状态。
+```bash
+node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
+```
+
+脚本通过 `gh` 读完分页，只输出相对启动快照新增或编辑的普通评论、inline 回复、Review 正文及变化的 thread 状态。完整读取输出，截断时补齐；以 ID 覆盖快照中的旧记录，按 `root_comment_id`、`in_reply_to_id` 关联 thread，结合已读原文判断，空数组表示该类没有增量。刷新时点遵循 `central/review-result.md`。
+
+基线固定为本轮启动快照，重复调用仍返回本轮全部增量，不因一次输出未读完而丢失评论。普通评论和 inline 回复使用 `since` 增量拉取；Reviews API 不支持 `since`，thread 状态也需完整枚举，这两类在本地比对后只输出变化。脚本不检测已删除评论；有删除或上下文缺失线索时按 ID 用只读 `gh` 补查原记录。任一请求或分页失败时脚本报错，不能把失败当成“无新回复”。
+
+完成条件：输入快照中的元数据和讨论已读取，工作稿记录显式关联线索；thread 最终状态在归纳前核定。
 
 ## 3. 读取历史结果和代码差分
 
 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `workspace.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。它不改变本轮 scope。
 
-输入包含 full diff 及存在时的 focus diff；在本轮 scope 内优先调查增量、影响面和历史未完成项，其余按 `workspace.md` 判断能否继承。`$REVIEW_MODE`：
+本地 Git 是 diff 的唯一来源。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
-- `initial`：没有可用 checkpoint；
-- `incremental_all`：完整 diff 都在 checkpoint 之后；
-- `incremental`：focus diff 是 checkpoint 到当前 head 的净变化；
-- `incremental_unchanged`：该区间没有净代码变化。
+先查询 full 区间的完整文件清单和规模：
 
-finding 的差分证据与评论行号只能来自 full diff，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它，无对应位置时不生成 inline comment。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文，不重复读取或生成已有 diff。
+```bash
+git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
+  --find-renames --find-copies --name-status "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
+
+git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
+  --find-renames --find-copies --numstat "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
+```
+
+小 diff 能在工具输出和剩余上下文内完整容纳时，直接一次读取 full patch，用一个 batch 完成审查，无须拆分调用。规模还需考虑长行和上下文展开，不能仅以变更行数判断。大 diff 按当前 batch 的路径读取，例如：
+
+```bash
+git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff --no-textconv \
+  --find-renames --find-copies --no-color --unified=3 \
+  "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA" -- 'path/to/file'
+```
+
+小 diff 使用同一 patch 命令并省略 `-- 'path/to/file'`。
+
+清单同时保留旧路径、新路径和变更类型；读取重命名或复制的 patch 时传入两端路径。路径含特殊字符时用 `--name-status -z` 解析清单，按字面路径传参。文件清单很长时也分段登记，直到完整覆盖。
+
+单文件过大时从 `--unified=0` 输出中过滤 hunk 头定位，再通过行区间分页读取 patch，所需源码上下文也按行读取。工具截断后继续补齐未读区间，记录覆盖进度。diff 直接从 Git 读取，不预生成或合并为单个文件。
+
+在本轮 scope 内，无历史工作稿时逐批覆盖全部变化；有历史时用相同 Git 选项查询 focus 区间，优先调查其文件、hunk 和影响面，再从 full 区间补充历史未完成项及 finding 位置，其余按继承条件复用。focus 清单为空只表示没有净代码变化，仍需处理最新讨论和历史未完成项；focus 中已从 full 清单消失的路径也要检查撤销变化对旧结论的影响。
+
+finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文；要确认 merge-base 版本时从目标 Git 按 full 区间的 merge-base SHA 读取，base checkout 是 `$REVIEW_BASE_SHA` 的快照。
 
 完成条件：scope 内变化及影响面已调查，最新讨论已归类，ledger 覆盖与继承满足 `workspace.md`。
 

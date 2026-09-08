@@ -22,13 +22,15 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 同一 PR 的所有请求进入同一个 workflow 级 concurrency group，Review 和 publish 共享槽位；不同 PR 可以并行。使用 `queue: max`、`cancel-in-progress: false`，每个 group 最多 100 个 pending，超出后 GitHub 取消新增任务。FIFO 按任务开始等待的时间计算，而不是 webhook 发出时间，因此它提供有界等待队列，不承诺事件的绝对顺序。实现依据见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
-自动 audit 请求生成 merge base 到当前 head 的完整 diff；若存在同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且 base SHA 相同、checkpoint head 仍在当前提交历史中、其后没有 merge commit，则额外生成 checkpoint head 到当前 head 的 focus diff。取消、失败、局部或未完成的 Check 不形成完整 audit checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL 查询失败会保守地不提供可继承 checkpoint；两份 diff 相同时只保留完整 diff，并在输入中标记无净增量。完整 diff 始终提供上下文，focus diff 只安排调查优先级，不能替代完整 diff 的 finding 证据和 RIGHT-side 行号。
+每轮固定 merge base 到当前 head 的完整审查区间，Agent 从本地 Git 获取文件清单和规模。小 diff 直接一次读完，用一个 batch 完成审查；大 diff 按路径和 hunk 分批读取。workflow 不生成聚合 diff 文件。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，且对应工作稿已成功接入，则以该 head 到当前 head 的净变化作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败时执行完整审查；查询失败会写入 workflow warning。增量区间没有净变化时仍处理最新讨论和历史未完成项。增量 diff 不缩小审查范围，也不能替代完整区间 patch 的 finding 证据和行号。
 
 评论请求的审查范围由原文驱动并单独持久化：显式自然语言范围优先于 thread 隐含范围，thread 隐含范围优先于 PR 默认规则。普通 PR 评论重新调查最近一次 PR 级请求的实际范围；无变化也要重新审查并给出当前证据，有变化要审查新增变化和直接影响并补齐此前失败或未完成的覆盖。thread 默认调查当前问题和直接影响，原文明确要求全 PR 时才扩大，且不继承 PR 级范围历史。限定范围可以限制本轮覆盖；关注点只改变调查优先级。完整 diff 仍用于上下文和确认新增 inline 位置；限定范围内读取直接影响上下文不能声称完成全 PR，full diff 之外的位置不能伪造 inline finding。
 
 每轮开始后 Agent 通过 `set_review_scope` 持久化 `kind`、`mode`、`targets`、比较起止 SHA、继承 run 和判断依据，最终 JSON 的 `scope_id` 必须匹配该 manifest。`review-coverage.json` 记录请求、scope、已完成 batch 和状态；局部成功或 thread 成功不能推进完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，失败、草稿和跳过发布的工作稿也可提供范围历史，排除 thread 与当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引是按需读取入口，不证明条目与候选相关，也不构成业务授权、修复或验收证据。
+
+输入只包含 PR 元数据、讨论快照和项目规则；模型按固定 SHA 从本地 Git 获取完整变更清单与规模，小 diff 一次读取，大 diff 按 batch 读取。有历史工作稿时优先调查 focus 区间及其影响面，再按继承条件补充 full 区间。上一轮 batch 由准备阶段复制到本轮工作区，模型只更新重开的证据，并在新索引记录继承来源和理由，后续 artifact 因而仍包含完整证据。
 
 ## 发布 Review 的权限方案
 
@@ -55,9 +57,11 @@ Pi 结束后，可信 publisher 先重新校验 schema、scope、请求身份、
 - Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及规则限定在 `$REVIEW_WORKSPACE_PATH` 使用的 `write`、`edit`；
 - 本地提交工具：`submit_review`，只接收工作区内最终 JSON 文件路径。
 
+最终归纳前，Agent 按中央规则执行控制面 `scripts/refresh-review-discussion.ts`，读取相对启动快照新增或编辑的评论和变化的 thread 状态，并在工作稿记录刷新时点及改变的判断。脚本使用只读 `gh`，普通评论和 inline 回复按 `since` 拉取，Review 正文及 thread 状态完整查询后仅输出变化；重复刷新始终对照固定启动基线，失败直接报错。删除评论不在增量协议内，有线索时按 ID 补查。这里有意采用 Skill 流程约束，不设置刷新工具或封存门禁；封存工具只校验结果文件，不证明 Agent 执行了刷新或采纳了最新决定，刷新至发布之间也仍可能有新回复。此取舍不改变只读 Agent / 独立可信 publisher 的权限边界。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码；封装前恢复控制面格式，成功封存后立即结束 Agent 回合。
+
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR、评论、项目规则和 diff 在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`；`central/github-context.md` 接入关联索引和 GitHub known issue，`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。必读规则的预载成本固定；随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 输入信任边界
 

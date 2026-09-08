@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { parseReviewCoverage, validateCoverageCompletion } from './review-coverage.ts';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -313,7 +314,7 @@ async function main() {
   const baseSha = requiredEnv('BASE_SHA');
   const triggerSource = requiredEnv('REVIEW_TRIGGER_SOURCE');
   const request = buildReviewRequest({ source: triggerSource, commentId: process.env.REVIEW_COMMENT_ID, rootCommentId: process.env.REVIEW_COMMENT_ROOT_ID, text: process.env.REVIEW_COMMENT_BODY, repository, pullNumber, baseSha, headSha, comparisonStart: requiredEnv('REVIEW_COMPARISON_START'), runId: requiredEnv('REVIEW_RUN_ID'), runAttempt: requiredEnv('REVIEW_RUN_ATTEMPT'), now: coverage.request?.requested_at });
-  if (!coverage.request || JSON.stringify(coverage.request) !== JSON.stringify(request)) throw new Error('Published review request metadata does not match trusted workflow inputs');
+  if (!coverage.request || !isDeepStrictEqual(coverage.request, request)) throw new Error('Published review request metadata does not match trusted workflow inputs');
   if (!coverage.scope || coverage.scope.id !== result.scope_id) throw new Error('Missing published review scope');
   validateReviewScope(coverage.scope, request);
   if (triggerSource === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');

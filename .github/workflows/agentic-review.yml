@@ -63,7 +63,7 @@ jobs:
       result_artifact_id: ${{ steps.review-result.outputs.artifact-id }}
       run_attempt: ${{ github.run_attempt }}
       inventory_digest: ${{ steps.request-scope.outputs.inventory_digest }}
-      comparison_start: ${{ steps.review-diffs.outputs.comparison_start }}
+      comparison_start: ${{ steps.request-scope.outputs.comparison_start }}
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -231,7 +231,7 @@ jobs:
 
       - name: Find last requested PR scope
         id: previous-request
-        if: inputs.trigger_source != 'thread'
+        if: inputs.trigger_source == 'pr_comment'
         uses: actions/github-script@v9
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
@@ -302,27 +302,6 @@ jobs:
             echo "checkpoint_head=$CHECKPOINT_HEAD"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Prepare review diffs
-        id: review-diffs
-        env:
-          BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
-          HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
-          CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
-          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
-          REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
-        run: |
-          git -C review-target diff --no-ext-diff --no-textconv \
-            --find-renames --find-copies --unified=20 \
-            "$BASE_SHA...$HEAD_SHA" > "$REVIEW_DIFF_PATH"
-
-          if [[ -n "$CHECKPOINT_HEAD" ]]; then
-            git -C review-target diff --no-ext-diff --no-textconv \
-              --find-renames --find-copies --unified=20 \
-              "$CHECKPOINT_HEAD" "$HEAD_SHA" > "$REVIEW_FOCUS_DIFF_PATH.tmp"
-          fi
-          echo "comparison_start=$(git -C review-target merge-base "$BASE_SHA" "$HEAD_SHA")" >> "$GITHUB_OUTPUT"
-          node control/scripts/finalize-review-focus.mjs
-
       - name: Persist requested review scope
         id: request-scope
         env:
@@ -335,7 +314,6 @@ jobs:
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           REVIEW_BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
-          REVIEW_COMPARISON_START: ${{ steps.review-diffs.outputs.comparison_start }}
           REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
           REVIEW_PREVIOUS_RUN_ID: ${{ steps.previous-request.outputs.run_id }}
@@ -348,38 +326,29 @@ jobs:
 
       - name: Prepare review input
         env:
+          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
+          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
         run: |
-          section() {
-            printf '\n## %s\n\n' "$1"
-            shift
-            "$@"
-          }
-
-          {
-            echo '# Review input'
-            section 'Untrusted PR metadata' gh pr view "$REVIEW_PULL_NUMBER" --repo "$REVIEW_REPOSITORY" --json title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits,files
-            section 'Trusted issue comments' gh api --paginate "repos/$REVIEW_REPOSITORY/issues/$REVIEW_PULL_NUMBER/comments?per_page=100"
-            section 'Trusted inline comments' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/comments?per_page=100"
-            section 'Trusted reviews' gh api --paginate "repos/$REVIEW_REPOSITORY/pulls/$REVIEW_PULL_NUMBER/reviews?per_page=100"
-            [[ ! -f review-base/.agentic-review.md ]] || section 'Base .agentic-review.md' cat review-base/.agentic-review.md
-            [[ ! -f review-target/.agentic-review.md ]] || section 'Head .agentic-review.md' cat review-target/.agentic-review.md
-            [[ ! -f review-base/AGENTS.md ]] || section 'Base AGENTS.md' cat review-base/AGENTS.md
-            [[ ! -f review-target/AGENTS.md ]] || section 'Head AGENTS.md' cat review-target/AGENTS.md
-            [[ ! -f "$RUNNER_TEMP/review-focus.diff" ]] || section 'Focus diff' cat "$RUNNER_TEMP/review-focus.diff"
-            section 'Review request' cat "$GITHUB_WORKSPACE/review-workspace/review-coverage.json"
-            section 'Full diff' cat "$RUNNER_TEMP/review.diff"
-          } > "$RUNNER_TEMP/review-input.md"
+          node control/scripts/prepare-review-input.ts
 
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
+          REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
         run: |
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
+          if [[ -n "$REVIEW_PREVIOUS_WORKSPACE_PATH" && -d "$REVIEW_PREVIOUS_WORKSPACE_PATH/batches" ]]; then
+            cp -R "$REVIEW_PREVIOUS_WORKSPACE_PATH/batches" "$REVIEW_WORKSPACE_PATH/"
+            chmod -R u+w "$REVIEW_WORKSPACE_PATH/batches"
+          fi
           cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
@@ -447,12 +416,10 @@ jobs:
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
-          REVIEW_DIFF_PATH: ${{ runner.temp }}/review.diff
-          REVIEW_FOCUS_DIFF_PATH: ${{ runner.temp }}/review-focus.diff
-          REVIEW_MODE: ${{ steps.review-diffs.outputs.mode }}
-          REVIEW_CHECKPOINT_HEAD: ${{ steps.review-diffs.outputs.checkpoint_head }}
+          # diff 由 Agent 在固定 SHA 区间内按路径读取，不生成聚合 diff 文件。
+          REVIEW_CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
           REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
-          REVIEW_SCOPE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_INVENTORY_DIGEST: ${{ steps.request-scope.outputs.inventory_digest }}
           # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}

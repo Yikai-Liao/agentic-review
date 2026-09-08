@@ -7,7 +7,7 @@ const checkName = 'Agentic Review / audit';
 const shaPattern = /^[0-9a-f]{40}$/;
 const batchSize = 100;
 
-type Checkpoint = { headSha: string; runId: string; runAttempt?: string };
+type Checkpoint = { headSha: string; runId: string };
 
 type FindOptions = {
   commits: string[];
@@ -264,8 +264,8 @@ export async function main() {
   if (!artifactId) checkpoint = null;
   await appendFile(output, [
     `head_sha=${checkpoint?.headSha ?? ''}`,
-    `run_id=${checkpointRunId ?? checkpoint?.runId ?? ''}`,
-    `run_attempt=${checkpointRunAttempt ?? ''}`,
+    `run_id=${checkpoint ? checkpointRunId : ''}`,
+    `run_attempt=${checkpoint ? checkpointRunAttempt : ''}`,
     `workspace_artifact_id=${artifactId ?? ''}`,
     '',
   ].join('\n'));

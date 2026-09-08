@@ -168,14 +168,6 @@ export function validateReviewScope(scope: ReviewScope, request: ReviewRequest):
   if (typeof scope.decided_at !== 'string' || !Number.isFinite(Date.parse(scope.decided_at))) throw new Error('Invalid review scope timestamp');
 }
 
-export function markReviewCoverage(
-  previous: ReviewCoverage,
-  update: Partial<Pick<ReviewCoverage, 'status' | 'completed_batches' | 'complete_audit'>>,
-  now = new Date().toISOString(),
-): ReviewCoverage {
-  return { ...previous, ...update, completed_batches: update.completed_batches ?? previous.completed_batches, updated_at: now };
-}
-
 export async function main() {
   const { inventoryDigest, parseReviewCoverage, validateCoverageCompletion } = await import('./review-coverage.ts');
   const output = process.env.REVIEW_COVERAGE_PATH;
@@ -189,7 +181,7 @@ export async function main() {
     pullNumber: Number(process.env.REVIEW_PULL_NUMBER),
     baseSha: process.env.REVIEW_BASE_SHA ?? '',
     headSha: process.env.REVIEW_HEAD_SHA ?? '',
-    comparisonStart: process.env.REVIEW_COMPARISON_START,
+    comparisonStart: spawnSync('git', ['-C', process.env.REVIEW_TARGET_PATH!, 'merge-base', process.env.REVIEW_BASE_SHA!, process.env.REVIEW_HEAD_SHA!], { encoding: 'utf8' }).stdout.trim(),
     runId: process.env.GITHUB_RUN_ID ?? '',
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
   });
@@ -215,7 +207,7 @@ export async function main() {
   const diff = spawnSync('git', ['-C', process.env.REVIEW_TARGET_PATH!, 'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', `${request.base_sha}...${request.head_sha}`], { encoding: 'utf8' });
   if (diff.status !== 0) throw new Error('Could not enumerate review changes');
   coverage.ledger = diff.stdout.split('\0').filter(Boolean).map((file) => ({ path: file, status: 'pending', batches: [] }));
-  await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\n`);
+  await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\n`);
   coverage.default_plan = prepareDefaultReviewPlan(request, previous, (start, end) => comparisonUsable(process.env.REVIEW_TARGET_PATH!, start, end));
   await persistReviewCoverage(output, coverage);
 }

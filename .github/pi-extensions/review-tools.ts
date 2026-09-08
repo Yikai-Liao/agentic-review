@@ -1,7 +1,7 @@
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseReviewResult } from '../../scripts/review-result.ts';
-import { readFile as readTextFile } from 'node:fs/promises';
+import { parseReviewCoverage, validateCoverageCompletion } from '../../scripts/review-coverage.ts';
 import { persistReviewCoverage, validateReviewScope, type ReviewCoverage, type ReviewScope } from '../../scripts/review-request.ts';
 
 type ExtensionAPI = {
@@ -39,12 +39,11 @@ export default function reviewTools(pi: ExtensionAPI) {
       const workspace = process.env.REVIEW_WORKSPACE_PATH;
       const coveragePath = process.env.REVIEW_COVERAGE_PATH;
       if (!workspace || !coveragePath) throw new Error('Review scope paths are unavailable');
-      const coverage = JSON.parse(await readTextFile(coveragePath, 'utf8')) as ReviewCoverage;
+      const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
       const id = `${coverage.request.run_id}:${coverage.request.run_attempt}:scope`;
       const scope: ReviewScope = { ...input, id, decided_at: new Date().toISOString() };
       validateReviewScope(scope, coverage.request);
-      const output = `${JSON.stringify({ ...coverage, scope, status: 'draft', completed_batches: coverage.completed_batches, complete_audit: false, updated_at: scope.decided_at })}\n`;
-      await persistReviewCoverage(coveragePath, JSON.parse(output) as ReviewCoverage);
+      await persistReviewCoverage(coveragePath, { ...coverage, scope, status: 'draft', complete_audit: false, updated_at: scope.decided_at });
       return { content: [{ type: 'text', text: 'Review scope recorded.' }], details: { scope_id: id } };
     },
   });
@@ -87,10 +86,12 @@ export default function reviewTools(pi: ExtensionAPI) {
       const parsed = parseReviewResult(content);
       const coveragePath = process.env.REVIEW_COVERAGE_PATH;
       if (coveragePath) {
-        const coverage = JSON.parse(await readTextFile(coveragePath, 'utf8')) as ReviewCoverage;
+        const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
         validateReviewScope(coverage.scope, coverage.request);
         if (parsed.scope_id !== coverage.scope.id) throw new Error('Review result scope_id does not match recorded scope');
+        await validateCoverageCompletion(parseReviewCoverage(coverage), workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '');
+        if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
       }
       await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       submitted = true;

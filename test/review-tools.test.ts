@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
 import { buildFooter, publishReview } from '../scripts/publish-review.ts';
 
+import { inventoryDigest } from '../scripts/review-coverage.ts';
 import { parseReviewResult } from '../scripts/review-result.ts';
 
 const headSha = 'b'.repeat(40);
@@ -135,6 +136,17 @@ test('set_review_scope persists concrete coverage and submit requires its scope 
     await writeFile(resultPath, JSON.stringify({ body: '总结', scope_id: 'wrong', comments: [], thread_updates: [], request_reply: null }));
     await assert.rejects(tools.get('submit_review').execute('call', { path: resultPath }), /scope_id/);
     assert.equal(scope.details.scope_id, saved.scope.id);
+    process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
+    await writeFile(resultPath, JSON.stringify({ body: '总结', scope_id: saved.scope.id, comments: [], thread_updates: [], request_reply: null }));
+    await assert.rejects(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
+    await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
+    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete', batches: ['auth'] };
+    saved.completed_batches = ['auth'];
+    await mkdir(path.join(workspace, 'batches'));
+    await writeFile(path.join(workspace, 'batches/auth.md'), '已核对鉴权调用方和失败路径。');
+    await writeFile(coveragePath, JSON.stringify(saved));
+    await tools.get('submit_review').execute('call', { path: resultPath });
+    assert.equal(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')).scope_id, saved.scope.id);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
