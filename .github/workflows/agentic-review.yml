@@ -14,10 +14,23 @@ on:
         required: true
         type: string
       base_sha:
-        required: true
+        required: false
         type: string
       head_sha:
-        required: true
+        required: false
+        type: string
+      trigger_source:
+        required: false
+        default: automatic
+        type: string
+      comment_id:
+        required: false
+        type: string
+      comment_body:
+        required: false
+        type: string
+      comment_root_id:
+        required: false
         type: string
 
 permissions:
@@ -29,8 +42,9 @@ env:
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
 
 concurrency:
-  # 同一 PR 串行审查；旧结果先发布，后续运行据此更新或关闭 thread。
+  # 同一 PR 的自动事件与 @ 请求共享队列；发布 job 完成后才释放并发槽。
   group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -66,6 +80,8 @@ jobs:
     outputs:
       owner: ${{ steps.target.outputs.owner }}
       name: ${{ steps.target.outputs.name }}
+      base_sha: ${{ steps.snapshot.outputs.base_sha }}
+      head_sha: ${{ steps.snapshot.outputs.head_sha }}
       check_id: ${{ steps.review-check.outputs.check_id }}
       pi_outcome: ${{ steps.pi-review.outcome }}
       duration_seconds: ${{ steps.pi-review.outputs.duration_seconds }}
@@ -73,6 +89,11 @@ jobs:
       output_tokens: ${{ steps.pi-review.outputs.output_tokens }}
       cost: ${{ steps.pi-review.outputs.cost }}
       workspace_url: ${{ steps.review-workspace.outputs.artifact-url }}
+      workspace_artifact_id: ${{ steps.review-workspace.outputs.artifact-id }}
+      result_artifact_id: ${{ steps.review-result.outputs.artifact-id }}
+      run_attempt: ${{ github.run_attempt }}
+      inventory_digest: ${{ steps.request-scope.outputs.inventory_digest }}
+      comparison_start: ${{ steps.request-scope.outputs.comparison_start }}
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -82,12 +103,13 @@ jobs:
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
+          TRIGGER_SOURCE: ${{ inputs.trigger_source }}
         shell: bash
         run: |
           IFS=/ read -r owner name extra <<< "$REPOSITORY"
           [[ "$owner" =~ ^[A-Za-z0-9-]+$ && "$name" =~ ^[A-Za-z0-9._-]+$ && -z "$extra" ]]
           [[ "$REPOSITORY_ID" =~ ^[0-9]+$ && "$PULL_NUMBER" =~ ^[0-9]+$ ]]
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TRIGGER_SOURCE" == automatic || ( -z "$BASE_SHA" && -z "$HEAD_SHA" ) || ( "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ) ]]
           {
             echo "owner=$owner"
             echo "name=$name"
@@ -107,7 +129,20 @@ jobs:
           permission-actions: read
           permission-checks: read
 
-      - name: Validate current pull request
+      - name: Checkout control-plane rules
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+
+      - name: Set up Node.js for trusted review scripts
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+
+      - name: Resolve current pull request snapshot
+        id: snapshot
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
@@ -115,12 +150,8 @@ jobs:
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
-        run: |
-          gh api "repos/$REPOSITORY/pulls/$PULL_NUMBER" | jq -e \
-            --argjson repository_id "$REPOSITORY_ID" \
-            --arg base "$BASE_SHA" \
-            --arg head "$HEAD_SHA" \
-            '.state == "open" and .draft == false and .base.repo.id == $repository_id and .base.sha == $base and .head.sha == $head'
+          TRIGGER_SOURCE: ${{ inputs.trigger_source }}
+        run: node control/scripts/resolve-review-snapshot.ts
 
       - name: Mint check token
         id: check-token
@@ -138,9 +169,11 @@ jobs:
         uses: actions/github-script@v9.0.0
         env:
           REPOSITORY: ${{ inputs.repository }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          REVIEW_TASK_ID: ${{ inputs.repository_id }}:${{ inputs.pull_number }}:${{ inputs.base_sha }}:${{ inputs.head_sha }}
+          HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
+          CHECK_NAME: ${{ inputs.trigger_source == 'automatic' && 'Agentic Review / audit' || 'Agentic Review / requested' }}
+          REVIEW_TASK_ID: ${{ inputs.repository_id }}:${{ inputs.pull_number }}:${{ steps.snapshot.outputs.base_sha }}:${{ steps.snapshot.outputs.head_sha }}:${{ inputs.trigger_source }}
           REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
         with:
           github-token: ${{ steps.check-token.outputs.token }}
           script: |
@@ -148,9 +181,9 @@ jobs:
             const response = await github.rest.checks.create({
               owner,
               repo,
-              name: 'Agentic Review / audit',
+              name: process.env.CHECK_NAME,
               head_sha: process.env.HEAD_SHA,
-              external_id: `${process.env.REVIEW_TASK_ID}:${process.env.REVIEW_RUN_ID}`,
+              external_id: `${process.env.REVIEW_TASK_ID}:${process.env.REVIEW_RUN_ID}:${process.env.REVIEW_RUN_ATTEMPT}`,
               status: 'in_progress',
               started_at: new Date().toISOString(),
               details_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
@@ -166,7 +199,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.head_sha }}
+          ref: ${{ steps.snapshot.outputs.head_sha }}
           token: ${{ steps.read-token.outputs.token }}
           path: review-target
           fetch-depth: 0
@@ -177,33 +210,31 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.base_sha }}
+          ref: ${{ steps.snapshot.outputs.base_sha }}
           token: ${{ steps.read-token.outputs.token }}
           path: review-base
           fetch-depth: 1
           persist-credentials: false
 
-      # Checkout after the target: checkout cleans its own root, so the
-      # trusted control checkout cannot be removed as an untracked directory.
-      - name: Checkout control-plane rules
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          path: control
-          persist-credentials: false
-
-      - name: Set up Node.js for trusted review scripts
-        uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 24
+      - name: Validate queued comment snapshot
+        if: inputs.trigger_source != 'automatic'
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+          COMMENT_ID: ${{ inputs.comment_id }}
+          COMMENT_BODY: ${{ inputs.comment_body }}
+          COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
+          TRIGGER_SOURCE: ${{ inputs.trigger_source }}
+        run: node control/scripts/validate-review-trigger.ts
 
       - name: Prepare review association index
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
-          REVIEW_BASE_SHA: ${{ inputs.base_sha }}
-          REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
         run: node control/scripts/list-review-associations.ts
@@ -216,8 +247,8 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
           REPOSITORY_ID: ${{ inputs.repository_id }}
           PULL_NUMBER: ${{ inputs.pull_number }}
-          BASE_SHA: ${{ inputs.base_sha }}
-          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
           REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           CONTROL_REPOSITORY: ${{ github.repository }}
@@ -228,7 +259,48 @@ jobs:
             const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-checkpoint.ts`);
             await main();
 
-      # 上一轮工作稿只作为可选历史证据；下载失败时后续自动改为完整 Review。
+      - name: Find last requested PR scope
+        id: previous-request
+        if: inputs.trigger_source == 'pr_comment'
+        uses: actions/github-script@v9.0.0
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          REPOSITORY_ID: ${{ inputs.repository_id }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+          BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
+          REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          CONTROL_REPOSITORY: ${{ github.repository }}
+          CONTROL_TOKEN: ${{ github.token }}
+        with:
+          github-token: ${{ steps.read-token.outputs.token }}
+          script: |
+            const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-request.ts`);
+            await main();
+
+      - name: Download previous requested workspace
+        id: previous-request-download
+        if: steps.previous-request.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8.0.1
+        with:
+          artifact-ids: ${{ steps.previous-request.outputs.artifact_id }}
+          path: ${{ runner.temp }}/previous-request-workspace
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.previous-request.outputs.run_id }}
+
+      - name: Activate previous requested workspace
+        id: previous-request-workspace
+        if: steps.previous-request-download.outcome == 'success'
+        env:
+          PREVIOUS_WORKSPACE_PATH: ${{ runner.temp }}/previous-request-workspace
+        run: |
+          chmod -R a-w "$PREVIOUS_WORKSPACE_PATH"
+          echo "path=$PREVIOUS_WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
+
+      # 完整基线只接入可信发布器写出的完成工作区。
       - name: Download previous review workspace
         id: previous-workspace-download
         if: steps.review-checkpoint.outputs.workspace_artifact_id != ''
@@ -244,19 +316,47 @@ jobs:
       - name: Activate previous review workspace
         id: previous-review-workspace
         if: steps.previous-workspace-download.outcome == 'success'
-        continue-on-error: true
         env:
           PREVIOUS_WORKSPACE_PATH: ${{ runner.temp }}/previous-review-workspace
           CHECKPOINT_HEAD: ${{ steps.review-checkpoint.outputs.head_sha }}
+          CHECKPOINT_BASE: ${{ steps.snapshot.outputs.base_sha }}
+          CHECKPOINT_RUN: ${{ steps.review-checkpoint.outputs.run_id }}
+          CHECKPOINT_ATTEMPT: ${{ steps.review-checkpoint.outputs.run_attempt }}
+          REPOSITORY: ${{ inputs.repository }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
         run: |
+          node control/scripts/review-coverage.ts
           chmod -R a-w "$PREVIOUS_WORKSPACE_PATH"
           {
             echo "path=$PREVIOUS_WORKSPACE_PATH"
             echo "checkpoint_head=$CHECKPOINT_HEAD"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Persist requested review scope
+        id: request-scope
+        env:
+          REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
+          REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
+          REVIEW_COMMENT_ID: ${{ inputs.comment_id }}
+          REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
+          REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
+          REVIEW_REPOSITORY: ${{ inputs.repository }}
+          REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
+          REVIEW_BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
+          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
+          REVIEW_PREVIOUS_RUN_ID: ${{ steps.previous-request.outputs.run_id }}
+          REVIEW_PREVIOUS_RUN_ATTEMPT: ${{ steps.previous-request.outputs.run_attempt }}
+          REVIEW_PREVIOUS_SOURCE: ${{ steps.previous-request.outputs.source }}
+          REVIEW_PREVIOUS_PUBLISHED: ${{ steps.previous-request.outputs.published }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node control/scripts/review-request.ts
+
       - name: Prepare review input
         env:
+          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
@@ -372,8 +472,12 @@ jobs:
           # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
-          REVIEW_BASE_SHA: ${{ inputs.base_sha }}
-          REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
+          REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
+          REVIEW_COMMENT_ID: ${{ inputs.comment_id }}
+          REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
+          REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
           # compaction 后从控制面恢复规则与中央输出协议。
           REVIEW_CONTROL_PATH: ${{ github.workspace }}/control
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
@@ -383,8 +487,11 @@ jobs:
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
           # diff 由 Agent 在固定 SHA 区间内按路径读取，不生成聚合 diff 文件。
           REVIEW_CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
+          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_INVENTORY_DIGEST: ${{ steps.request-scope.outputs.inventory_digest }}
           # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
+          REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
           # Agent 只在隔离工作区写草稿；自定义工具将最终 JSON 封存到固定结果路径。
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
@@ -416,6 +523,7 @@ jobs:
             find
             ls
             bash
+            set_review_scope
             submit_review
           # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
@@ -423,20 +531,21 @@ jobs:
       # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
       - name: Upload review workspace
         id: review-workspace
-        if: steps.pi-review.outcome == 'success'
+        if: always() && hashFiles('review-workspace/**') != ''
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: review-workspace-${{ github.run_id }}
+          name: review-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
           retention-days: 7
 
       # 只把无凭证最终结果传给新的 runner；结果始终按不可信输入处理。
       - name: Upload review result
+        id: review-result
         if: steps.pi-review.outcome == 'success'
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: review-result-${{ github.run_id }}
+          name: review-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/review-result.json
           if-no-files-found: error
           retention-days: 7
@@ -471,8 +580,15 @@ jobs:
         if: needs.review.outputs.pi_outcome == 'success'
         uses: actions/download-artifact@v8.0.1
         with:
-          name: review-result-${{ github.run_id }}
+          artifact-ids: ${{ needs.review.outputs.result_artifact_id }}
           path: ${{ runner.temp }}/review-result
+
+      - name: Download review scope
+        if: needs.review.outputs.pi_outcome == 'success'
+        uses: actions/download-artifact@v8.0.1
+        with:
+          artifact-ids: ${{ needs.review.outputs.workspace_artifact_id }}
+          path: ${{ runner.temp }}/review-workspace
 
       - name: Set up Node.js for trusted publisher
         if: needs.review.outputs.pi_outcome == 'success'
@@ -488,9 +604,19 @@ jobs:
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ needs.review.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.review.outputs.head_sha }}
+          REVIEW_INVENTORY_DIGEST: ${{ needs.review.outputs.inventory_digest }}
+          REVIEW_COMPARISON_START: ${{ needs.review.outputs.comparison_start }}
+          REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_RUN_ATTEMPT: ${{ needs.review.outputs.run_attempt }}
+          REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
+          REVIEW_COMMENT_ID: ${{ inputs.comment_id }}
+          REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
+          REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
           REVIEW_BOT_LOGIN: ${{ steps.publication-token.outputs.app-slug }}[bot]
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result/review-result.json
+          REVIEW_COVERAGE_PATH: ${{ runner.temp }}/review-workspace/review-coverage.json
           REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REVIEW_WORKSPACE_URL: ${{ needs.review.outputs.workspace_url }}
           REVIEW_MODEL: openai/${{ vars.REVIEW_AGENT_MODEL }}
@@ -504,7 +630,19 @@ jobs:
           REVIEW_ACTION_VERSION: 2.27.1
         run: node scripts/publish-review.ts
 
+      - name: Upload trusted completion workspace
+        id: completion-workspace
+        if: steps.publish-review.outcome == 'success'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-completed-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}
+          path: ${{ runner.temp }}/review-workspace
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
       - name: Complete Agentic Review check
+        id: complete-check
         if: always()
         uses: actions/github-script@v9.0.0
         env:
@@ -512,13 +650,14 @@ jobs:
           CHECK_ID: ${{ needs.review.outputs.check_id }}
           PI_REVIEW_OUTCOME: ${{ needs.review.outputs.pi_outcome }}
           PUBLISH_REVIEW_OUTCOME: ${{ steps.publish-review.outcome }}
+          COMPLETION_WORKSPACE_OUTCOME: ${{ steps.completion-workspace.outcome }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
             const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled'
               ? 'cancelled'
-              : process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success'
+              : process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success'
                 ? 'success'
                 : 'failure';
             await github.rest.checks.update({

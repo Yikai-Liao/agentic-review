@@ -23,7 +23,11 @@ type FindOptions = {
 
 type WorkspaceArtifactOptions = {
   repository: string;
+  repositoryId: string;
+  pullNumber: string;
+  source: 'automatic';
   runId: string;
+  runAttempt: string;
   token: string;
   api?: string;
   fetchImpl?: typeof fetch;
@@ -89,13 +93,15 @@ function reviewedRunId(
       if (check.name === checkName
         && check.status === 'COMPLETED'
         && check.conclusion === 'SUCCESS'
-        && parts.length === 5
+        && parts.length === 7
         && parts[0] === repositoryId
         && parts[1] === pullNumber
         && parts[2] === baseSha
         && parts[3] === sha
-        && /^[0-9]+$/.test(parts[4])) {
-        return parts[4];
+        && parts[4] === 'automatic'
+        && /^[0-9]+$/.test(parts[5]!)
+        && /^[0-9]+$/.test(parts[6]!)) {
+        return `${parts[5]}:${parts[6]}`;
       }
     }
   }
@@ -139,7 +145,7 @@ export async function findReviewCheckpoint({
 }
 
 export async function findReviewWorkspaceArtifact({
-  repository, runId, token, api = 'https://api.github.com', fetchImpl = fetch,
+  repository, repositoryId, pullNumber, source, runId, runAttempt, token, api = 'https://api.github.com', fetchImpl = fetch,
 }: WorkspaceArtifactOptions) {
   const response = await fetchImpl(
     `${api}/repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`,
@@ -164,7 +170,8 @@ export async function findReviewWorkspaceArtifact({
       throw new Error('Invalid GitHub artifact response');
     }
   }
-  const artifact = body.artifacts.find((item) => item.name === `review-workspace-${runId}` && !item.expired);
+  const name = `review-completed-workspace-${repositoryId}-${pullNumber}-${source}-${runId}-${runAttempt}`;
+  const artifact = body.artifacts.find((item) => item.name === name && !item.expired);
   if (!artifact) return null;
   return String(artifact.id);
 }
@@ -241,18 +248,24 @@ export async function main() {
     ]);
     if (merges.trim()) checkpoint = null;
   }
+  const [checkpointRunId, checkpointRunAttempt] = checkpoint?.runId.split(':') ?? [];
   const artifactId = checkpoint
     ? await findReviewWorkspaceArtifactSafely({
       repository: controlRepository,
-      runId: checkpoint.runId,
+      repositoryId,
+      pullNumber,
+      source: 'automatic',
+      runId: checkpointRunId!,
+      runAttempt: checkpointRunAttempt!,
       token: controlToken,
       api,
     })
     : null;
-  if (artifactId === undefined) checkpoint = null;
+  if (!artifactId) checkpoint = null;
   await appendFile(output, [
     `head_sha=${checkpoint?.headSha ?? ''}`,
-    `run_id=${checkpoint?.runId ?? ''}`,
+    `run_id=${checkpoint ? checkpointRunId : ''}`,
+    `run_attempt=${checkpoint ? checkpointRunAttempt : ''}`,
     `workspace_artifact_id=${artifactId ?? ''}`,
     '',
   ].join('\n'));

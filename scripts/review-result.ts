@@ -1,8 +1,10 @@
 type ThreadStatus = keyof typeof statusLabels;
 export type ReviewResult = {
   body: string;
+  scope_id: string;
   comments: Array<{ path: string; line: number; start_line: number | null; body: string }>;
   thread_updates: Array<{ root_comment_id: number; status: ThreadStatus; evidence: string }>;
+  request_reply: { body: string } | null;
 };
 
 export const statusLabels = {
@@ -15,11 +17,15 @@ export function parseReviewResult(text: string): ReviewResult {
   if (Buffer.byteLength(text) > 1_000_000) throw new Error('Review result is too large');
   const result: any = JSON.parse(text);
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid review result');
-  if (Object.keys(result).sort().join(',') !== 'body,comments,thread_updates') {
+  const fields = Object.keys(result).sort().join(',');
+  if (fields !== 'body,comments,request_reply,scope_id,thread_updates') {
     throw new Error('Invalid review result fields');
   }
   if (typeof result.body !== 'string' || !result.body.trim() || result.body.length > 60_000) {
     throw new Error('Invalid review body');
+  }
+  if (typeof result.scope_id !== 'string' || !/^[A-Za-z0-9._:-]+$/.test(result.scope_id)) {
+    throw new Error('Invalid review scope_id');
   }
   if (!Array.isArray(result.comments) || result.comments.length > 100) throw new Error('Invalid review comments');
   result.comments.forEach((comment: any) => {
@@ -59,5 +65,11 @@ export function parseReviewResult(text: string): ReviewResult {
     if (seen.has(update.root_comment_id)) throw new Error('Duplicate thread update');
     seen.add(update.root_comment_id);
   });
+  if (result.request_reply !== null &&
+      (!result.request_reply || typeof result.request_reply !== 'object' || Array.isArray(result.request_reply) ||
+       Object.keys(result.request_reply).join(',') !== 'body' ||
+       typeof result.request_reply.body !== 'string' || !result.request_reply.body.trim())) {
+    throw new Error('Invalid request reply');
+  }
   return result;
 }

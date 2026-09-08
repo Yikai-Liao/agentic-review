@@ -45,7 +45,7 @@ severity P0|P1|P2|n/a
 
 ## 1. 建立 ledger 与 evidence batch
 
-按 [`workspace.md`](workspace.md) 为完整变化集合的每个文件和非机械性 hunk 建立 change ledger，机械项注明理由。用 head 项目规则安排顺序，不缩小覆盖或降低门槛。
+按 [`workspace.md`](workspace.md) 为完整变化集合的每个文件和非机械性 hunk 建立 change ledger，机械项注明理由；ledger 是范围和状态的清单，不把 scope 外条目标成已完成审查。用 head 项目规则安排顺序，不缩小调用方 scope 或降低门槛。
 
 共享 base/head 文件、生产边界和独立契约的 ledger 项组成一个 **evidence batch**。batch 复用证据，不决定 finding 根因或去重；小 diff 证据相同时只建一批，不按章节、候选数或 cluster 拆回合。
 

@@ -1,6 +1,8 @@
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseReviewResult } from '../../scripts/review-result.ts';
+import { parseReviewCoverage, validateCoverageCompletion } from '../../scripts/review-coverage.ts';
+import { persistReviewCoverage, validateReviewScope, type ReviewCoverage, type ReviewScope } from '../../scripts/review-request.ts';
 
 type ExtensionAPI = {
   registerTool(tool: {
@@ -12,6 +14,49 @@ type ExtensionAPI = {
 
 export default function reviewTools(pi: ExtensionAPI) {
   let submitted = false;
+
+  pi.registerTool({
+    name: 'set_review_scope',
+    label: '记录审查范围',
+    description: '把 Agent 对本轮自然语言请求的结构化范围判断及时写入 Review 工作区。',
+    parameters: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['pr', 'thread'] },
+        mode: { type: 'string', enum: ['full', 'incremental', 'focused'] },
+        rationale: { type: 'string', minLength: 1 },
+        inherited_from_run: { type: ['string', 'null'] },
+        explicit_text: { type: 'string' },
+        ranges: {
+          type: 'array', minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              targets: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+              comparison_start: { type: 'string', pattern: '^[0-9a-f]{40}$' },
+              comparison_end: { type: 'string', pattern: '^[0-9a-f]{40}$' },
+            },
+            required: ['targets', 'comparison_start', 'comparison_end'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['kind', 'mode', 'rationale', 'inherited_from_run', 'explicit_text', 'ranges'],
+      additionalProperties: false,
+    } as any,
+    async execute(_toolCallId, input: Omit<ReviewScope, 'id' | 'decided_at'>) {
+      if (submitted) throw new Error('the review was already submitted');
+      const workspace = process.env.REVIEW_WORKSPACE_PATH;
+      const coveragePath = process.env.REVIEW_COVERAGE_PATH;
+      if (!workspace || !coveragePath) throw new Error('Review scope paths are unavailable');
+      const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
+      const id = `${coverage.request.run_id}:${coverage.request.run_attempt}:scope`;
+      const scope: ReviewScope = { ...input, id, decided_at: new Date().toISOString() };
+      validateReviewScope(scope, coverage.request);
+      await persistReviewCoverage(coveragePath, { ...coverage, scope, status: 'draft', complete_audit: false, updated_at: scope.decided_at });
+      return { content: [{ type: 'text', text: 'Review scope recorded.' }], details: { scope_id: id } };
+    },
+  });
 
   pi.registerTool({
     name: 'submit_review',
@@ -48,7 +93,16 @@ export default function reviewTools(pi: ExtensionAPI) {
       const info = await stat(reviewPath);
       if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
       const content = await readFile(reviewPath, 'utf8');
-      parseReviewResult(content);
+      const parsed = parseReviewResult(content);
+      const coveragePath = process.env.REVIEW_COVERAGE_PATH;
+      if (coveragePath) {
+        const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
+        if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
+        validateReviewScope(coverage.scope, coverage.request);
+        if (parsed.scope_id !== coverage.scope.id) throw new Error('Review result scope_id does not match recorded scope');
+        await validateCoverageCompletion(parseReviewCoverage(coverage), workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '');
+        if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
+      }
       await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       submitted = true;
 
