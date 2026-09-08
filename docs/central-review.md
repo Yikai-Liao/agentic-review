@@ -54,7 +54,7 @@ Pi 结束后，可信 publisher 先重新校验 schema、scope、请求身份、
 
 飞书由官方 Lark CLI 以维护者用户身份读取。无 Agent 的准备 job 下载并校验固定版本 archive、保存缓存；Review job 只恢复缓存，重新校验后解压到临时目录。短期 UAT 来自 `lark-review` Environment Secret，长期凭证与 refresh token 留在 `lark-rotation` 可信续期 job。token 生命周期及权限验收见[部署说明](deploy-central-review.md#4-飞书用户-oauth-与自动续期)。
 
-候选需要飞书证据时，入口按需加载 `central/lark-context.md`，不安装额外 Skill。它只允许读取 merge base 已声明的 URL 或文件夹/Wiki 搜索范围，并接入通用 known issue 判断。所有下游仓库及作者属于内部飞书数据信任域，直接使用维护者短期 UAT 是接受的边界；来源限制是操作规则，不是防御恶意员工的沙箱。
+需要读取飞书链接时，入口按需加载 `central/lark-context.md`，不安装额外 Skill；按需读取明确提及的链接及相关引用文档，不主动搜索。所有下游仓库及作者属于内部飞书数据信任域，直接使用维护者短期 UAT 是接受的边界，不是防御恶意员工的沙箱。
 
 中央 workflow 只加载：
 

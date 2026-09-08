@@ -6,7 +6,7 @@
 
 App ID / App Secret 标识应用，应用后台的只读权限决定它可以申请哪些 API 能力。**你本人在 OAuth 页面确认授权，才把应用关联到一个具体的飞书企业用户身份。** 此后飞书按该身份的文档权限判断每次读取能否成功。
 
-授权不是只针对测试时提供的一张表。应用可读范围是「应用已开通且用户已同意的 API scope」与「授权企业用户身份的资料权限」的交集。下游 `.agentic-review.md` 再声明 Review 应使用哪些来源，这是运行规则，不是 OAuth 对单篇文档的隔离。
+授权不是只针对测试时提供的一张表。应用可读范围是「应用已开通且用户已同意的 API scope」与「授权企业用户身份的资料权限」的交集。Review 的按需读取行为由 `central/lark-context.md` 规定，不是 OAuth 对单篇文档的隔离。
 
 同一手机号下切换企业可能是不同用户身份。授权时选能打开目标资料的企业，验收时核对返回的 `name`、`open_id`、`tenant_key`，不要只看显示姓名。
 
@@ -119,7 +119,7 @@ gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
 
 打开 Actions → **Refresh Lark User Token** → 当前运行 → **Refresh and rotate Lark user token** 日志中的飞书链接，使用预期账号确认。此轮由 workflow 自动领取结果并保存 token，不再在本地执行 `--device-code`。
 
-确认运行成功、两项 Environment token Secret 的更新时间已变化后，发送 `refresh-lark-user` 事件，确认续期也成功。最后按部署说明触发一个会读取已声明资料的 Review，核对实际读取证据。首次授权、续期、文件读取三项都成功才算 Actions 接入完成。
+确认运行成功、两项 Environment token Secret 的更新时间已变化后，发送 `refresh-lark-user` 事件，确认续期也成功。最后按部署说明触发一个需要读取飞书链接的 Review，核对实际读取证据。首次授权、续期、文件读取三项都成功才算 Actions 接入完成。
 
 ## 更换飞书 App 或用户
 
