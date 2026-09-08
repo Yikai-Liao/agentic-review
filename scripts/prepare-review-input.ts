@@ -18,6 +18,7 @@ export function main(run = (command: string, args: string[]) =>
   const sections: string[] = ['# Review input'];
   const section = (title: string, text: string) => sections.push(`## ${title}\n\n${text}`);
   section('Untrusted PR metadata', run('gh', ['pr', 'view', pull, '--repo', repository, '--json', 'title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits']));
+  section('Review request', readFileSync(required('REVIEW_COVERAGE_PATH'), 'utf8'));
   const { discussion, baseline } = readDiscussion(repository, pull, run);
   section('Trusted PR discussion snapshot', JSON.stringify(discussion, null, 2));
   for (const filename of ['.agentic-review.md', 'AGENTS.md']) {

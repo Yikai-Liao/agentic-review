@@ -35,7 +35,7 @@ compaction 后先读取本轮 `notes.md`，按其中的调用方规则恢复入�
 
 ## 3. 完整静态审查
 
-按 `evidence.md` 调查每个 batch；有可信 checkpoint 和上一轮工作稿时优先调查增量及影响面，按 `workspace.md` 判定旧 batch 能否继承。
+按 `evidence.md` 调查本轮 scope 内的每个 batch；有可信 checkpoint 和上一轮工作稿时优先调查增量及影响面，按 `workspace.md` 判定旧 batch 能否继承。
 
 按触发加载：
 

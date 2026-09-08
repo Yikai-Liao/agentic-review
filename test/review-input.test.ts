@@ -13,9 +13,11 @@ test('prepared input captures discussion baseline and project rules without gene
       REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '60',
       REVIEW_TARGET_PATH: directory, REVIEW_BASE_PATH: directory,
       REVIEW_WORKSPACE_PATH: directory,
+      REVIEW_COVERAGE_PATH: path.join(directory, 'review-coverage.json'),
       REVIEW_INPUT_PATH: path.join(directory, 'input.md'),
     });
     writeFileSync(path.join(directory, 'AGENTS.md'), '项目约束');
+    writeFileSync(process.env.REVIEW_COVERAGE_PATH!, JSON.stringify({ request: { text: '只看鉴权' } }));
     const run = (command: string, args: string[]) => {
       assert.equal(command, 'gh');
       if (args.includes('graphql')) return JSON.stringify([{ data: { repository: { pullRequest: {
@@ -26,6 +28,8 @@ test('prepared input captures discussion baseline and project rules without gene
     main(run);
     const input = readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8');
     assert.ok(input.includes('测试 PR'));
+    assert.ok(input.includes('## Review request'));
+    assert.ok(input.includes('只看鉴权'));
     assert.ok(input.includes('项目约束'));
     assert.ok(input.includes('明确决定'));
     const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
