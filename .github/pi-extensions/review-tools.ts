@@ -1,5 +1,6 @@
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { parseReviewResult } from '../../scripts/review-result.ts';
 
 type ExtensionAPI = {
   registerTool(tool: {
@@ -14,15 +15,15 @@ export default function reviewTools(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: 'submit_review',
-    label: 'Submit review',
-    description: 'Submit a finalized review-result JSON file from the private review workspace.',
+    label: '提交 Review',
+    description: '校验并封存私有 Review 工作区内的最终 JSON；校验失败时按中央协议修正后重试，成功后交给可信发布器。',
     parameters: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
           minLength: 1,
-          description: 'Path to the finalized JSON file inside REVIEW_WORKSPACE_PATH.',
+          description: 'REVIEW_WORKSPACE_PATH 内最终 JSON 文件的路径。',
         },
       },
       required: ['path'],
@@ -47,7 +48,7 @@ export default function reviewTools(pi: ExtensionAPI) {
       const info = await stat(reviewPath);
       if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
       const content = await readFile(reviewPath, 'utf8');
-      JSON.parse(content);
+      parseReviewResult(content);
       await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       submitted = true;
 

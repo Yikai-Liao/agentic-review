@@ -11,8 +11,7 @@ Review App pull_request webhook
   -> Cloudflare Worker
   -> 中央仓库 agentic-review.yml
   -> shaftoe/pi-coding-agent-action（只读分析）
-  -> 只读 gh + 维护者用户身份 Lark CLI（按候选定向查询）
-  -> 中央 skills + 持久化工作稿
+  -> 可信 agentic-review Skill + 中央 GitHub/结果适配器 + 持久化工作稿
   -> submit_review 封存最终 JSON 文件
   -> 隔离的可信 publisher 创建 Review、更新 thread 并链接工作稿 artifact
 ```
@@ -21,7 +20,11 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 接受的事件是非 draft PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`。workflow_dispatch 携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open、非 draft 快照。
 
-每轮始终生成 merge base 到当前 head 的完整 diff。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，则额外生成该 head 到当前 head 的净 diff 作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败会退回只提供完整 diff；查询失败会写入 workflow warning。两份 diff 相同时也只提供完整 diff，并标记全部变更均为增量。增量 diff 不缩小审查范围，也不能替代完整 diff 的 finding 证据和行号。
+每轮固定 merge base 到当前 head 的完整审查区间，Agent 从本地 Git 获取文件清单和规模。小 diff 直接一次读完，用一个 batch 完成审查；大 diff 按路径和 hunk 分批读取。workflow 不生成聚合 diff 文件。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，且对应工作稿已成功接入，则以该 head 到当前 head 的净变化作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败时执行完整审查；查询失败会写入 workflow warning。增量区间没有净变化时仍处理最新讨论和历史未完成项。增量 diff 不缩小审查范围，也不能替代完整区间 patch 的 finding 证据和行号。
+
+可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引是按需读取入口，不证明条目与候选相关，也不构成业务授权、修复或验收证据。
+
+输入只包含 PR 元数据、讨论快照和项目规则；模型按固定 SHA 从本地 Git 获取完整变更清单与规模，小 diff 一次读取，大 diff 按 batch 读取。有历史工作稿时优先调查 focus 区间及其影响面，再按继承条件补充 full 区间。上一轮 batch 由准备阶段复制到本轮工作区，模型只更新重开的证据，并在新索引记录继承来源和理由，后续 artifact 因而仍包含完整证据。
 
 ## 发布 Review 的权限方案
 
@@ -30,28 +33,34 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 ```text
 Review App private key（只在中央 Actions secret）
   ├─ Token A: 目标 owner 中安装了 App 的仓库，contents/issues/pull_requests/actions/checks read
-  │    -> checkout、shaftoe action、GH_TOKEN、Pi bash 中按需查询关联仓库
+  │    -> checkout、shaftoe action、生成关联索引和 Pi 按编号读取关联记录
   ├─ Token B: 仅当前目标仓库，checks write
   │    -> Agent 启动前创建关联当前 Action Run 的 Check，不传给 Agent
   └─ Token C: 仅当前目标仓库，contents/pull_requests/checks write
        -> 隔离的可信 publish job：Review、完成 Check、thread 回复和 resolve/reopen
 ```
 
-Token 默认约一小时过期。Token A 进入 Action 和 Agent shell，覆盖同一 GitHub App installation 中的仓库，但密码学上没有写权限；Token B 只供 Agent 启动前的可信 workflow step 使用。Lark CLI 使用维护者本人 OAuth 授权产生的 user access token，其文档范围与该用户在飞书中的实际可见范围一致。独立定时 workflow 持有 App Secret 和单次 refresh token，每小时串行刷新并原地轮换中央仓库 Secrets；Review Agent 只收到当前 UAT，固定为 user 身份，不读取 App Secret 或 refresh token。下游仓库在 `.agentic-review.md` 中用自然语言说明项目相关仓库和 known issue 来源。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义，并只在当前 finding 确有需要时查询；新增私有跨仓库 GitHub 读取范围及飞书读取范围必须已存在于 merge base。单个 installation token 不能读取其他 owner 的私有仓库。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`bash` 可调用 Runner 自带的 `jq` CLI 做只读 JSON 校验，`submit_review` 只封存该工作区内的最终 JSON 文件。
+Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 的可读集合固定为目标 owner 中安装了 Review App 的仓库，并且只授予读权限；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取，这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Token B 只供 Agent 启动前的可信 workflow step 使用；单个 installation token 不能读取其他 owner 的私有仓库。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`submit_review` 检查 JSON 语法并封存该工作区内的最终结果。
 
 同一 PR 的 Review workflow 串行执行。Pi 结束后，可信 publisher 将自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，再处理已有 thread 的状态变化；即使期间出现新快照，旧结果仍先形成历史 thread，后续 Review 再根据新代码更新或关闭。Publisher 会重新校验 schema、root comment 和 bot 身份。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GitHub GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。任何发布失败仍会使 Review Check 失败。
 
 ## Agent 工具
 
+飞书由官方 Lark CLI 以维护者用户身份读取。无 Agent 的准备 job 下载并校验固定版本 archive、保存缓存；Review job 只恢复缓存，重新校验后解压到临时目录。短期 UAT 来自 `lark-review` Environment Secret，长期凭证与 refresh token 留在 `lark-rotation` 可信续期 job。token 生命周期及权限验收见[部署说明](deploy-central-review.md#4-飞书用户-oauth-与自动续期)。
+
+候选需要飞书证据时，入口按需加载 `central/lark-context.md`，不安装额外 Skill。它只允许读取 merge base 已声明的 URL 或文件夹/Wiki 搜索范围，并接入通用 known issue 判断。所有下游仓库及作者属于内部飞书数据信任域，直接使用维护者短期 UAT 是接受的边界；来源限制是操作规则，不是防御恶意员工的沙箱。
+
 中央 workflow 只加载：
 
-- Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及只允许规则使用在 `$REVIEW_WORKSPACE_PATH` 的 `write`、`edit`；
+- Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及规则限定在 `$REVIEW_WORKSPACE_PATH` 使用的 `write`、`edit`；
 - 本地提交工具：`submit_review`，只接收工作区内最终 JSON 文件路径。
 
-不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。官方 Lark CLI 的版本与 Linux x64 SHA-256 只在 workflow 顶层配置一次；无 Agent 的准备 job 下载、校验并固化 archive cache，Review job 再校验后解压到本轮临时目录。不向 Pi 安装 Lark 的整套 skills，只由中央 `lark-known-issues` skill 按需读取 CLI 内嵌的搜索、inspect 和 fetch 参考。
+最终归纳前，Agent 按中央规则执行控制面 `scripts/refresh-review-discussion.ts`，读取相对启动快照新增或编辑的评论和变化的 thread 状态，并在工作稿记录刷新时点及改变的判断。脚本使用只读 `gh`，普通评论和 inline 回复按 `since` 拉取，Review 正文及 thread 状态完整查询后仅输出变化；重复刷新始终对照固定启动基线，失败直接报错。删除评论不在增量协议内，有线索时按 ID 补查。这里有意采用 Skill 流程约束，不设置刷新工具或封存门禁；封存工具只校验结果文件，不证明 Agent 执行了刷新或采纳了最新决定，刷新至发布之间也仍可能有新回复。此取舍不改变只读 Agent / 独立可信 publisher 的权限边界。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码；封装前恢复控制面格式，成功封存后立即结束 Agent 回合。
 
-入口 prompt 只要求读取 `prompts/review-rules.md`；该文件按阶段引导 Agent 加载 `.github/pi-skills/` 中的上下文、known issue、证据、工作稿和提交规则，避免把完整规则作为一次性 prompt。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Lark CLI 只允许按 merge base 已声明的具体 URL 或 Wiki/文件夹范围定向查询，并复用中央 `known-issues` 的判断和处理规则。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-## 可信输入
+`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。必读规则的预载成本固定；随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
-目标 PR 的源码、PR 描述、评论、`AGENTS.md`、目标仓库规则和飞书文档都可能包含 prompt injection。中央 prompt 和 tool allowlist 位于中央 workflow/checkout 中，不由目标 PR 提供。目标文件与飞书内容只作为静态审查输入。所有下游仓库及作者都属于内部飞书数据信任域，因此 Agent 直接持有维护者用户身份的短期 UAT 是明确接受的边界；`.agentic-review.md` 来源限制是 Review 行为规则，不宣称防御恶意员工。接入外部仓库或贡献者前必须重新设计这条边界。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+## 输入信任边界
+
+PR 评论和 Review 回复是可信决策输入；明确回复可以在当前 PR 中确认产品决定、风险接受和边界变化，无需早于当前变化或通过额外作者权限检查。目标 PR 的源码、PR 描述、`AGENTS.md`、`.agentic-review.md` 和其显式引用的项目文件都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。`.agentic-review.md` 可授权 Agent 读取具体文件路径；该路径由 Agent 直接读取，不经过 catalog、allowlist、`realpath` 或 checkout 边界校验。这是有意的权限边界：Agent 本就持有 `read`、`bash` 和只读 `GH_TOKEN`，中央安全边界是不执行目标仓库代码、GitHub 凭证只读且只有可信 publisher 可写。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。

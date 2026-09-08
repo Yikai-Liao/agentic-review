@@ -1,6 +1,6 @@
 # agentic-review
 
-中央 PR Review 控制面。下游仓库只安装 GitHub App，不保存模型或 GitHub 凭证，也不需要 Review workflow。
+可复用的静态 Review Skill 与中央 PR Review 控制面。开发者可以在任意 Git 仓库本地审查 working tree、commit 或分支差异；中央服务仍只要求下游安装 GitHub App，不向下游保存模型或 GitHub 凭证。
 
 ## 运行链路
 
@@ -12,12 +12,24 @@ GitHub pull_request webhook
        ├─ read：给 Pi、Action 和只读 gh
        ├─ check：在 Pi 启动前创建关联 Check，不传给 Agent
        └─ publication：只给隔离的可信发布 job
-  -> Pi 按中央 skills 审查，并在隔离工作区维护工作稿
+  -> Pi 按可信 agentic-review Skill 审查，并在隔离工作区维护工作稿
   -> submit_review 封存最终 review-result.json
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 只负责阶段编排，运行时 skills 位于 `.github/pi-skills/`；下游仓库的自定义规则放在 `.agentic-review.md`，可以用自然语言补充项目特有的 known issue 来源、状态语义、关联 GitHub 仓库和飞书文档范围。Agent 先独立审查当前 diff，再按候选 finding 定向查询，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，注册为 Pi Skill 并在首次 Prompt 预载，context compaction 后仍可通过 Skill 发现恢复；`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，workflow 还会生成当前 commits 关联的其他 PR 和当前 PR 自动关闭 Issue 的索引。Agent 先独立审查当前变化，再按候选 finding 定向读取关联记录，不加载全量历史。
+
+## 本地安装与使用
+
+在目标项目根目录安装唯一的 Project-level Skill：
+
+```bash
+npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
+```
+
+随后可以要求当前 Agent 审查未提交变化、指定 commit 或与某个分支的差异。本地工作稿默认放在当前 worktree 的 Git 管理目录 `agentic-review/review.*` 下，不污染 working tree 或 `git status`，成功输出后删除；调用方设置 `REVIEW_WORKSPACE_PATH` 时改用该路径。调用方允许委派、环境已有 delegation 工具且存在多个独立 batch 时，主 Agent 可以按 [委派协议](skills/agentic-review/references/delegation.md) 分配一层 worker；否则顺序完成。
+
+本地受信任运行时提供的持久记忆也可以作为 known issue 来源。主 Agent 应恢复可复核的原始记录；无法恢复原文的摘要只用于定位，不能单独证明“已修复”或“已确认”。
 
 ## 权限边界
 
@@ -39,11 +51,13 @@ GitHub pull_request webhook
 - 业务不变量和高风险边界，例如状态转换、租户归属、金额、业务日期、幂等和兼容性要求；
 - 代码难以直接推断的调用关系、消费者、生成文件和不可执行区域；
 - 真实的数据规模、批大小、并发、分页或延迟上限，供性能审查恢复契约；
-- 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，以及项目状态字段的实际含义；
-- 需要联动查询的 GitHub 仓库完整地址，以及什么代码路径或业务对象出现时才需要查询；
-- 需要查询的飞书文档/Wiki/多维表格完整 URL，或限定搜索范围的 folder token / space ID，以及触发查询的代码路径或业务对象；多维表格同时写明 Issue 表、关键字段和状态语义。
+- 本项目把哪些 GitHub Issue、历史 PR、测试记录或项目管理记录视为 known issue，它们如何影响判断，以及项目状态字段的实际含义；
+- 需要联动查询的 GitHub 仓库完整地址、触发查询的代码路径或业务对象，以及稳定的具体 Issue/PR 链接或编号；
+- 不适合重复写入本文件的已有项目上下文，可以在给出触发条件和用途后，引用具体文件路径，例如 `.agents/skills/order-domain/SKILL.md`。
 
-写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。中央安全、证据、严重度和发布规则仍然生效，下游规则只能补充，不能覆盖。
+写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。
+
+需要额外项目上下文时，说明触发条件、具体文件路径和用途。中央 Review 不自动枚举 Target Skill，只按这些显式引用读取。
 
 下面是一个自然语言示例；标题和组织方式可以按项目调整：
 
@@ -66,29 +80,30 @@ GitHub pull_request webhook
 
 ## Known issues
 
-- 本仓库带 `known-issue` 或 `qa-acceptance` 标签的 GitHub Issue，以及 Issue 中链接的验收记录，属于 known issue 来源。
-- 修改退款状态、退款事件或对应 API 时，按需查询 `Qiyin-Tech/payment-service` 的相关 Issue、PR 和代码；其他变更不查询该仓库。
+- Issue `Qiyin-Tech/payment-service#389` 记录退款事件的兼容性决定；修改该事件时可读取该记录。
 - 项目字段“已排期”只表示计划中；只有记录中的明确验收结论才能证明问题已修复。
 - 修改订单、支付或退款状态时，按需查询 PRD `https://example.feishu.cn/wiki/wikcnRefundPRD`、验收记录 `https://example.feishu.cn/docx/doxcnRefundQA` 和 Issue 表 `https://example.feishu.cn/base/bascnIssues?table=tblIssues`；Issue 表的“已排期”只表示计划中，“已验收”才表示修复完成。其他变更不查询这些来源。
 
 ## 仓库约定
 
 - `src/generated/` 由 schema 生成；审查 schema 和生成结果的一致性，不要求直接修改生成文件。
+
+## 按需项目上下文
+
+- 修改 `src/orders/` 中的状态转换、补偿或事件兼容性时，读取 `.agents/skills/order-domain/SKILL.md`，只用其中的订单状态和事件契约补充调查。
 ```
 
-Review 同时读取 merge base 和 PR head 的 `.agentic-review.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。为防止 PR 自行扩大 Agent 的私有数据访问范围，head 新增的私有关联仓库、飞书文档、folder token 或 space ID 在本轮只会被识别，不会读取；该声明合并后才授权后续 PR 查询。
+Review 同时读取 merge base 和 PR head 的 `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信 Review Skill 由 Pi 发现，其完整规则同时附加到首次 Prompt，避免立即重复读取并保留 context compaction 后的恢复路径；PR、评论、项目规则和 diff 在 Agent 启动前拼接为一次性 Review 输入。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件。
 
-相关私有仓库必须与目标仓库属于同一 GitHub owner，并安装 Review App。单个 installation token 不能跨 owner。具体飞书文档按 merge base 已声明的 URL 直接做关键词/章节读取；只有规则明确授权现有 folder 或 Wiki space 时才在该范围搜索。Agent 先独立分析当前 diff，再按候选 finding 定向追溯来源 PR 或搜索少量高相关记录，不会预读全部历史。
+可信 workflow 在 Agent 启动前把只读 token 的可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大这个集合。在该集合内，自动关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。单个 installation token 不能跨 owner，Agent 也不按关键词、`git blame` 或提交历史扩展 GitHub known issue 查询。
 
-## 接入飞书文档
+## 飞书登录和文件读取
 
-中央管理员在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，为用户身份申请 `offline_access`、`search:docs:read`、`docx:document:readonly`、`wiki:node:retrieve`、`drive:drive.metadata:readonly`、`base:app:read`、`base:table:read`、`base:field:read` 与 `base:record:read`，发布版本并通过管理员审核。当前部署由维护者本人完成 OAuth 授权，Lark CLI 的可见范围因此与该用户在飞书客户端中能看到的资料一致；不需要添加机器人能力或逐篇“添加文档应用”。
+使用维护者本人 OAuth 授权的用户身份读取飞书资料。你在浏览器确认一次授权后，可信任务每小时用 refresh token 换取新 token 并保存到 GitHub Environment Secrets；每轮 Actions 向 Lark CLI 注入短期 UAT，无需保存 runner、复制 CLI 登录目录或重复扫码。授权撤销、refresh token 失效或轮换中断导致新 refresh token 丢失时，需要重新授权。
 
-首次授权时，维护者执行 `gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches -f event_type=authorize-lark-user`，再打开 `Refresh Lark User Token` 日志中的飞书验证 URL；默认分支 workflow 将 UAT 和单次 refresh token 写入中央仓库 Secrets。之后定时任务每小时串行刷新并轮换两项 secret，Review job 只读取当前 UAT，不持久化 CLI 登录态，也不需要 self-hosted runner。写 secret 使用一个只安装到中央仓库、仅有 `Secrets: write` 的独立 GitHub App。
+实际读取权限是“应用已开通且用户已同意的 API scope”和“授权的企业用户身份对文档的访问权限”的交集。应用只申请所需读取权限，因此即使你能编辑文档，Review 也只获得这组只读能力。切换企业后的另一个身份不自动属于同一 UAT；跨企业文档需要共享给当前授权身份，并通过实际 API 读取验收。
 
-主企业与三个子企业无需共享同一个飞书应用身份；只要该维护者账号在飞书客户端中本来就能打开相应 Docx、Wiki 或多维表格，用户 UAT 就沿用同一可见范围。各项目只需在已合并的 `.agentic-review.md` 写明完整 URL、触发条件，以及 Base 的 Issue 表、关键字段和状态语义；下游仓库不保存飞书密钥，也不安装 CLI。
-
-Lark CLI `docs +fetch` 能读取文档正文、链接及支持的内嵌资源元数据。Figma 等第三方 iframe 的画布内容仍受第三方权限控制，Agent 只能把飞书返回的链接/占位信息标为证据缺口，不会绕过飞书去访问外部站点。
+部署、首次授权、续期恢复和文档验收见[飞书接入步骤](docs/deploy-central-review.md#4-飞书用户-oauth-与自动续期)。下游在已合并的 `.agentic-review.md` 声明文档 URL 或搜索范围和触发条件，Agent 形成候选后通过 `central/lark-context.md` 按需读取。
 
 ## 中央仓库配置
 
@@ -103,12 +118,11 @@ Repository variables：
 Repository secrets：
 
 - `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
-- `REVIEW_AGENT_API_KEY`：模型 API key；
-- `AGENTIC_REVIEW_LARK_APP_SECRET`：飞书企业自建应用 App Secret；
-- `AGENTIC_REVIEW_LARK_ROTATOR_PRIVATE_KEY`：Lark Secret Rotator GitHub App private key；
-- `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN`、`AGENTIC_REVIEW_LARK_REFRESH_TOKEN`：由 token refresh workflow 创建并轮换。
+- `REVIEW_AGENT_API_KEY`：模型 API key。
 
-Review App 必须安装到目标仓库以及需要作为关联上下文读取的同 owner 仓库，并拥有 `Contents: read`、`Issues: read`、`Pull requests: write`、`Checks: write`、`Actions: read`。单个 installation token 不能跨 owner；其他 owner 的私有仓库不在当前读取范围。Dispatcher App 只安装到中央仓库，拥有 `Actions: write`，由 Worker 使用。
+飞书长期凭证放在 `lark-rotation` Environment，Review 的 UAT 放在 `lark-review` Environment；具体名称与配置命令见部署说明。
+
+App 安装范围与权限以 [部署说明](docs/deploy-central-review.md) 为准；App 权限与各任务签发的 token 权限需要区分。
 
 ## 本地检查
 

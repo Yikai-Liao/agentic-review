@@ -11,7 +11,7 @@ type RefreshInput = AppInput & { refreshToken: string };
 
 type Dependencies = {
   fetchImpl?: typeof fetch;
-  setSecret?: (repository: string, name: string, value: string) => Promise<void>;
+  setSecret?: (repository: string, environment: string, name: string, value: string) => Promise<void>;
   mask?: (value: string) => void;
   log?: (message: string) => void;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -55,9 +55,9 @@ function required(value: string | undefined, name: string) {
   return value;
 }
 
-function setSecret(repository: string, name: string, value: string) {
+function setSecret(repository: string, environment: string, name: string, value: string) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn('gh', ['secret', 'set', name, '--repo', repository], {
+    const child = spawn('gh', ['secret', 'set', name, '--repo', repository, '--env', environment], {
       stdio: ['pipe', 'inherit', 'inherit'],
     });
     child.on('error', reject);
@@ -91,10 +91,10 @@ async function publishTokens(
     sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   }: Dependencies,
 ) {
-  const persist = async (name: string, value: string) => {
+  const persist = async (environment: string, name: string, value: string) => {
     for (let attempt = 1; ; attempt += 1) {
       try {
-        await save(repository, name, value);
+        await save(repository, environment, name, value);
         return;
       } catch (error) {
         if (attempt === 5) throw error;
@@ -105,8 +105,9 @@ async function publishTokens(
 
   mask(tokens.accessToken);
   mask(tokens.refreshToken);
-  await persist('AGENTIC_REVIEW_LARK_REFRESH_TOKEN', tokens.refreshToken);
-  await persist('AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN', tokens.accessToken);
+  // Environment secrets are loaded when the job starts, after the rotation lock.
+  await persist('lark-rotation', 'AGENTIC_REVIEW_LARK_REFRESH_TOKEN', tokens.refreshToken);
+  await persist('lark-review', 'AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN', tokens.accessToken);
   return { expiresIn: tokens.expiresIn, refreshExpiresIn: tokens.refreshExpiresIn };
 }
 
@@ -150,7 +151,7 @@ export async function authorizeLarkUser(
   if (typeof verificationUrl !== 'string' || !verificationUrl) throw new Error('Lark device authorization returned no verification URL');
   log(`Open this URL now to authorize the Review user: ${verificationUrl}`);
 
-  const interval = typeof device.interval === 'number' && device.interval > 0 ? device.interval : 5;
+  let interval = typeof device.interval === 'number' && device.interval > 0 ? device.interval : 5;
   const expiresIn = typeof device.expires_in === 'number' && device.expires_in > 0 ? device.expires_in : 240;
   const deadline = Date.now() + expiresIn * 1000;
   while (Date.now() < deadline) {
@@ -167,6 +168,10 @@ export async function authorizeLarkUser(
     });
     const body = await response.json() as TokenResponse;
     if (body.error === 'authorization_pending') continue;
+    if (body.error === 'slow_down') {
+      interval += 5;
+      continue;
+    }
     return publishTokens(repository, parseTokens(response, body), dependencies);
   }
   throw new Error('Lark device authorization expired');
