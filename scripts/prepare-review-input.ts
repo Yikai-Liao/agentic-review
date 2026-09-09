@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readDiscussion } from './refresh-review-discussion.ts';
+import { prepareReviewWorkspace } from './prepare-review-workspace.ts';
 
 export function main(run = (command: string, args: string[]) =>
   execFileSync(command, args, { encoding: 'utf8', maxBuffer: Infinity })) {
@@ -18,9 +19,21 @@ export function main(run = (command: string, args: string[]) =>
   const sections: string[] = ['# Review input'];
   const section = (title: string, text: string) => sections.push(`## ${title}\n\n${text}`);
   section('Untrusted PR metadata', run('gh', ['pr', 'view', pull, '--repo', repository, '--json', 'title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits']));
-  section('Review request', readFileSync(required('REVIEW_COVERAGE_PATH'), 'utf8'));
+  const context = JSON.parse(readFileSync(required('REVIEW_CONTEXT_PATH'), 'utf8'));
+  section('Review request', JSON.stringify(context));
   const { discussion, baseline } = readDiscussion(repository, pull, run);
   section('Trusted PR discussion snapshot', JSON.stringify(discussion, null, 2));
+  const workspace = required('REVIEW_WORKSPACE_PATH');
+  mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  const thread = discussion.inline_comments.find((comment) => String(comment.id) === context.request.root_comment_id);
+  if (context.request.source === 'thread' && (thread?.in_reply_to_id != null || typeof thread?.path !== 'string')) {
+    throw new Error('Thread request root is missing from current PR discussion');
+  }
+  section('Workspace resume manifest', JSON.stringify(prepareReviewWorkspace({
+    workspace, context,
+    previousPath: env.REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH || env.REVIEW_PREVIOUS_WORKSPACE_PATH,
+    threadPath: context.request.source === 'thread' && typeof thread?.path === 'string' ? thread.path : undefined,
+  }), null, 2));
   for (const filename of ['.agentic-review.md', 'AGENTS.md']) {
     for (const [label, directory] of [['Base', base], ['Head', target]]) {
       const source = path.join(directory, filename);
@@ -28,8 +41,6 @@ export function main(run = (command: string, args: string[]) =>
     }
   }
   writeFileSync(required('REVIEW_INPUT_PATH'), `${sections.join('\n\n')}\n`);
-  const workspace = required('REVIEW_WORKSPACE_PATH');
-  mkdirSync(workspace, { recursive: true, mode: 0o700 });
   writeFileSync(path.join(workspace, 'discussion-baseline.json'), JSON.stringify(baseline), { mode: 0o600 });
 }
 

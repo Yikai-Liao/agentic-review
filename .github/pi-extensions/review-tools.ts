@@ -1,8 +1,9 @@
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { parseReviewResult } from '../../scripts/review-result.ts';
-import { parseReviewCoverage, validateCoverageCompletion } from '../../scripts/review-coverage.ts';
-import { persistReviewCoverage, validateReviewScope, type ReviewCoverage, type ReviewScope } from '../../scripts/review-request.ts';
+import { readReviewProgress, validateCoverageCompletion } from '../../scripts/review-coverage.ts';
+import { persistReviewProgress, validateReviewScope, type ReviewScopeDecision } from '../../scripts/review-request.ts';
 
 type ExtensionAPI = {
   registerTool(tool: {
@@ -22,10 +23,8 @@ export default function reviewTools(pi: ExtensionAPI) {
     parameters: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['pr', 'thread'] },
         mode: { type: 'string', enum: ['full', 'incremental', 'focused'] },
         rationale: { type: 'string', minLength: 1 },
-        inherited_from_run: { type: ['string', 'null'] },
         explicit_text: { type: 'string' },
         ranges: {
           type: 'array', minItems: 1,
@@ -41,20 +40,26 @@ export default function reviewTools(pi: ExtensionAPI) {
           },
         },
       },
-      required: ['kind', 'mode', 'rationale', 'inherited_from_run', 'explicit_text', 'ranges'],
+      required: ['mode', 'rationale', 'explicit_text', 'ranges'],
       additionalProperties: false,
     } as any,
-    async execute(_toolCallId, input: Omit<ReviewScope, 'id' | 'decided_at'>) {
+    async execute(_toolCallId, input: ReviewScopeDecision) {
       if (submitted) throw new Error('the review was already submitted');
       const workspace = process.env.REVIEW_WORKSPACE_PATH;
-      const coveragePath = process.env.REVIEW_COVERAGE_PATH;
-      if (!workspace || !coveragePath) throw new Error('Review scope paths are unavailable');
-      const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
-      const id = `${coverage.request.run_id}:${coverage.request.run_attempt}:scope`;
-      const scope: ReviewScope = { ...input, id, decided_at: new Date().toISOString() };
+      const contextPath = process.env.REVIEW_CONTEXT_PATH;
+      const progressPath = process.env.REVIEW_PROGRESS_PATH;
+      if (!workspace || !contextPath || !progressPath) throw new Error('Review scope paths are unavailable');
+      const coverage = await readReviewProgress(contextPath, progressPath);
+      if (Object.keys(input).sort().join(',') !== 'explicit_text,mode,ranges,rationale') throw new Error('Invalid review scope decision fields');
+      const scope = { ...input, kind: coverage.request.source === 'thread' ? 'thread' as const : 'pr' as const };
       validateReviewScope(scope, coverage.request);
-      await persistReviewCoverage(coveragePath, { ...coverage, scope, status: 'draft', complete_audit: false, updated_at: scope.decided_at });
-      return { content: [{ type: 'text', text: 'Review scope recorded.' }], details: { scope_id: id } };
+      if (scope.mode !== coverage.scope?.mode || !isDeepStrictEqual(scope.ranges, coverage.scope?.ranges)) {
+        for (const entry of coverage.ledger) {
+          if (entry.status === 'out_of_scope') { entry.status = 'pending'; entry.batches = []; }
+        }
+      }
+      await persistReviewProgress(progressPath, { scope: input, ledger: coverage.ledger });
+      return { content: [{ type: 'text', text: 'Review scope recorded.' }] };
     },
   });
 
@@ -75,41 +80,50 @@ export default function reviewTools(pi: ExtensionAPI) {
       additionalProperties: false,
     } as any,
     async execute(_toolCallId, { path: inputPath }: { path: string }) {
-      if (submitted) throw new Error('the review was already submitted');
+      try {
+        if (submitted) throw new Error('the review was already submitted');
 
-      const workspace = process.env.REVIEW_WORKSPACE_PATH;
-      const resultPath = process.env.REVIEW_RESULT_PATH;
-      if (!workspace || !path.isAbsolute(workspace) || !resultPath || !path.isAbsolute(resultPath)) {
-        throw new Error('Review paths are unavailable');
-      }
+        const workspace = process.env.REVIEW_WORKSPACE_PATH;
+        const resultPath = process.env.REVIEW_RESULT_PATH;
+        if (!workspace || !path.isAbsolute(workspace) || !resultPath || !path.isAbsolute(resultPath)) {
+          throw new Error('Review paths are unavailable');
+        }
 
-      const workspacePath = await realpath(workspace);
-      const reviewPath = await realpath(path.resolve(inputPath));
-      const relative = path.relative(workspacePath, reviewPath);
-      if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        throw new Error('Review file must be inside REVIEW_WORKSPACE_PATH');
-      }
+        const workspacePath = await realpath(workspace);
+        const reviewPath = await realpath(path.resolve(inputPath));
+        const relative = path.relative(workspacePath, reviewPath);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          throw new Error('Review file must be inside REVIEW_WORKSPACE_PATH');
+        }
 
-      const info = await stat(reviewPath);
-      if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
-      const content = await readFile(reviewPath, 'utf8');
-      const parsed = parseReviewResult(content);
-      const coveragePath = process.env.REVIEW_COVERAGE_PATH;
-      if (coveragePath) {
-        const coverage = JSON.parse(await readFile(coveragePath, 'utf8')) as ReviewCoverage;
+        const info = await stat(reviewPath);
+        if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
+        const content = await readFile(reviewPath, 'utf8');
+        const parsed = parseReviewResult(content);
+        const progressPath = process.env.REVIEW_PROGRESS_PATH;
+        const contextPath = process.env.REVIEW_CONTEXT_PATH;
+        if (!contextPath || !progressPath) throw new Error('Review context or progress path is unavailable');
+        const coverage = await readReviewProgress(contextPath, progressPath);
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
-        validateReviewScope(coverage.scope, coverage.request);
-        if (parsed.scope_id !== coverage.scope.id) throw new Error('Review result scope_id does not match recorded scope');
-        await validateCoverageCompletion(parseReviewCoverage(coverage), workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '');
+        await validateCoverageCompletion(coverage, workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '');
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
-      }
-      await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-      submitted = true;
+        await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+        submitted = true;
 
-      return {
-        content: [{ type: 'text', text: 'Review queued for trusted publication.' }],
-        details: { queued: true, source: reviewPath },
-      };
+        return {
+          content: [{ type: 'text', text: 'Review queued for trusted publication.' }],
+          details: { queued: true, source: reviewPath },
+        };
+      } catch (error) {
+        // JSON 语法错误可能携带输入片段；反馈结构错误，不回显文件内容。
+        const message = error instanceof SyntaxError ? 'Invalid JSON syntax in review result or progress.'
+          : error instanceof Error ? error.message : 'Unknown review submission error';
+        return {
+          content: [{ type: 'text', text: `Review submission failed: ${message}` }],
+          details: { queued: false, error: message },
+          isError: true,
+        };
+      }
     },
   });
 }

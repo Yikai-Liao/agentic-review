@@ -8,10 +8,10 @@
 
 第一步读取 `$REVIEW_INPUT_PATH` 中的 PR 元数据、评论和项目规则；大输入分段读取，每段结论写入工作稿后继续，直到覆盖全部输入。输入信任边界由附带 Skill 定义。diff 不在输入中；按 `central/github-context.md` 从本地 Git 获取完整文件清单和规模，小 diff 一次读完，大 diff 再逐批读取。
 
-已有历史工作稿时接着读取历史索引，再选择需要调查的代码与 batch；最终归纳前按 `central/github-context.md` 刷新讨论。
+输入已包含 `Workspace resume manifest`：按其中的准确路径读取本轮已恢复的索引与相关 batch，直接更新本轮副本；仅在当前索引缺少必要历史信息时补读只读历史目录。同一 batch 的历史原件与本轮副本内容相同，读取本轮副本即可。最新请求和讨论始终需要读取；最终归纳前按 `central/github-context.md` 刷新讨论。
 
 按附带规则完成静态审查；工作稿和历史 thread 遵循控制面中央适配器。
 
 需要读取明确提及的飞书文档、Wiki 或多维表格链接时，完整读取 `$REVIEW_CONTROL_PATH/central/lark-context.md`，按其只读规则使用 Lark CLI。
 
-最终封装从以下读取动作开始：用 `read` 完整读取 `$REVIEW_CONTROL_PATH/central/review-result.md`，按其中的最终 JSON 模板写文件，再按其中的唯一提交规则结束本轮。以工具返回的绝对路径确认读到的是控制面：读取 `$REVIEW_TARGET_PATH/central/review-result.md` 只算恢复调查对象，不算完成此步骤。不能从目标协议或其他审查结果推测当前接口的字段。
+最终封装使用本轮预载的 `central/review-result.md` 模板，再按其唯一提交规则结束本轮；规则仍在上下文时直接使用。规则缺失、compaction 或无法确认 schema 时，从 `$REVIEW_CONTROL_PATH/central/review-result.md` 完整恢复。目标协议和历史审查结果不决定当前接口字段。

@@ -43,6 +43,34 @@ export function parseReviewCoverage(value: unknown): ReviewCoverage {
   return value as ReviewCoverage;
 }
 
+// 合并的历史记录由代码生成，模型可写文件不含 request、默认计划或发布状态。
+export async function readReviewProgress(contextPath: string, progressPath: string): Promise<ReviewCoverage> {
+  const context = JSON.parse(await readFile(contextPath, 'utf8'));
+  const progress = JSON.parse(await readFile(progressPath, 'utf8'));
+  if (!record(context) || !record(context.request) || !record(progress)
+    || Object.keys(progress).some((key) => !['scope', 'ledger'].includes(key))) throw new Error('Invalid review progress fields');
+  if (progress.scope !== undefined && (!record(progress.scope)
+    || Object.keys(progress.scope).sort().join(',') !== 'explicit_text,mode,ranges,rationale')) throw new Error('Invalid review scope decision fields');
+  const scope = progress.scope === undefined ? undefined : {
+    ...progress.scope,
+    kind: context.request.source === 'thread' ? 'thread' : 'pr',
+  };
+  // 校验 ledger 后才汇总，模型不再维护第二份 batch 清单。
+  const completedBatches = Array.isArray(progress.ledger)
+    ? [...new Set(progress.ledger.flatMap((entry: any) => Array.isArray(entry?.batches) ? entry.batches : []))]
+    : [];
+  return parseReviewCoverage({
+    request: context.request,
+    default_plan: context.default_plan,
+    scope,
+    completed_batches: completedBatches,
+    ledger: progress.ledger,
+    status: progress.scope ? 'draft' : 'requested',
+    complete_audit: false,
+    updated_at: new Date().toISOString(),
+  });
+}
+
 export async function validateCoverageCompletion(coverage: ReviewCoverage, workspace: string, expectedDigest: string): Promise<void> {
   parseReviewCoverage(coverage);
   if (!coverage.scope || !['draft', 'published'].includes(coverage.status)) throw new Error('Review coverage is not ready for publication');

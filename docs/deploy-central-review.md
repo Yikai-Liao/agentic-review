@@ -188,13 +188,13 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 可信 workflow 在 Agent 启动前将 read token 的可读集合固定为目标 owner 中安装了 Review App 的仓库；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 自动关联索引，或 `.agentic-review.md` 等审查输入中的明确稳定 Issue/PR 引用，可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Agent 按 PR head 理解预期合并后的项目状态语义，只在当前 finding 确有需要时查询。单个 installation token 不能跨 GitHub owner，其他 owner 的私有仓库需要单独的 installation/token 设计。
 
-`check token` 在 Pi 启动前创建 Check；publisher 在可信 completion 之前重新校验结果 schema、scope、请求身份、root comment 和 bot ownership，成功发布 Review、回复当前 PR 历史 thread 和执行允许的 resolve/reopen 后，completion 才能标记成功。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自动 resolve/reopen 只接受由该 Review App 创建的 bot-owned root thread；人工 root 可以收到可信 publisher 的回复，但不会被自动改变 resolved 状态。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；失败不能推进完整 audit checkpoint。
+`check token` 在 Pi 启动前创建 Check；publisher 使用封存并核对过的请求身份，重新校验结果 schema、scope、覆盖与 root comment 在当前 PR 中的归属，成功发布 Review、回复历史 thread 和执行 resolve/reopen 后，completion 才能标记成功。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自动 resolve/reopen 根据审查结论，不限制 thread 创建者。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；失败不能推进完整 audit checkpoint。
 
 ### 评论请求、范围与历史
 
 评论进入中央 workflow 时只携带评论正文和身份，不携带固定 base/head；workflow 在实际开始时读取当前 PR 快照并固定本轮比较起点。评论任务不会拿不存在的旧 SHA 做快照校验；自动 `pull_request` 事件才会在排队后校验原始 base/head，过时就显式失败。runner 在普通失败路径上尽可能上传已有工作稿；硬中断不承诺保存。评论事件正文保存完整原文。
 
-中央任务把原文交给 Agent 判断范围，优先级是“显式自然语言范围 > thread 隐含范围 > PR 默认规则”。普通 PR 评论重新调查最近一次 PR 级请求的实际范围：即使没有代码变化也重新给出当前证据；有变化则审查新增变化和直接影响，并补齐上次失败或未完成的覆盖。thread 默认调查当前问题及直接影响，只有原文明确要求全 PR 才扩大，且不继承 PR 级范围历史。范围和 batch 覆盖写入 `review-coverage.json`，最终结果的 `scope_id` 必须与 `set_review_scope` 写入的 scope 一致。
+中央任务把原文交给 Agent 判断范围，优先级是“显式自然语言范围 > thread 隐含范围 > PR 默认规则”。普通 PR 评论重新调查最近一次 PR 级请求的实际范围：即使没有代码变化也重新给出当前证据；有变化则审查新增变化和直接影响，并补齐上次失败或未完成的覆盖。thread 默认调查当前问题及直接影响，只有原文明确要求全 PR 才扩大，且不继承 PR 级范围历史。默认 scope 与可复用 workspace 由可信准备代码初始化；Agent 仅在范围变化时调用 `set_review_scope`，并更新 `review-progress.json` 中的文件进度。可信代码负责请求身份、batch 汇总和最终 `review-coverage.json` 历史记录。最终结果自动使用本轮 scope，无须复制 ID。
 
 同一 PR 的最近 PR 级请求工作稿按控制仓库 Actions artifact 的 repository ID、PR、source、run 和 attempt 查找，不依赖 ancestor/base 关系；失败、跳过发布和草稿都可作为范围历史，排除 thread 工作稿和当前运行。查找不到、artifact 过期或 GitHub 接口错误分别记录，不能把错误当成“无历史”而改变范围。历史工作稿只读。成功的完整 `audit` checkpoint 仍需独立的成功 Check、提交关系和 base/head 校验；局部成功不能推进它。
 

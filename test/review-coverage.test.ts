@@ -10,7 +10,7 @@ function fixture() {
   const request = buildReviewRequest({ source: 'automatic', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '20' });
   return { ...initialReviewCoverage(request), status: 'draft' as const, completed_batches: ['B1'],
     ledger: [{ path: 'src/a.ts', status: 'complete' as const, batches: ['B1'] }],
-    scope: { id: '20:1:scope', kind: 'pr' as const, mode: 'full' as const, rationale: 'complete PR', inherited_from_run: null, explicit_text: '', ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }], decided_at: request.requested_at } };
+    scope: { kind: 'pr' as const, mode: 'full' as const, rationale: 'complete PR', explicit_text: '', ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }] } };
 }
 
 test('publication rejects omissions, pending coverage, excluded automatic files and missing batch evidence', async () => {

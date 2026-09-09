@@ -7,12 +7,18 @@ import reviewTools from '../.github/pi-extensions/review-tools.ts';
 import { buildFooter, publishReview } from '../scripts/publish-review.ts';
 
 import { inventoryDigest } from '../scripts/review-coverage.ts';
+import { buildReviewRequest } from '../scripts/review-request.ts';
 import { parseReviewResult } from '../scripts/review-result.ts';
 
 const headSha = 'b'.repeat(40);
+async function assertSubmissionFailed(response: Promise<any>, error: RegExp) {
+  const failure = await response;
+  assert.equal(failure.details.queued, false);
+  assert.equal(failure.isError, true);
+  assert.match(failure.content[0].text, error);
+}
 const result = {
   body: '## Review 总结\n\n这个 PR 修复了清理行为。',
-  scope_id: 'scope',
   comments: [{ path: 'src/gc.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
   thread_updates: [{
     root_comment_id: 123,
@@ -82,6 +88,19 @@ async function publish(reviewResult: Parameters<typeof publishReview>[0]['result
   });
 }
 
+async function configureProgress(directory: string, source: 'automatic' | 'pr_comment' | 'thread' = 'automatic') {
+  const request = buildReviewRequest({ source, commentId: source === 'automatic' ? '' : '8', rootCommentId: source === 'automatic' ? '' : '8',
+    text: '审查请求\r\n保留换行', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha, runId: '99' });
+  process.env.REVIEW_CONTEXT_PATH = path.join(directory, 'review-context.json');
+  process.env.REVIEW_PROGRESS_PATH = path.join(directory, 'workspace', 'review-progress.json');
+  process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest([]);
+  await writeFile(process.env.REVIEW_CONTEXT_PATH, JSON.stringify({ request }));
+  await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [], scope: {
+    mode: 'full', rationale: '完整审查', explicit_text: '',
+    ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }],
+  } }));
+}
+
 test('submit_review seals one JSON file from the review workspace', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
   const originalEnv = { ...process.env };
@@ -93,60 +112,56 @@ test('submit_review seals one JSON file from the review workspace', async () => 
     await writeFile(sourcePath, `${JSON.stringify(result)}\n`);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = resultPath;
+    await configureProgress(directory);
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
 
     const response = await tool.execute('call', { path: sourcePath });
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
     assert.deepEqual(response.details, { queued: true, source: sourcePath });
-    await assert.rejects(tool.execute('call', { path: sourcePath }), /already submitted/);
+    await assertSubmissionFailed(tool.execute('call', { path: sourcePath }), /already submitted/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('set_review_scope persists concrete coverage and submit requires its scope id', async () => {
+test('scope and submission need only model decisions, not machine identity or duplicated batch lists', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-scope-'));
   const originalEnv = { ...process.env };
   try {
     const workspace = path.join(directory, 'workspace');
     await mkdir(workspace);
-    const coveragePath = path.join(workspace, 'review-coverage.json');
-    await writeFile(coveragePath, JSON.stringify({
-      request: {
-        version: 1, source: 'pr_comment', comment_id: '8', root_comment_id: '8', text: '@review-app auth',
-        repository: 'owner/repo', pull_number: 7, base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), comparison_start: 'a'.repeat(40), requested_at: '2026-01-01T00:00:00Z', run_id: '99', run_attempt: '1',
-      }, status: 'requested', completed_batches: [], ledger: [{ path: 'src/auth.ts', status: 'pending', batches: [] }], complete_audit: false,
-    }));
+    await configureProgress(directory, 'pr_comment');
+    const progressPath = process.env.REVIEW_PROGRESS_PATH!;
+    const originalContext = await readFile(process.env.REVIEW_CONTEXT_PATH!, 'utf8');
+    await writeFile(progressPath, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending', batches: [] }] }));
     process.env.REVIEW_WORKSPACE_PATH = workspace;
-    process.env.REVIEW_COVERAGE_PATH = coveragePath;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     const tools = new Map<string, any>();
     reviewTools({ registerTool: (definition) => tools.set(definition.name, definition) });
-    const scope = await tools.get('set_review_scope').execute('call', {
-      kind: 'pr', mode: 'focused', rationale: '用户明确限定鉴权链路。', inherited_from_run: null, explicit_text: '只看 auth',
+    const resultPath = path.join(workspace, 'result.json');
+    const summary = { body: '总结', comments: [], thread_updates: [], request_reply: null };
+    await writeFile(resultPath, JSON.stringify(summary));
+    await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /scope must be recorded/);
+    await tools.get('set_review_scope').execute('call', {
+      mode: 'focused', rationale: '用户明确限定鉴权链路。', explicit_text: '只看 auth',
       ranges: [{ targets: ['src/auth/**'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40) }],
     });
-    const saved = JSON.parse(await readFile(coveragePath, 'utf8'));
-    assert.equal(saved.status, 'draft');
+    const saved = JSON.parse(await readFile(progressPath, 'utf8'));
+    assert.deepEqual(Object.keys(saved).sort(), ['ledger', 'scope']);
+    assert.deepEqual(Object.keys(saved.scope).sort(), ['explicit_text', 'mode', 'ranges', 'rationale']);
     assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending', batches: [] }]);
-    assert.equal(saved.scope.id, '99:1:scope');
-    const resultPath = path.join(workspace, 'result.json');
-    await writeFile(resultPath, JSON.stringify({ body: '总结', scope_id: 'wrong', comments: [], thread_updates: [], request_reply: null }));
-    await assert.rejects(tools.get('submit_review').execute('call', { path: resultPath }), /scope_id/);
-    assert.equal(scope.details.scope_id, saved.scope.id);
     process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
-    await writeFile(resultPath, JSON.stringify({ body: '总结', scope_id: saved.scope.id, comments: [], thread_updates: [], request_reply: null }));
-    await assert.rejects(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
+    await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
     await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
     saved.ledger[0] = { path: 'src/auth.ts', status: 'complete', batches: ['auth'] };
-    saved.completed_batches = ['auth'];
     await mkdir(path.join(workspace, 'batches'));
     await writeFile(path.join(workspace, 'batches/auth.md'), '已核对鉴权调用方和失败路径。');
-    await writeFile(coveragePath, JSON.stringify(saved));
+    await writeFile(progressPath, JSON.stringify(saved));
     await tools.get('submit_review').execute('call', { path: resultPath });
-    assert.equal(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')).scope_id, saved.scope.id);
+    assert.deepEqual(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')), summary);
+    assert.equal(await readFile(process.env.REVIEW_CONTEXT_PATH!, 'utf8'), originalContext);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -159,16 +174,11 @@ test('automatic reviews cannot record a focused partial scope', async () => {
   try {
     const workspace = path.join(directory, 'workspace');
     await mkdir(workspace);
-    const coveragePath = path.join(workspace, 'review-coverage.json');
-    await writeFile(coveragePath, JSON.stringify({ request: {
-      version: 1, source: 'automatic', comment_id: null, root_comment_id: null, text: '', repository: 'owner/repo', pull_number: 7,
-      base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), comparison_start: 'a'.repeat(40), requested_at: '2026-01-01T00:00:00Z', run_id: '99', run_attempt: '1',
-    }, status: 'requested', completed_batches: [], complete_audit: false }));
+    await configureProgress(directory);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
-    process.env.REVIEW_COVERAGE_PATH = coveragePath;
     let scopeTool: any;
     reviewTools({ registerTool: (definition) => { if (definition.name === 'set_review_scope') scopeTool = definition; } });
-    await assert.rejects(scopeTool.execute('call', { kind: 'pr', mode: 'focused', rationale: '只看一个文件。', inherited_from_run: null, explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40)  }]}), /complete PR scope/);
+    await assert.rejects(scopeTool.execute('call', { mode: 'focused', rationale: '只看一个文件。', explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40)  }]}), /complete PR scope/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -185,6 +195,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
     await mkdir(workspace);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = resultPath;
+    await configureProgress(directory);
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
 
@@ -195,10 +206,11 @@ test('submit_review rejects invalid results without sealing and allows correctio
       [JSON.stringify({ ...result, comments: [{ ...result.comments[0], start_line: 43 }] }), /start_line/],
       [JSON.stringify({ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }), /thread status/],
       [JSON.stringify({ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }), /Duplicate thread update/],
+      [JSON.stringify({ ...result, request_reply: '字符串答复' }), /Invalid request reply/],
     ];
     for (const [content, error] of invalidResults) {
       await writeFile(sourcePath, content);
-      await assert.rejects(tool.execute('call', { path: sourcePath }), error);
+      await assertSubmissionFailed(tool.execute('call', { path: sourcePath }), error);
       await assert.rejects(readFile(resultPath), { code: 'ENOENT' });
     }
 
@@ -206,7 +218,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
     await writeFile(sourcePath, content);
     await tool.execute('call', { path: sourcePath });
     assert.equal(await readFile(resultPath, 'utf8'), content);
-    await assert.rejects(tool.execute('call', { path: sourcePath }), /already submitted/);
+    await assertSubmissionFailed(tool.execute('call', { path: sourcePath }), /already submitted/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -223,13 +235,42 @@ test('submit_review rejects files outside the review workspace', async () => {
     await writeFile(outside, JSON.stringify(result));
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
+    await configureProgress(directory);
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
-    await assert.rejects(tool.execute('call', { path: outside }), /inside REVIEW_WORKSPACE_PATH/);
+    await assertSubmissionFailed(tool.execute('call', { path: outside }), /inside REVIEW_WORKSPACE_PATH/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('thread submission accepts the documented reply object on its first attempt', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-thread-submit-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    await mkdir(workspace);
+    await configureProgress(directory, 'thread');
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
+    const source = path.join(workspace, 'result.json');
+    await writeFile(source, JSON.stringify({ ...result, request_reply: { body: '已复核并更新该问题的状态。' } }));
+    let tool: any;
+    reviewTools({ registerTool: (definition) => { tool = definition; } });
+    const response = await tool.execute('call', { path: source });
+    assert.equal(response.details.queued, true);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('all complete JSON examples in the central protocol match the submission schema', async () => {
+  const protocol = await readFile(new URL('../central/review-result.md', import.meta.url), 'utf8');
+  const examples = [...protocol.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => parseReviewResult(match[1]));
+  assert.equal(examples.length, 4);
+  assert.deepEqual(examples.slice(1).map((example) => example.request_reply === null), [true, true, false]);
 });
 
 test('publisher creates one review, updates threads, and appends the footer', async () => {
@@ -264,7 +305,7 @@ test('publisher reopens a resolved thread when risk increases', async () => {
 
 test('publisher supports a summary-only review', async () => {
   const { requests, fetchImpl } = publisherFetch();
-  const summaryOnly = { body: '未发现需要阻止合并的问题。', scope_id: 'scope', comments: [], thread_updates: [], request_reply: null };
+  const summaryOnly = { body: '未发现需要阻止合并的问题。', comments: [], thread_updates: [], request_reply: null };
   await publish(summaryOnly as typeof result, fetchImpl as typeof fetch);
   assert.equal(requests.some(({ url }) => url.includes('/comments?')), false);
   assert.deepEqual(
@@ -273,12 +314,22 @@ test('publisher supports a summary-only review', async () => {
   );
 });
 
-test('publisher rejects a thread owned by another bot', async () => {
-  const { requests, fetchImpl } = publisherFetch({
-    comments: [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'other[bot]' } }],
-  });
-  await assert.rejects(publish(result, fetchImpl as typeof fetch), /was not created by review-app\[bot\]/);
-  assert.equal(requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), false);
+test('publisher updates findings by conclusion regardless of who created the root', async () => {
+  for (const login of ['maintainer', 'other[bot]']) {
+    const { requests, fetchImpl } = publisherFetch({
+      comments: [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login } }],
+    });
+    await publish(result, fetchImpl as typeof fetch);
+    assert.ok(requests.some(({ body }) => body.includes('resolveReviewThread')));
+  }
+});
+
+test('publisher rejects missing roots and reply IDs before any GitHub write', async () => {
+  for (const comments of [[], [{ id: 123, in_reply_to_id: 1, body: 'reply', user: { login: 'maintainer' } }]]) {
+    const { requests, fetchImpl } = publisherFetch({ comments });
+    await assert.rejects(publish(result, fetchImpl as typeof fetch), /not a root comment in this PR/);
+    assert.equal(requests.some(({ url }) => url.endsWith('/reviews') || url.endsWith('/replies')), false);
+  }
 });
 
 test('publisher keeps an older review available to later serial runs', async () => {
@@ -296,7 +347,7 @@ test('thread-only request replies to a human root without changing thread state'
     comments: [{ id: 123, in_reply_to_id: null, body: 'human finding', user: { login: 'maintainer' } }],
   });
   await publishReview({
-    result: { body: '已复核该问题，结论未变。', scope_id: 'scope', comments: [], thread_updates: [], request_reply: { body: '结论未变，当前问题仍需关注。' } },
+    result: { body: '已复核该问题，结论未变。', comments: [], thread_updates: [], request_reply: { body: '结论未变，当前问题仍需关注。' } },
     repository: 'owner/repo', pullNumber: 7, botLogin: 'review-app[bot]', token: 'write-token', expectedHeadSha: headSha,
     footer: 'footer', api: 'https://api.github.test', requestSource: 'thread', requestCommentId: '456', requestRootCommentId: '123', threadReplyOnly: true,
     fetchImpl,

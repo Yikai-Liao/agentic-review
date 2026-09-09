@@ -90,6 +90,7 @@ jobs:
       cost: ${{ steps.pi-review.outputs.cost }}
       workspace_url: ${{ steps.review-workspace.outputs.artifact-url }}
       workspace_artifact_id: ${{ steps.review-workspace.outputs.artifact-id }}
+      context_artifact_id: ${{ steps.review-context.outputs.artifact-id }}
       result_artifact_id: ${{ steps.review-result.outputs.artifact-id }}
       run_attempt: ${{ github.run_attempt }}
       inventory_digest: ${{ steps.request-scope.outputs.inventory_digest }}
@@ -344,7 +345,8 @@ jobs:
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           REVIEW_BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
-          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
+          REVIEW_PROGRESS_PATH: ${{ github.workspace }}/review-workspace/review-progress.json
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
           REVIEW_PREVIOUS_RUN_ID: ${{ steps.previous-request.outputs.run_id }}
           REVIEW_PREVIOUS_RUN_ATTEMPT: ${{ steps.previous-request.outputs.run_attempt }}
@@ -354,10 +356,22 @@ jobs:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: node control/scripts/review-request.ts
 
+      # 在 Agent 启动前封存请求；发布 job 按此 artifact ID 独立下载，不信任工作区中的副本。
+      - name: Seal review context
+        id: review-context
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-context-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-context
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Prepare review input
         env:
-          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
+          REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
+          REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
@@ -402,14 +416,9 @@ jobs:
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
-          REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
         run: |
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          if [[ -n "$REVIEW_PREVIOUS_WORKSPACE_PATH" && -d "$REVIEW_PREVIOUS_WORKSPACE_PATH/batches" ]]; then
-            cp -R "$REVIEW_PREVIOUS_WORKSPACE_PATH/batches" "$REVIEW_WORKSPACE_PATH/"
-            chmod -R u+w "$REVIEW_WORKSPACE_PATH/batches"
-          fi
           cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
@@ -487,7 +496,8 @@ jobs:
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
           # diff 由 Agent 在固定 SHA 区间内按路径读取，不生成聚合 diff 文件。
           REVIEW_CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
-          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+          REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
+          REVIEW_PROGRESS_PATH: ${{ github.workspace }}/review-workspace/review-progress.json
           REVIEW_INVENTORY_DIGEST: ${{ steps.request-scope.outputs.inventory_digest }}
           # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
@@ -534,7 +544,7 @@ jobs:
         if: always() && hashFiles('review-workspace/**') != ''
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: review-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: review-draft-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
           retention-days: 7
@@ -570,38 +580,37 @@ jobs:
           permission-checks: write
 
       - name: Checkout trusted publisher
-        if: needs.review.outputs.pi_outcome == 'success'
+        if: needs.review.outputs.context_artifact_id != ''
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Download review result
-        if: needs.review.outputs.pi_outcome == 'success'
-        uses: actions/download-artifact@v8.0.1
-        with:
-          artifact-ids: ${{ needs.review.outputs.result_artifact_id }}
-          path: ${{ runner.temp }}/review-result
-
-      - name: Download review scope
-        if: needs.review.outputs.pi_outcome == 'success'
+      - name: Download review progress
+        if: needs.review.outputs.context_artifact_id != ''
         uses: actions/download-artifact@v8.0.1
         with:
           artifact-ids: ${{ needs.review.outputs.workspace_artifact_id }}
           path: ${{ runner.temp }}/review-workspace
 
+      - name: Download sealed review context
+        if: needs.review.outputs.context_artifact_id != ''
+        uses: actions/download-artifact@v8.0.1
+        with:
+          artifact-ids: ${{ needs.review.outputs.context_artifact_id }}
+          path: ${{ runner.temp }}/review-context
+
       - name: Set up Node.js for trusted publisher
-        if: needs.review.outputs.pi_outcome == 'success'
+        if: needs.review.outputs.context_artifact_id != ''
         uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
 
-      # 新 runner 中才注入 write token；发布器校验 schema、root comment 和 bot 身份，并发布到本轮审查的 head。
-      - name: Publish review
-        id: publish-review
-        if: needs.review.outputs.pi_outcome == 'success'
+      # 即使 Agent 失败，也保存由可信请求与有效进度组装的历史范围。
+      - name: Assemble review workspace
+        id: assemble-workspace
+        if: needs.review.outputs.context_artifact_id != ''
         env:
-          GH_TOKEN: ${{ steps.publication-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ needs.review.outputs.base_sha }}
@@ -614,6 +623,35 @@ jobs:
           REVIEW_COMMENT_ID: ${{ inputs.comment_id }}
           REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
           REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
+          REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
+          REVIEW_PROGRESS_PATH: ${{ runner.temp }}/review-workspace/review-progress.json
+          REVIEW_COVERAGE_PATH: ${{ runner.temp }}/review-workspace/review-coverage.json
+        run: node scripts/prepare-review-publication.ts
+
+      - name: Upload requested review workspace
+        if: steps.assemble-workspace.outcome == 'success'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}
+          path: ${{ runner.temp }}/review-workspace
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+      # 新 runner 中才注入 write token；发布器检查结果、覆盖与 root comment，发布到可信请求的 head。
+      - name: Download review result
+        if: needs.review.outputs.pi_outcome == 'success'
+        uses: actions/download-artifact@v8.0.1
+        with:
+          artifact-ids: ${{ needs.review.outputs.result_artifact_id }}
+          path: ${{ runner.temp }}/review-result
+
+      - name: Publish review
+        id: publish-review
+        if: needs.review.outputs.pi_outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.publication-token.outputs.token }}
+          REVIEW_INVENTORY_DIGEST: ${{ needs.review.outputs.inventory_digest }}
           REVIEW_BOT_LOGIN: ${{ steps.publication-token.outputs.app-slug }}[bot]
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result/review-result.json
           REVIEW_COVERAGE_PATH: ${{ runner.temp }}/review-workspace/review-coverage.json
