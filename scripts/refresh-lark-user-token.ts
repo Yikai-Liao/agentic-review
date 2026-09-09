@@ -47,6 +47,7 @@ export const larkScopes = [
   'base:app:read',
   'base:table:read',
   'base:field:read',
+  'base:view:read',
   'base:record:read',
 ].join(' ');
 

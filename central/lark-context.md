@@ -25,7 +25,7 @@
 
 已知记录 ID 时用 `+record-get`；表内关键词定位用 `+record-search` 并显式指定 `--search-field`；结构化条件用 `+record-list --filter-json`。通过 `--field-id` 投影所需字段，按需设置 `--limit`，避免扫描整表。
 
-链接带 view 时保留 `--view-id`，不传会覆盖视图筛选的 `--filter-json`；关键词通过 `+record-search` 进一步定位，结构化条件在该视图返回的记录中核对。当前凭据不含 `base:view:read`，不读取或修改视图配置。
+链接带 view 时保留 `--view-id`，不传会覆盖视图筛选的 `--filter-json`；关键词通过 `+record-search` 进一步定位，结构化条件在该视图返回的记录中核对。需要理解视图筛选、排序或字段展示时，可按需读取视图配置。
 
 ## 证据与失败
 

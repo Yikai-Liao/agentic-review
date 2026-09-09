@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { authorizeLarkUser, larkScopes, refreshLarkUserToken } from '../scripts/refresh-lark-user-token.ts';
+import { authorizeLarkUser, refreshLarkUserToken } from '../scripts/refresh-lark-user-token.ts';
 
 const input = {
   appId: 'cli_app',
@@ -93,7 +93,11 @@ test('authorizes one user through device flow and stores both tokens', async () 
   });
 
   assert.equal(requests[0].url, 'https://accounts.feishu.cn/oauth/v1/device_authorization');
-  assert.equal(new URLSearchParams(requests[0].body).get('scope'), larkScopes);
+  assert.deepEqual(new Set(new URLSearchParams(requests[0].body).get('scope')?.split(' ')), new Set([
+    'offline_access', 'search:docs:read', 'docx:document:readonly', 'wiki:node:retrieve',
+    'drive:drive.metadata:readonly', 'base:app:read', 'base:table:read', 'base:field:read',
+    'base:view:read', 'base:record:read',
+  ]));
   assert.equal(requests[1].url, 'https://open.feishu.cn/open-apis/authen/v2/oauth/token');
   assert.match(messages[0], /accounts\.feishu\.cn\/device/);
   assert.deepEqual(sleeps, [1000, 1000, 6000]);

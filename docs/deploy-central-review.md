@@ -93,7 +93,7 @@ Actions runner 每轮都是新机器。持久化的是 OAuth token，CLI 每轮�
    - `docx:document:readonly`：读取文档正文；
    - `wiki:node:retrieve`：解析 Wiki 节点和 space ID；
    - `drive:drive.metadata:readonly`：读取文档元数据；
-   - `base:app:read`、`base:table:read`、`base:field:read`、`base:record:read`：读取多维表格结构与 Issue 记录。
+   - `base:app:read`、`base:table:read`、`base:field:read`、`base:view:read`、`base:record:read`：读取多维表格结构、视图配置与 Issue 记录。
 3. 发布应用版本并完成管理员审核。应用可用范围必须包含执行 OAuth 授权的维护者账号。
 4. 使用专用 Review 应用，只开通这组只读 API 权限，不复用已被授予文档写权限的应用；`--as user` 和 `STRICT_MODE=user` 只固定身份，真正的读写限制由 OAuth scope 决定。`offline_access` 用于取得 refresh token，不是文档读取权限。将 App ID 写入中央仓库 variable `AGENTIC_REVIEW_LARK_APP_ID`。
 
@@ -121,7 +121,9 @@ gh secret set AGENTIC_REVIEW_LARK_ROTATOR_PRIVATE_KEY --repo Qiyin-Tech/agentic-
 
 [GitHub 在 workflow 排队时读取 Repository Secret，在 job 启动时读取 Environment Secret](https://docs.github.com/en/actions/reference/security/secrets#when-github-actions-reads-secrets)。因此动态 token 必须使用上述 Environment Secret，续期锁设在 job 层，避免排队任务拿到已消费的旧 refresh token，也避免排队的 Review 固定旧 UAT。不要另存同名 Repository Secret。
 
-### 首次授权维护者账号
+### 首次授权或新增用户权限
+
+新增用户权限时，先在飞书应用后台开通并发布，再更新授权脚本中的 `larkScopes` 并合并到默认分支，最后按以下流程重新授权。普通 `refresh-lark-user` 续期不会扩展原有授权范围。
 
 PR 合并后，使用有权操作中央仓库的维护者 GitHub 账号执行：
 
