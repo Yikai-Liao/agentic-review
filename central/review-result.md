@@ -12,7 +12,7 @@ workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集
 
 可信代码持有请求身份、默认计划和清单摘要，自动汇总 batch，并决定发布状态；Agent 只维护审查判断和进度。发布器校验清单未缺失、scope 内条目全部完成且证据文件非空；任一不满足就失败。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级，局部成功不代表完整 audit。
 
-输入中的 `Workspace resume manifest` 给出初始恢复结果与准确路径，当前进度以 `review-progress.json` 为准。准备阶段已复制选中历史工作稿的 `notes.md`、`batches/` 和 `previous-review-result.json`，同一 base/head 的完整证据可保留完成状态；当前 thread 对应文件、代码快照变化及已发布范围的重新审查保留 `pending`。核对最新讨论和跨文件前提后按需重开或确认继承，局部更新现有索引与 batch，生成本轮最终 JSON。自然语言决定的范围外条目由 Agent 判断；scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
+输入中的 `Workspace resume manifest` 给出初始恢复结果与准确路径，当前进度以 `review-progress.json` 为准。准备阶段已复制选中历史工作稿的 `notes.md`、`batches/` 和 `previous-review-result.json`，同一 base/head 的完整证据可保留完成状态；当前 thread 对应文件和代码快照变化保留 `pending`。每个 `pr_comment` 都重开范围内进度，包括上一轮失败的情况；证据保留供本轮重新核验。核对最新讨论和跨文件前提后按需重开或确认继承，局部更新现有索引与 batch，生成本轮最终 JSON。自然语言决定的范围外条目由 Agent 判断；scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
 
 ## 2. 历史 thread 状态
 

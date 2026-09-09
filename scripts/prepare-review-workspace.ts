@@ -23,7 +23,7 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
     && previous?.request.head_sha === context.request.head_sha;
   const sameScope = previous?.scope?.mode === progress.scope?.mode
     && isDeepStrictEqual(previous?.scope?.ranges, progress.scope?.ranges);
-  const repeatPublishedScope = context.request.source === 'pr_comment' && previous?.status === 'published';
+  const repeatPrScope = context.request.source === 'pr_comment';
   const batches: Array<{ id: string; path: string; reopened: boolean }> = [];
   if (previous && previousPath) {
     const batchDirectory = path.join(previousPath, 'batches');
@@ -44,8 +44,8 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
       if (!old) continue;
       entry.batches = [...old.batches];
       // 新快照可能改变未修改文件的调用方或契约，不能只看文件 diff 自动确认继承。
-      if (sameSnapshot && !repeatPublishedScope && entry.path !== threadPath) {
-        if (old.status === 'complete') {
+      if (sameSnapshot && entry.path !== threadPath) {
+        if (old.status === 'complete' && !repeatPrScope) {
           if (!old.batches.length || old.batches.some((id) => !batches.some((batch) => batch.id === id)
             || !readFileSync(path.join(workspace, 'batches', `${id}.md`), 'utf8').trim())) throw new Error('Missing inherited batch evidence');
           entry.status = 'complete';

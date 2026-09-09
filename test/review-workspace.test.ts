@@ -53,7 +53,7 @@ test('resume preserves the index and completed files while reopening the request
     const repeated = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
     assert.equal(repeated.pending_files.length, 7);
 
-    // 中断恢复沿用已完成部分，以及相同范围内的排除项。
+    // 上次失败也不免除新 PR 评论的复核义务；相同范围的排除项仍保留。
     previous.status = 'draft';
     previous.request = { ...previous.request, source: 'pr_comment', comment_id: '1', root_comment_id: '1' };
     previous.scope!.mode = 'focused';
@@ -62,10 +62,10 @@ test('resume preserves the index and completed files while reopening the request
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
     reset();
     const resumed = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
-    assert.deepEqual(resumed.pending_files, ['auth.ts']);
+    assert.deepEqual(resumed.pending_files, previous.ledger.filter((entry) => entry.status !== 'out_of_scope').map((entry) => entry.path));
     const resumedProgress = JSON.parse(readFileSync(resumed.paths.progress, 'utf8'));
     assert.equal(resumedProgress.ledger[1].status, 'out_of_scope');
-    assert.equal(resumedProgress.ledger[2].status, 'complete');
+    assert.equal(resumedProgress.ledger[2].status, 'pending');
 
     // 空证据不得凭历史状态通过恢复。
     writeFileSync(path.join(previousPath, 'batches/B1.md'), '');
