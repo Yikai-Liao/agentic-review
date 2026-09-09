@@ -27,15 +27,14 @@ export type ReviewRange = {
 };
 
 export type ReviewScope = {
-  id: string;
   kind: 'pr' | 'thread';
   mode: 'full' | 'incremental' | 'focused';
   rationale: string;
-  inherited_from_run: string | null;
   explicit_text: string;
   ranges: ReviewRange[];
-  decided_at: string;
 };
+
+export type ReviewScopeDecision = Omit<ReviewScope, 'kind'>;
 
 export type ReviewCoverage = {
   request: ReviewRequest;
@@ -47,6 +46,10 @@ export type ReviewCoverage = {
   complete_audit: boolean;
   updated_at: string;
 };
+
+// Agent 只提交判断和进度；请求身份与默认计划由准备阶段单独封存。
+export type ReviewContext = Pick<ReviewCoverage, 'request' | 'default_plan'>;
+export type ReviewProgress = { scope?: ReviewScopeDecision; ledger: CoverageEntry[] };
 
 export type DefaultReviewPlan = {
   kind: 'pr' | 'thread';
@@ -105,6 +108,12 @@ export async function persistReviewCoverage(file: string, coverage: ReviewCovera
   const temporary = `${file}.${process.pid}.tmp`;
   await writeFile(temporary, `${JSON.stringify(coverage)}\n`, { encoding: 'utf8', mode: 0o600 });
   await rename(temporary, file);
+}
+
+export async function persistReviewProgress(file: string, progress: ReviewProgress): Promise<void> {
+  if (!path.isAbsolute(file)) throw new Error('Review progress path must be absolute');
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  await writeFile(file, `${JSON.stringify(progress)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
 export function initialReviewCoverage(request: ReviewRequest): ReviewCoverage {
@@ -186,22 +195,20 @@ export function reviewInventory(targetPath: string, request: ReviewRequest, plan
 
 export function validateReviewScope(scope: ReviewScope, request: ReviewRequest): void {
   if (!scope || !['pr', 'thread'].includes(scope.kind)) throw new Error('Invalid review scope kind');
-  if (typeof scope.id !== 'string' || !scope.id || !/^[A-Za-z0-9._:-]+$/.test(scope.id)) throw new Error('Invalid review scope id');
   if ((request.source === 'thread') !== (scope.kind === 'thread')) throw new Error('Review scope kind does not match request');
   validateReviewRanges(scope.ranges);
   if (!scope.ranges.some((item) => item.comparison_end === request.head_sha)) throw new Error('Review scope does not include current snapshot');
   if (request.source === 'automatic' && (scope.mode !== 'full' || scope.ranges.length !== 1 || scope.ranges[0].comparison_start !== request.comparison_start)) throw new Error('Automatic audit requires complete PR scope');
   if (!['full', 'incremental', 'focused'].includes(scope.mode)) throw new Error('Invalid review scope mode');
   if (typeof scope.rationale !== 'string' || !scope.rationale.trim()) throw new Error('Invalid review scope rationale');
-  if (scope.inherited_from_run !== null && (typeof scope.inherited_from_run !== 'string' || !/^[A-Za-z0-9._:-]+$/.test(scope.inherited_from_run))) throw new Error('Invalid inherited review run');
   if (typeof scope.explicit_text !== 'string') throw new Error('Invalid explicit review scope');
-  if (typeof scope.decided_at !== 'string' || !Number.isFinite(Date.parse(scope.decided_at))) throw new Error('Invalid review scope timestamp');
 }
 
 export async function main() {
   const { inventoryDigest, parseReviewCoverage, validateCoverageCompletion } = await import('./review-coverage.ts');
-  const output = process.env.REVIEW_COVERAGE_PATH;
-  if (!output) throw new Error('Missing REVIEW_COVERAGE_PATH');
+  const contextPath = process.env.REVIEW_CONTEXT_PATH;
+  const progressPath = process.env.REVIEW_PROGRESS_PATH;
+  if (!contextPath || !path.isAbsolute(contextPath) || !progressPath) throw new Error('Missing review context or progress path');
   const request = buildReviewRequest({
     source: process.env.REVIEW_TRIGGER_SOURCE,
     commentId: process.env.REVIEW_COMMENT_ID,
@@ -238,7 +245,13 @@ export async function main() {
   coverage.ledger = reviewInventory(process.env.REVIEW_TARGET_PATH!, request, coverage.default_plan)
     .map((file) => ({ path: file, status: 'pending', batches: [] }));
   await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\n`);
-  await persistReviewCoverage(output, coverage);
+  const context: ReviewContext = { request, default_plan: coverage.default_plan };
+  await mkdir(path.dirname(contextPath), { recursive: true, mode: 0o700 });
+  await writeFile(contextPath, `${JSON.stringify(context)}\n`, { encoding: 'utf8', mode: 0o400, flag: 'wx' });
+  await persistReviewProgress(progressPath, { ledger: coverage.ledger, scope: {
+    mode: coverage.default_plan.mode, ranges: coverage.default_plan.ranges,
+    rationale: '采用默认审查计划；显式请求改变范围时由 Agent 调整。', explicit_text: '',
+  } });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });

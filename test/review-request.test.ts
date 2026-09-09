@@ -18,7 +18,7 @@ function previous(status: ReviewCoverage['status'], previousHead = oldHead): Rev
   const value = request('pr_comment', previousHead);
   return {
     request: value, status, completed_batches: ['auth'], ledger: [], complete_audit: false, updated_at: value.requested_at,
-    scope: { id: '10:1:scope', kind: 'pr', mode: 'focused', rationale: 'auth', inherited_from_run: null, explicit_text: 'auth', ranges: [{ targets: ['auth'], comparison_start: base, comparison_end: previousHead }], decided_at: value.requested_at },
+    scope: { kind: 'pr', mode: 'focused', rationale: 'auth', explicit_text: 'auth', ranges: [{ targets: ['auth'], comparison_start: base, comparison_end: previousHead }] },
   };
 }
 

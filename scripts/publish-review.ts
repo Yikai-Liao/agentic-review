@@ -1,10 +1,8 @@
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import { parseReviewCoverage, validateCoverageCompletion } from './review-coverage.ts';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
-import { buildReviewRequest, validateReviewScope } from './review-request.ts';
 
 type FooterMetadata = {
   runUrl: string;
@@ -199,9 +197,6 @@ export async function publishReview({
       const root = comments.find((comment) => comment.id === update.root_comment_id && comment.in_reply_to_id == null);
       const thread = threads.find((item) => item.comments.nodes[0]?.databaseId === update.root_comment_id);
       if (!root || !thread) throw new Error(`${update.root_comment_id} is not a root comment in this PR`);
-      if (root.user?.login?.toLowerCase() !== botLogin.toLowerCase()) {
-        throw new Error(`${update.root_comment_id} was not created by ${botLogin}`);
-      }
       preparedUpdates.push({
         update,
         thread,
@@ -308,15 +303,10 @@ async function main() {
   const result = parseReviewResult(await readFile(requiredEnv('REVIEW_RESULT_PATH'), 'utf8'));
   const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
   const coverage = parseReviewCoverage(JSON.parse(await readFile(coveragePath, 'utf8')));
-  const repository = requiredEnv('REPOSITORY');
-  const pullNumber = Number(requiredEnv('PULL_NUMBER'));
-  const headSha = requiredEnv('HEAD_SHA');
-  const baseSha = requiredEnv('BASE_SHA');
-  const triggerSource = requiredEnv('REVIEW_TRIGGER_SOURCE');
-  const request = buildReviewRequest({ source: triggerSource, commentId: process.env.REVIEW_COMMENT_ID, rootCommentId: process.env.REVIEW_COMMENT_ROOT_ID, text: process.env.REVIEW_COMMENT_BODY, repository, pullNumber, baseSha, headSha, comparisonStart: requiredEnv('REVIEW_COMPARISON_START'), runId: requiredEnv('REVIEW_RUN_ID'), runAttempt: requiredEnv('REVIEW_RUN_ATTEMPT'), now: coverage.request?.requested_at });
-  if (!coverage.request || !isDeepStrictEqual(coverage.request, request)) throw new Error('Published review request metadata does not match trusted workflow inputs');
-  if (!coverage.scope || coverage.scope.id !== result.scope_id) throw new Error('Missing published review scope');
-  validateReviewScope(coverage.scope, request);
+  // 请求由同一可信 job 的准备步骤绑定，发布目标不取自模型结果。
+  const request = coverage.request;
+  const { repository, pull_number: pullNumber, head_sha: headSha, source: triggerSource } = request;
+  if (!coverage.scope) throw new Error('Missing published review scope');
   if (triggerSource === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
   if (triggerSource !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
   await validateCoverageCompletion(coverage, path.dirname(coveragePath), requiredEnv('REVIEW_INVENTORY_DIGEST'));
@@ -345,8 +335,8 @@ async function main() {
     footer,
     api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
     requestSource: triggerSource,
-    requestCommentId: process.env.REVIEW_COMMENT_ID,
-    requestRootCommentId: process.env.REVIEW_COMMENT_ROOT_ID,
+    requestCommentId: request.comment_id ?? '',
+    requestRootCommentId: request.root_comment_id ?? '',
     threadReplyOnly,
   });
   await writeFile(coveragePath, `${JSON.stringify({ ...coverage, status: 'published', complete_audit: triggerSource === 'automatic' && coverage.scope.mode === 'full', updated_at: new Date().toISOString() })}\n`, { encoding: 'utf8', mode: 0o600 });

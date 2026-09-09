@@ -26,11 +26,11 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 评论请求的审查范围由原文驱动并单独持久化：显式自然语言范围优先于 thread 隐含范围，thread 隐含范围优先于 PR 默认规则。普通 PR 评论重新调查最近一次 PR 级请求的实际范围；无变化也要重新审查并给出当前证据，有变化要审查新增变化和直接影响并补齐此前失败或未完成的覆盖。thread 默认调查当前问题和直接影响，原文明确要求全 PR 时才扩大，且不继承 PR 级范围历史。限定范围可以限制本轮覆盖；关注点只改变调查优先级。完整 diff 仍用于上下文和确认新增 inline 位置；限定范围内读取直接影响上下文不能声称完成全 PR，full diff 之外的位置不能伪造 inline finding。
 
-每轮开始后 Agent 通过 `set_review_scope` 持久化 `kind`、`mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、继承 run 和判断依据，最终 JSON 的 `scope_id` 必须匹配该 manifest。`review-coverage.json` 记录请求、scope、已完成 batch 和状态；局部成功或 thread 成功不能推进完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，失败、草稿和跳过发布的工作稿也可提供范围历史，排除 thread 与当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
+准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前作为 `review-context` artifact 单独封存，模型只更新 `review-progress.json` 中的 scope 决策和文件进度。隔离发布 job 下载封存上下文并核对 workflow 输入，组装 `review-coverage.json`，自动汇总 batch 和机器状态；未完成覆盖也保存为范围历史，完成且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 只有在代码与契约已经形成 finding 候选、且记录可能改变判断时才读取匹配对象；索引是按需读取入口，不证明条目与候选相关，也不构成业务授权、修复或验收证据。
 
-输入只包含 PR 元数据、讨论快照和项目规则；模型按固定 SHA 从本地 Git 获取完整变更清单与规模，小 diff 一次读取，大 diff 按 batch 读取。有历史工作稿时优先调查 focus 区间及其影响面，再按继承条件补充 full 区间。上一轮 batch 由准备阶段复制到本轮工作区，模型只更新重开的证据，并在新索引记录继承来源和理由，后续 artifact 因而仍包含完整证据。
+输入包含 PR 元数据、讨论快照、项目规则和 workspace 恢复清单；模型按固定 SHA 从本地 Git 获取变化。准备阶段迁移选中历史的索引、batch、旧结果参考和可确定的文件进度：同一快照保留完整证据的完成状态，当前 thread 对应文件、新代码快照以及每次 PR 评论请求的范围内文件保留待审状态，上次失败也不免除新请求的复核义务。恢复清单提供本轮绝对路径与初始待审文件；模型按最新讨论和跨文件影响核定继承，局部更新已有索引与证据。自然语言范围外条目由模型判断；改变 scope 会自动重置旧排除项。预载控制规则直接使用，缺失、compaction 或 schema 不明确时才恢复。
 
 ## 发布 Review 的权限方案
 
@@ -48,7 +48,7 @@ Review App private key（只在中央 Actions secret）
 
 Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 的可读集合固定为目标 owner 中安装了 Review App 的仓库，并且只授予读权限；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取，这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Token B 只供 Agent 启动前的可信 workflow step 使用；单个 installation token 不能读取其他 owner 的私有仓库。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`submit_review` 检查 JSON 语法并封存该工作区内的最终结果。
 
-Pi 结束后，可信 publisher 先重新校验 schema、scope、请求身份、root comment 和 bot 身份，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并处理已有 thread 的状态变化。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；publisher 用请求 comment ID 幂等去重。历史 thread 的 root 必须由 Review App bot 创建才允许自动 resolve/reopen；人工 root 可以收到回复，但自动状态变更保持关闭。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。
+Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。
 
 ## Agent 工具
 
