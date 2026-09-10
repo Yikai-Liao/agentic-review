@@ -685,7 +685,7 @@ jobs:
 
       - name: Upload trusted completion workspace
         id: completion-workspace
-        if: ${{ !cancelled() && steps.publish-review.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.publish-review.outcome == 'success' && steps.publication-report.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-completed-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}

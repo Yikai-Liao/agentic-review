@@ -131,11 +131,34 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     const multiple = JSON.parse(await readFile(reportPath, 'utf8'));
     assert.equal(multiple.operations.filter((item: any) => item.status === 'failed').length, 2);
     assert.equal(multiple.operations.find((item: any) => item.id.startsWith('finding 2')).status, 'succeeded');
-    // 摘要文件写入失败仍保留 JSON 报告和 stderr，不阻断已授权的 GitHub 操作。
-    await assert.rejects(exec(process.execPath, ['scripts/publish-review.ts'], {
-      env: { ...publishEnv, GITHUB_STEP_SUMMARY: workspace },
-    }), /写入 Actions 摘要/);
-    assert.ok(JSON.parse(await readFile(reportPath, 'utf8')).operations.length > 0);
+    // GitHub 全部成功时，任一报告出口失败仍须回写 draft，不能保留已有 published 状态。
+    failReview = false;
+    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [], thread_updates: [], request_reply: null }));
+    for (const outlet of ['report', 'summary']) {
+      await writeFile(coveragePath, JSON.stringify(published));
+      if (outlet === 'report') {
+        await rm(reportPath);
+        await mkdir(reportPath);
+      }
+      const before: number = writes.length;
+      await assert.rejects(exec(process.execPath, ['scripts/publish-review.ts'], {
+        env: { ...publishEnv, GITHUB_STEP_SUMMARY: outlet === 'summary' ? workspace : publishEnv.GITHUB_STEP_SUMMARY },
+      }), outlet === 'report' ? /保存发布报告/ : /写入 Actions 摘要/);
+      assert.equal(writes.length - before, 1);
+      const failed = JSON.parse(await readFile(coveragePath, 'utf8'));
+      assert.equal(failed.status, 'draft');
+      assert.equal(failed.complete_audit, false);
+      if (outlet === 'report') {
+        assert.match(await readFile(publishEnv.GITHUB_STEP_SUMMARY, 'utf8'), /失败：保存发布报告/);
+        await rm(reportPath, { recursive: true });
+      } else {
+        assert.equal(JSON.parse(await readFile(reportPath, 'utf8')).operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
+      }
+    }
+    await publish();
+    const recovered = JSON.parse(await readFile(coveragePath, 'utf8'));
+    assert.equal(recovered.status, 'published');
+    assert.equal(recovered.complete_audit, source === 'automatic');
 
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

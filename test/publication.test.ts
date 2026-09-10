@@ -286,6 +286,10 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(shouldRun('completion-workspace'), false);
   steps['publish-review'].outcome = 'success';
   steps['publication-report'].outcome = 'failure';
+  assert.equal(shouldRun('completion-workspace'), false);
+  steps['publication-report'].outcome = 'skipped';
+  assert.equal(shouldRun('completion-workspace'), false);
+  steps['publication-report'].outcome = 'success';
   assert.equal(shouldRun('completion-workspace'), true);
   assert.equal(shouldRun('completion-workspace', true), false);
 
