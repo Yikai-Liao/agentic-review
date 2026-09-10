@@ -93,6 +93,8 @@
 
 以下是逐项语义走查，不是模型 A/B 基准，也不宣称测得实际延迟或 finding 质量提升。
 
+后续变更（2026-09-10，[PR #67](https://github.com/Qiyin-Tech/agentic-review/pull/67)）：关联记录的读取时机已扩展到契约恢复阶段，现行规则见 [evidence.md 第 5 节](../skills/agentic-review/references/evidence.md#5-按需读取外部契约与-known-issue)。下表保留 2026-09-07 的审计结论。
+
 | 任务 | 修改后的关键决策 |
 |---|---|
 | 修正 README 错字 | 不触发 Review/架构 Skill；未改写的写作 Skill 是否误触发仍受其原描述影响。根 AGENTS 不要求全量测试、计划或委派。 |
