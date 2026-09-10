@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPublication, publicationSummary } from './publication.ts';
+import { createPublication, finishPublication, publicationSummary } from './publication.ts';
 import { parseReviewCoverage, validateCoverageCompletion } from './review-coverage.ts';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -358,24 +358,22 @@ export async function main() {
     await publication.run('发布写入', [input], async () => {});
   }
   const report = { reviewUrl, operations: publication.operations };
-  // 两个报告出口互不依赖；JSON 保存发布操作，摘要还包含 JSON 存储结果，stderr 最后汇总全部结果。
-  await publication.run('保存发布报告', [], async () => {
-    const reportPath = path.join(path.dirname(requiredEnv('REVIEW_COVERAGE_PATH')), 'publication-report.json');
-    await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+  await finishPublication(publication, {
+    saveReport: async () => {
+      const reportPath = path.join(path.dirname(requiredEnv('REVIEW_COVERAGE_PATH')), 'publication-report.json');
+      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+    },
+    writeSummary: process.env.GITHUB_STEP_SUMMARY
+      ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, 'GitHub 发布操作')) : undefined,
+    saveCoverage: input.status === 'succeeded' ? async (complete) => {
+      const { coverage, coveragePath } = input.value!;
+      await writeFile(coveragePath, `${JSON.stringify({
+        ...coverage, status: complete ? 'published' : 'draft',
+        complete_audit: complete && coverage.request.source === 'automatic' && coverage.scope!.mode === 'full',
+        updated_at: new Date().toISOString(),
+      })}\n`, { encoding: 'utf8', mode: 0o600 });
+    } : undefined,
   });
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    await publication.run('写入 Actions 摘要', [], () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations)));
-  }
-  // 报告与摘要也是成功条件；最后才提交覆盖状态，出口失败必须保留 draft。
-  if (input.status === 'succeeded') {
-    const { coverage, coveragePath } = input.value!;
-    const complete = publication.operations.every(item => item.status === 'succeeded');
-    await publication.run('保存覆盖状态', [], () => writeFile(coveragePath, `${JSON.stringify({
-      ...coverage, status: complete ? 'published' : 'draft',
-      complete_audit: complete && coverage.request.source === 'automatic' && coverage.scope!.mode === 'full',
-      updated_at: new Date().toISOString(),
-    })}\n`, { encoding: 'utf8', mode: 0o600 }));
-  }
   const summary = publicationSummary(report.operations);
   console.log(`Review URL: ${report.reviewUrl}`);
   if (report.operations.some(item => item.status !== 'succeeded')) {

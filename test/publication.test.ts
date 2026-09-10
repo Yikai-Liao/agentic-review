@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { createPublication } from '../scripts/publication.ts';
+import { createPublication, finishPublication } from '../scripts/publication.ts';
 import { publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
@@ -310,3 +310,25 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(await conclusion('success', 'failure'), 'failure');
   assert.equal(await conclusion('cancelled'), 'cancelled');
 });
+
+
+for (const rollbackFails of [false, true]) {
+  test(`最终报告存储失败必须撤回完成状态，回写失败=${rollbackFails} 仍明确保留失败`, async () => {
+    const publication = createPublication();
+    let coverage = false;
+    await publication.run('GitHub 写入', [], async () => {});
+    await finishPublication(publication, {
+      writeSummary: async () => {},
+      saveCoverage: async (complete) => {
+        if (!complete && rollbackFails) throw new Error('coverage unavailable');
+        coverage = complete;
+      },
+      saveReport: async () => { throw new Error('report unavailable'); },
+    });
+    assert.equal(coverage, rollbackFails);
+    assert.deepEqual(publication.operations.filter(item => item.status === 'failed').map(item => [item.id, item.error]),
+      rollbackFails ? [['保存发布报告', 'report unavailable'], ['撤回覆盖完成状态', 'coverage unavailable']]
+        : [['保存发布报告', 'report unavailable']]);
+    assert.equal(publication.operations.at(-1)?.id, '撤回覆盖完成状态');
+  });
+}

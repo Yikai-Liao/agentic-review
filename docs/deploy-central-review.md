@@ -194,7 +194,7 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 发布统一采用 fail soft：公共输入校验失败停止全部写入；校验通过后，正文、每条 finding、请求回复、每个 thread 的状态同步和证据回复各自执行，异常只阻断依赖该操作的后续步骤。查询失败不能当作空列表继续写入。正文与 finding 分开请求，避免一条无效行号使全部结果无法发布；失效的历史 thread 也不影响其他结果。工作稿上传与发布按实际前置依赖编排，上传失败不阻断已经准备好的 GitHub 写入。
 
-`review-publication-<run>-<attempt>` artifact 中的 `publication-report.json` 记录发布操作及依赖、结果和错误；Actions 摘要与日志还记录报告存储结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败同样使 publisher 失败。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
+`review-publication-<run>-<attempt>` artifact 中的 `publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败同样使 publisher 失败。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
 
 同一运行重跑时，publisher 完整分页读取本 bot 发布的标记，复用已发布的正文、finding 和回复；正文中的执行说明按本次结果更新，resolve/reopen 重新核对远端状态。标记绑定运行、目标 PR、head、操作及内容。写请求报错可能意味着远端已生效，本轮不盲目重试；下次先核对标记。GitHub 写入与网络响应并非原子事务，远端尚不可见时无法保证恰好一次发布。
 

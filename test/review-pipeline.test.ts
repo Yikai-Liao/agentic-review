@@ -14,6 +14,7 @@ test(`${source}: model progress cannot rewrite request identity and publication 
   const directory = await mkdtemp(path.join(tmpdir(), 'review-pipeline-'));
   const writes: unknown[] = [];
   let failReview = false;
+  let failCoveragePath: string | undefined;
   const server = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk;
@@ -36,6 +37,10 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     assert.equal(request.url, '/repos/owner/repo/pulls/7/reviews');
     writes.push(JSON.parse(body));
     response.setHeader('Content-Type', 'application/json');
+    if (failCoveragePath) {
+      await rm(failCoveragePath);
+      await mkdir(failCoveragePath);
+    }
     response.statusCode = failReview ? 503 : 201;
     response.end(JSON.stringify(failReview ? { message: 'review unavailable' } : { html_url: 'https://github.test/review/1' }));
   });
@@ -125,7 +130,7 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     const partial = JSON.parse(await readFile(reportPath, 'utf8'));
     assert.equal(partial.operations.filter((item: any) => item.status === 'failed').length, 1);
     assert.equal(partial.operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
-    assert.match(await readFile(publishEnv.GITHUB_STEP_SUMMARY, 'utf8'), /发布未全部完成/);
+    assert.match(await readFile(publishEnv.GITHUB_STEP_SUMMARY, 'utf8'), /GitHub 发布操作未全部完成/);
     failReview = true;
     await assert.rejects(publish(), /review unavailable/);
     const multiple = JSON.parse(await readFile(reportPath, 'utf8'));
@@ -149,12 +154,23 @@ test(`${source}: model progress cannot rewrite request identity and publication 
       assert.equal(failed.status, 'draft');
       assert.equal(failed.complete_audit, false);
       if (outlet === 'report') {
-        assert.match(await readFile(publishEnv.GITHUB_STEP_SUMMARY, 'utf8'), /失败：保存发布报告/);
         await rm(reportPath, { recursive: true });
       } else {
-        assert.equal(JSON.parse(await readFile(reportPath, 'utf8')).operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
+        const operations = JSON.parse(await readFile(reportPath, 'utf8')).operations;
+        assert.equal(operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
+        assert.equal(operations.find((item: any) => item.id === '写入 Actions 摘要').status, 'failed');
+        assert.match(operations.find((item: any) => item.id === '写入 Actions 摘要').error, /EISDIR/);
+        assert.equal(operations.find((item: any) => item.id === '保存覆盖状态').status, 'succeeded');
       }
     }
+    failCoveragePath = coveragePath;
+    await assert.rejects(publish(), /保存覆盖状态/);
+    const coverageFailure = JSON.parse(await readFile(reportPath, 'utf8')).operations.find((item: any) => item.id === '保存覆盖状态');
+    assert.equal(coverageFailure.status, 'failed');
+    assert.match(coverageFailure.error, /EISDIR/);
+    failCoveragePath = undefined;
+    await rm(coveragePath, { recursive: true });
+    await assemble();
     await publish();
     const recovered = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(recovered.status, 'published');

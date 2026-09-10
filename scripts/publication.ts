@@ -37,10 +37,27 @@ export function createPublication() {
   };
 }
 
-export function publicationSummary(operations: PublicationOperation[]) {
+export async function finishPublication(publication: ReturnType<typeof createPublication>, outlets: {
+  saveReport: () => Promise<void>;
+  writeSummary?: () => Promise<void>;
+  saveCoverage?: (complete: boolean) => Promise<void>;
+}) {
+  if (outlets.writeSummary) await publication.run('写入 Actions 摘要', [], outlets.writeSummary);
+  if (outlets.saveCoverage) {
+    const complete = publication.operations.every(item => item.status === 'succeeded');
+    await publication.run('保存覆盖状态', [], () => outlets.saveCoverage!(complete));
+  }
+  // 最后才序列化报告，纳入摘要和覆盖状态的实际结果。报告自身的存储结果由进程日志记录。
+  const report = await publication.run('保存发布报告', [], outlets.saveReport);
+  if (report.status !== 'succeeded' && outlets.saveCoverage) {
+    await publication.run('撤回覆盖完成状态', [], () => outlets.saveCoverage!(false));
+  }
+}
+
+export function publicationSummary(operations: PublicationOperation[], subject = '发布') {
   const labels = { succeeded: '成功', failed: '失败', blocked: '前置失败，未执行' };
   return [
-    operations.every(item => item.status === 'succeeded') ? '## 发布已完成' : '## 发布未全部完成',
+    `## ${subject}${operations.every(item => item.status === 'succeeded') ? '已完成' : '未全部完成'}`,
     '',
     '写请求失败可能表示远端结果未知；重跑前通过 GitHub 发布标记核对，不能据此断言没有写入。',
     '',
