@@ -72,12 +72,17 @@ export function readDiscussion(repository: string, pull: string, run: Run = runG
         isOutdated: thread.isOutdated, resolvedBy: thread.resolvedBy?.login ?? null });
     }
   }
+  // thread 已完整分页读取；缺失 ID 是删除变化，不能被后面的增量过滤抹掉。
+  const currentThreadIds = new Set(discussion.threads.map(thread => thread.id));
+  const removedThreadIds = Object.keys(baseline?.fingerprints.threads ?? {})
+    .filter(id => !currentThreadIds.has(id));
   const fingerprints = {} as DiscussionBaseline['fingerprints'];
   for (const kind of Object.keys(discussion) as Array<keyof Discussion>) {
     fingerprints[kind] = Object.fromEntries(discussion[kind].map(record => [record.id, fingerprint(record)]));
     if (baseline) discussion[kind] = discussion[kind].filter(record => baseline.fingerprints[kind][record.id] !== fingerprint(record));
   }
-  return { discussion, baseline: { repository, pull, since, fingerprints } satisfies DiscussionBaseline };
+  return { discussion, removed_thread_ids: removedThreadIds,
+    baseline: { repository, pull, since, fingerprints } satisfies DiscussionBaseline };
 }
 
 export function main(run: Run = runGh) {
@@ -86,8 +91,8 @@ export function main(run: Run = runGh) {
     return process.env[name]!;
   };
   const baseline: DiscussionBaseline = JSON.parse(readFileSync(path.join(required('REVIEW_WORKSPACE_PATH'), 'discussion-baseline.json'), 'utf8'));
-  const { discussion } = readDiscussion(required('REVIEW_REPOSITORY'), required('REVIEW_PULL_NUMBER'), run, baseline);
-  return JSON.stringify({ since: baseline.since, refreshed_at: new Date().toISOString(), ...discussion }, null, 2);
+  const { discussion, removed_thread_ids } = readDiscussion(required('REVIEW_REPOSITORY'), required('REVIEW_PULL_NUMBER'), run, baseline);
+  return JSON.stringify({ since: baseline.since, refreshed_at: new Date().toISOString(), ...discussion, removed_thread_ids }, null, 2);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) console.log(main());

@@ -580,28 +580,32 @@ jobs:
           permission-checks: write
 
       - name: Checkout trusted publisher
-        if: needs.review.outputs.context_artifact_id != ''
+        id: publisher-checkout
+        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download review progress
-        if: needs.review.outputs.context_artifact_id != ''
+        id: download-progress
+        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
         uses: actions/download-artifact@v8.0.1
         with:
           artifact-ids: ${{ needs.review.outputs.workspace_artifact_id }}
           path: ${{ runner.temp }}/review-workspace
 
       - name: Download sealed review context
-        if: needs.review.outputs.context_artifact_id != ''
+        id: download-context
+        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
         uses: actions/download-artifact@v8.0.1
         with:
           artifact-ids: ${{ needs.review.outputs.context_artifact_id }}
           path: ${{ runner.temp }}/review-context
 
       - name: Set up Node.js for trusted publisher
-        if: needs.review.outputs.context_artifact_id != ''
+        id: publisher-node
+        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
         uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
@@ -609,7 +613,7 @@ jobs:
       # 即使 Agent 失败，也保存由可信请求与有效进度组装的历史范围。
       - name: Assemble review workspace
         id: assemble-workspace
-        if: needs.review.outputs.context_artifact_id != ''
+        if: ${{ !cancelled() && steps.publisher-checkout.outcome == 'success' && steps.publisher-node.outcome == 'success' && steps.download-progress.outcome == 'success' && steps.download-context.outcome == 'success' }}
         env:
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
@@ -629,7 +633,7 @@ jobs:
         run: node scripts/prepare-review-publication.ts
 
       - name: Upload requested review workspace
-        if: steps.assemble-workspace.outcome == 'success'
+        if: ${{ !cancelled() && steps.assemble-workspace.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}
@@ -640,7 +644,8 @@ jobs:
 
       # 新 runner 中才注入 write token；发布器检查结果、覆盖与 root comment，发布到可信请求的 head。
       - name: Download review result
-        if: needs.review.outputs.pi_outcome == 'success'
+        id: download-result
+        if: ${{ !cancelled() && needs.review.outputs.pi_outcome == 'success' }}
         uses: actions/download-artifact@v8.0.1
         with:
           artifact-ids: ${{ needs.review.outputs.result_artifact_id }}
@@ -648,7 +653,7 @@ jobs:
 
       - name: Publish review
         id: publish-review
-        if: needs.review.outputs.pi_outcome == 'success'
+        if: ${{ !cancelled() && steps.assemble-workspace.outcome == 'success' && steps.download-result.outcome == 'success' && steps.publication-token.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
           REVIEW_INVENTORY_DIGEST: ${{ needs.review.outputs.inventory_digest }}
@@ -668,9 +673,19 @@ jobs:
           REVIEW_ACTION_VERSION: 2.27.1
         run: node scripts/publish-review.ts
 
+      - name: Upload publication report
+        id: publication-report
+        if: ${{ !cancelled() && (steps.publish-review.outcome == 'success' || steps.publish-review.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-workspace/publication-report.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload trusted completion workspace
         id: completion-workspace
-        if: steps.publish-review.outcome == 'success'
+        if: ${{ !cancelled() && steps.publish-review.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-completed-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}
@@ -689,13 +704,14 @@ jobs:
           PI_REVIEW_OUTCOME: ${{ needs.review.outputs.pi_outcome }}
           PUBLISH_REVIEW_OUTCOME: ${{ steps.publish-review.outcome }}
           COMPLETION_WORKSPACE_OUTCOME: ${{ steps.completion-workspace.outcome }}
+          PUBLISH_JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
-            const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled'
+            const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled' || process.env.PUBLISH_JOB_STATUS === 'cancelled'
               ? 'cancelled'
-              : process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success'
+              : process.env.PUBLISH_JOB_STATUS === 'success' && process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success'
                 ? 'success'
                 : 'failure';
             await github.rest.checks.update({
@@ -715,6 +731,6 @@ jobs:
                   ? '审查已完成。'
                   : conclusion === 'cancelled'
                     ? '该审查已取消，当前提交保持不可合并。'
-                    : '审查未能可靠完成，当前提交保持不可合并。',
+                    : '审查或发布未全部完成；部分结果可能已经发布。失败明细见 Actions 运行摘要和 publication report，当前提交保持不可合并。',
               },
             });
