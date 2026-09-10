@@ -1,6 +1,8 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { createPublication, finishPublication, publicationSummary } from './publication.ts';
 import { parseReviewCoverage, validateCoverageCompletion } from './review-coverage.ts';
-import { readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
 
@@ -25,17 +27,20 @@ type PublishOptions = {
   token: string;
   expectedHeadSha: string;
   footer: string;
+  publicationId: string;
   api: string;
   requestSource?: string;
   requestCommentId?: string;
   requestRootCommentId?: string;
   threadReplyOnly?: boolean;
   fetchImpl?: typeof fetch;
+  publication?: ReturnType<typeof createPublication>;
 };
 type ReviewComment = {
   id: number;
   in_reply_to_id: number | null;
   body: string;
+  html_url?: string;
   user?: { login?: string };
 };
 type ReviewThread = {
@@ -59,25 +64,14 @@ async function github<T>(fetchImpl: typeof fetch, api: string, token: string, ro
   return (body ? JSON.parse(body) : undefined) as T;
 }
 
-async function reviewComments(
-  fetchImpl: typeof fetch,
-  api: string,
-  token: string,
-  repository: string,
-  pullNumber: number,
-) {
-  const comments: ReviewComment[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const batch = await github<ReviewComment[]>(
-      fetchImpl,
-      api,
-      token,
-      `/repos/${repository}/pulls/${pullNumber}/comments?per_page=100&page=${page}`,
-    );
-    comments.push(...batch);
-    if (batch.length < 100) return comments;
+async function listPullRecords<T>(fetchImpl: typeof fetch, api: string, token: string, route: string) {
+  const records: T[] = [];
+  for (let page = 1; ; page++) {
+    const batch = await github<T[]>(fetchImpl, api, token, `${route}?per_page=100&page=${page}`);
+    if (!Array.isArray(batch)) throw new Error(`Invalid GitHub list: ${route}`);
+    records.push(...batch);
+    if (batch.length < 100) return records;
   }
-  throw new Error('Too many review comments');
 }
 
 async function reviewThreads(
@@ -99,7 +93,11 @@ async function reviewThreads(
       }),
     });
     if (result.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(result.errors)}`);
-    const page = result.data.repository.pullRequest.reviewThreads;
+    const page = result.data?.repository?.pullRequest?.reviewThreads;
+    if (!Array.isArray(page?.nodes) || typeof page.pageInfo?.hasNextPage !== 'boolean' ||
+        (page.pageInfo.hasNextPage && (typeof page.pageInfo.endCursor !== 'string' || !page.pageInfo.endCursor))) {
+      throw new Error('Incomplete review thread page');
+    }
     threads.push(...page.nodes);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
@@ -116,6 +114,9 @@ async function reviewThreadState(fetchImpl: typeof fetch, api: string, token: st
   });
   if (result.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(result.errors)}`);
   if (!result.data.node) throw new Error(`${threadId} is no longer a review thread`);
+  if (result.data.node.id !== threadId || typeof result.data.node.isResolved !== 'boolean') {
+    throw new Error('Invalid review thread state');
+  }
   return result.data.node as { id: string; isResolved: boolean };
 }
 
@@ -168,125 +169,140 @@ export async function publishReview({
   token,
   expectedHeadSha,
   footer,
+  publicationId,
   api,
   requestSource = 'automatic',
   requestCommentId = '',
   requestRootCommentId = '',
   threadReplyOnly = false,
   fetchImpl = fetch,
+  publication = createPublication(),
 }: PublishOptions) {
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)) throw new Error('Invalid repository');
   if (!Number.isInteger(pullNumber) || pullNumber < 1) throw new Error('Invalid pull number');
   if (!/^[A-Za-z0-9-]+\[bot\]$/.test(botLogin)) throw new Error('Invalid review bot login');
   if (!/^[0-9a-f]{40}$/.test(expectedHeadSha)) throw new Error('Invalid review head');
 
-  const preparedUpdates: Array<{
-    update: ReviewResult['thread_updates'][number];
-    thread: ReviewThread;
-    previousStatus?: string;
-  }> = [];
-  const needsComments = result.thread_updates.length || requestSource === 'thread';
-  let comments: ReviewComment[] = [];
-  let threads: ReviewThread[] = [];
-  if (needsComments) {
-    [comments, threads] = await Promise.all([
-      reviewComments(fetchImpl, api, token, repository, pullNumber),
-      reviewThreads(fetchImpl, api, token, repository, pullNumber),
-    ]);
-    for (const update of result.thread_updates) {
-      const root = comments.find((comment) => comment.id === update.root_comment_id && comment.in_reply_to_id == null);
-      const thread = threads.find((item) => item.comments.nodes[0]?.databaseId === update.root_comment_id);
-      if (!root || !thread) throw new Error(`${update.root_comment_id} is not a root comment in this PR`);
-      preparedUpdates.push({
-        update,
-        thread,
-        previousStatus: comments
-          .filter((comment) =>
-            comment.in_reply_to_id === update.root_comment_id &&
-            comment.user?.login?.toLowerCase() === botLogin.toLowerCase() &&
-            comment.body.startsWith('**Pi thread 状态更新：'))
-          .at(-1)?.body,
-      });
-    }
-  }
+  if (!publicationId) throw new Error('Missing publication identity');
+  // 整体 schema 是公共前置条件；操作异常不影响其他独立写入。
+  parseReviewResult(JSON.stringify(result));
+  const { run } = publication;
+  const route = `/repos/${repository}/pulls/${pullNumber}`;
+  const request = <T>(endpoint: string, init?: RequestInit) => github<T>(fetchImpl, api, token, endpoint, init);
+  const isBot = (item: { user?: { login?: string } }) => item.user?.login?.toLowerCase() === botLogin.toLowerCase();
+  const marker = (id: string, content: unknown) => `<!-- agentic-review-publication:${createHash('sha256')
+    .update(JSON.stringify([publicationId, repository, pullNumber, expectedHeadSha, id, content])).digest('hex')} -->`;
+  const needsComments = result.comments.length > 0 || result.thread_updates.length > 0 || requestSource === 'thread';
+  const comments = needsComments ? await run('读取 PR 评论', [], () =>
+    listPullRecords<ReviewComment>(fetchImpl, api, token, `${route}/comments`)) : undefined;
+  const threads = result.thread_updates.length ? await run('读取 PR thread', [], () =>
+    reviewThreads(fetchImpl, api, token, repository, pullNumber)) : undefined;
+  const notice = () => {
+    const failed = publication.operations.filter(item => item.status !== 'succeeded').length;
+    return failed
+      ? `> [!WARNING]\n> 发布未全部完成：${failed} 项操作失败或因前置失败未执行。下文是审查判断，不能据此认定 finding 已发布或 thread 已关闭；实际执行结果见运行报告。`
+      : '> 下文为审查判断；GitHub 发布和 thread 同步的实际执行结果见运行报告。';
+  };
 
-  let requestReplyRoot: ReviewComment | undefined;
-  if (requestSource === 'thread') {
-    if (!/^[0-9]+$/.test(requestRootCommentId)) throw new Error('Thread request is missing its root comment');
-    requestReplyRoot = comments.find((comment) => comment.id === Number(requestRootCommentId) && comment.in_reply_to_id == null);
-    if (!requestReplyRoot) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
-  }
-
-  const review = threadReplyOnly && result.comments.length === 0
-    ? { html_url: '' }
-    : await github<{ html_url: string }>(
-      fetchImpl,
-      api,
-      token,
-      `/repos/${repository}/pulls/${pullNumber}/reviews`,
-      {
+  for (const [index, comment] of result.comments.entries()) {
+    const id = `finding ${index + 1} (${comment.path}:${comment.line})`;
+    await run(id, [comments!], async () => {
+      const tag = marker(id, comment);
+      const existing = comments!.value!.find(item => isBot(item) && item.in_reply_to_id == null && item.body.includes(tag));
+      if (existing) return existing.html_url;
+      const response = await request<{ html_url: string }>(`${route}/comments`, {
         method: 'POST',
         body: JSON.stringify({
-          body: `${result.body}\n\n---\n\n${footer}`,
-          commit_id: expectedHeadSha,
-          event: 'COMMENT',
-          comments: result.comments.map((comment) => ({
-            path: comment.path,
-            line: comment.line,
-            side: 'RIGHT',
-            body: comment.body,
-            ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
-          })),
+          path: comment.path, line: comment.line,
+          commit_id: expectedHeadSha, side: 'RIGHT', body: `${comment.body}\n\n${tag}`,
+          ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
         }),
-      },
-    );
-
-  if (requestReplyRoot) {
-    const marker = `<!-- agentic-review-request:${requestCommentId}:${expectedHeadSha} -->`;
-    const alreadyReplied = comments.some((comment) =>
-      comment.in_reply_to_id === requestReplyRoot!.id && comment.user?.login?.toLowerCase() === botLogin.toLowerCase() && comment.body.includes(marker));
-    if (!alreadyReplied) {
-      await github(
-        fetchImpl,
-        api,
-        token,
-        `/repos/${repository}/pulls/${pullNumber}/comments/${requestReplyRoot.id}/replies`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            body: `${marker}\n${result.request_reply?.body ?? result.body}\n\n${footer}`,
-          }),
-        },
-      );
-    }
+      });
+      return response.html_url;
+    });
   }
 
-  for (const { update, thread, previousStatus } of preparedUpdates) {
-    const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
-    if (!previousStatus?.startsWith(status)) {
-      await github(
-        fetchImpl,
-        api,
-        token,
-        `/repos/${repository}/pulls/${pullNumber}/comments/${update.root_comment_id}/replies`,
-        { method: 'POST', body: JSON.stringify({ body: `${status}\n\n${update.evidence}` }) },
-      );
-    }
-
-    const shouldResolve = update.status === 'resolved';
-    const currentThread = await reviewThreadState(fetchImpl, api, token, thread.id);
-    if (currentThread.isResolved !== shouldResolve) {
+  for (const update of result.thread_updates) {
+    const id = `thread ${update.root_comment_id}`;
+    const root = await run(`${id} 归属校验`, [comments!], async () => {
+      const found = comments!.value!.find(item => item.id === update.root_comment_id && item.in_reply_to_id == null);
+      if (!found) throw new Error(`${update.root_comment_id} is not a root comment in this PR`);
+      return found;
+    });
+    // 状态同步与证据回复互不依赖；各自失败均不阻断另一项。
+    await run(`${id} 状态同步`, [root, threads!], async () => {
+      const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
+      if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
+      const current = await reviewThreadState(fetchImpl, api, token, thread.id);
+      const shouldResolve = update.status === 'resolved';
+      if (current.isResolved === shouldResolve) return;
       const mutation = shouldResolve
         ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
         : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
-      const response: any = await github(fetchImpl, api, token, '/graphql', {
-        method: 'POST',
-        body: JSON.stringify({ query: mutation, variables: { thread: thread.id } }),
+      const response: any = await request('/graphql', {
+        method: 'POST', body: JSON.stringify({ query: mutation, variables: { thread: thread.id } }),
       });
       if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
-    }
+      const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
+      if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
+    });
+    await run(`${id} 证据回复`, [root], async () => {
+      const tag = marker(`${id} evidence`, update);
+      const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
+      if (replies.some(item => item.body.includes(tag))) return;
+      const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
+      if (replies.filter(item => item.body.startsWith('**Pi thread 状态更新：')).at(-1)?.body.startsWith(status)) return;
+      await request(`${route}/comments/${update.root_comment_id}/replies`, {
+        method: 'POST', body: JSON.stringify({
+          body: `${status}\n\n${update.evidence}\n\n以上为审查结论；GitHub 状态同步是否成功请查看运行报告。\n\n${footer}\n${tag}`,
+        }),
+      });
+    });
   }
-  return review.html_url;
+
+  if (requestSource === 'thread') {
+    await run('请求回复', [comments!], async () => {
+      if (!/^[0-9]+$/.test(requestRootCommentId)) throw new Error('Thread request is missing its root comment');
+      const root = comments!.value!.find(item => item.id === Number(requestRootCommentId) && item.in_reply_to_id == null);
+      if (!root) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
+      const tag = marker(`request ${requestCommentId}`, result.request_reply);
+      const existing = comments!.value!.find(item => item.in_reply_to_id === root.id && isBot(item) && item.body.includes(tag));
+      const body = `${notice()}\n\n${result.request_reply!.body}\n\n${footer}\n${tag}`;
+      if (existing) {
+        if (existing.body !== body) await request(`/repos/${repository}/pulls/comments/${existing.id}`, {
+          method: 'PATCH', body: JSON.stringify({ body }),
+        });
+        return;
+      }
+      await request(`${route}/comments/${root.id}/replies`, {
+        method: 'POST', body: JSON.stringify({ body }),
+      });
+    });
+  }
+
+  let reviewUrl = '';
+  if (!threadReplyOnly || result.comments.length > 0) {
+    const reviews = await run('读取已发布 Review', [], () => listPullRecords<{
+      id: number; body: string; html_url: string; user?: { login?: string };
+    }>(fetchImpl, api, token, `${route}/reviews`));
+    const review = await run('Review 正文', [reviews], async () => {
+      const tag = marker('summary', result);
+      const existing = reviews.value!.find(item => isBot(item) && item.body.includes(tag));
+      const body = `${tag}\n${notice()}\n\n${result.body}\n\n---\n\n${footer}`;
+      if (existing) {
+        if (existing.body !== body) await request(`${route}/reviews/${existing.id}`, {
+          method: 'PUT', body: JSON.stringify({ body }),
+        });
+        return existing.html_url;
+      }
+      const response = await request<{ html_url: string }>(`${route}/reviews`, {
+        method: 'POST', body: JSON.stringify({ body, commit_id: expectedHeadSha, event: 'COMMENT' }),
+      });
+      return response.html_url;
+    });
+    reviewUrl = review.value ?? '';
+  }
+  return { reviewUrl, operations: publication.operations };
 }
 
 function optionalNumber(value: string | undefined) {
@@ -299,48 +315,73 @@ function requiredEnv(name: string) {
   return value;
 }
 
-async function main() {
-  const result = parseReviewResult(await readFile(requiredEnv('REVIEW_RESULT_PATH'), 'utf8'));
-  const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
-  const coverage = parseReviewCoverage(JSON.parse(await readFile(coveragePath, 'utf8')));
-  // 请求由同一可信 job 的准备步骤绑定，发布目标不取自模型结果。
-  const request = coverage.request;
-  const { repository, pull_number: pullNumber, head_sha: headSha, source: triggerSource } = request;
-  if (!coverage.scope) throw new Error('Missing published review scope');
-  if (triggerSource === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
-  if (triggerSource !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
-  await validateCoverageCompletion(coverage, path.dirname(coveragePath), requiredEnv('REVIEW_INVENTORY_DIGEST'));
-  const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${[...new Set(coverage.scope.ranges.flatMap((range) => range.targets))].join(', ')})`;
-  const threadReplyOnly = triggerSource === 'thread' && coverage.scope.mode === 'focused';
-  const footer = buildFooter({
-    runUrl: requiredEnv('REVIEW_RUN_URL'),
-    workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
-    model: requiredEnv('REVIEW_MODEL'),
-    thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
-    durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
-    inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
-    outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS),
-    cost: optionalNumber(process.env.REVIEW_COST),
-    piVersion: process.env.REVIEW_PI_VERSION,
-    actionVersion: process.env.REVIEW_ACTION_VERSION,
-    scopeDescription,
+export async function main() {
+  const publication = createPublication();
+  const input = await publication.run('发布前校验', [], async () => {
+    const result = parseReviewResult(await readFile(requiredEnv('REVIEW_RESULT_PATH'), 'utf8'));
+    const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
+    const coverage = parseReviewCoverage(JSON.parse(await readFile(coveragePath, 'utf8')));
+    // 请求由同一可信 job 的准备步骤绑定，发布目标不取自模型结果。
+    const request = coverage.request;
+    if (!coverage.scope) throw new Error('Missing published review scope');
+    if (request.source === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
+    if (request.source !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
+    await validateCoverageCompletion(coverage, path.dirname(coveragePath), requiredEnv('REVIEW_INVENTORY_DIGEST'));
+    const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${[...new Set(coverage.scope.ranges.flatMap((range) => range.targets))].join(', ')})`;
+    const options: PublishOptions = {
+      publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result,
+      repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
+      botLogin: requiredEnv('REVIEW_BOT_LOGIN'), token: requiredEnv('GH_TOKEN'),
+      api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
+      requestSource: request.source, requestCommentId: request.comment_id ?? '',
+      requestRootCommentId: request.root_comment_id ?? '',
+      threadReplyOnly: request.source === 'thread' && coverage.scope.mode === 'focused',
+      footer: buildFooter({
+        runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
+        model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
+        durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
+        inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
+        outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
+        piVersion: process.env.REVIEW_PI_VERSION, actionVersion: process.env.REVIEW_ACTION_VERSION, scopeDescription,
+      }),
+    };
+    return { coverage, coveragePath, options };
   });
-  const url = await publishReview({
-    result,
-    repository,
-    pullNumber,
-    botLogin: requiredEnv('REVIEW_BOT_LOGIN'),
-    token: requiredEnv('GH_TOKEN'),
-    expectedHeadSha: headSha,
-    footer,
-    api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
-    requestSource: triggerSource,
-    requestCommentId: request.comment_id ?? '',
-    requestRootCommentId: request.root_comment_id ?? '',
-    threadReplyOnly,
+  let reviewUrl = '';
+  if (input.status === 'succeeded') {
+    try {
+      reviewUrl = (await publishReview(input.value!.options)).reviewUrl;
+    } catch (error) {
+      await publication.run('发布器初始化或调度', [], async () => { throw error; });
+    }
+  } else {
+    await publication.run('发布写入', [input], async () => {});
+  }
+  const report = { reviewUrl, operations: publication.operations };
+  await finishPublication(publication, {
+    saveReport: async () => {
+      const reportPath = path.join(path.dirname(requiredEnv('REVIEW_COVERAGE_PATH')), 'publication-report.json');
+      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+    },
+    writeSummary: process.env.GITHUB_STEP_SUMMARY
+      ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, 'GitHub 发布操作')) : undefined,
+    saveCoverage: input.status === 'succeeded' ? async (complete) => {
+      const { coverage, coveragePath } = input.value!;
+      await writeFile(coveragePath, `${JSON.stringify({
+        ...coverage, status: complete ? 'published' : 'draft',
+        complete_audit: complete && coverage.request.source === 'automatic' && coverage.scope!.mode === 'full',
+        updated_at: new Date().toISOString(),
+      })}\n`, { encoding: 'utf8', mode: 0o600 });
+    } : undefined,
   });
-  await writeFile(coveragePath, `${JSON.stringify({ ...coverage, status: 'published', complete_audit: triggerSource === 'automatic' && coverage.scope.mode === 'full', updated_at: new Date().toISOString() })}\n`, { encoding: 'utf8', mode: 0o600 });
-  console.log(`Published review: ${url}`);
+  const summary = publicationSummary(report.operations);
+  console.log(`Review URL: ${report.reviewUrl}`);
+  if (report.operations.some(item => item.status !== 'succeeded')) {
+    console.error(summary);
+    process.exitCode = 1;
+  } else {
+    console.log(summary);
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

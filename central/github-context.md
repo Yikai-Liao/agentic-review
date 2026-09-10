@@ -28,9 +28,9 @@
 node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 ```
 
-脚本通过 `gh` 读完分页，只输出相对启动快照新增或编辑的普通评论、inline 回复、Review 正文及变化的 thread 状态。完整读取输出，截断时补齐；以 ID 覆盖快照中的旧记录，按 `root_comment_id`、`in_reply_to_id` 关联 thread，结合已读原文判断，空数组表示该类没有增量。刷新时点遵循 `central/review-result.md`。
+脚本通过 `gh` 读完分页，输出相对启动快照新增或编辑的普通评论、inline 回复、Review 正文、变化的 thread 状态及 `removed_thread_ids`。完整读取输出，截断时补齐；以 ID 覆盖快照中的旧记录，按 `root_comment_id`、`in_reply_to_id` 关联 thread。用 `removed_thread_ids` 中的 thread ID 从启动快照定位原 root，将这些 thread 移出当前可更新集合，并重新核定历史结论与待提交的 `thread_updates`。thread 消失不证明问题已修复或获确认；代码问题仍成立时按新 finding 门槛重新判断。各数组都为空才表示没有检测到变化。刷新时点遵循 `central/review-result.md`。
 
-基线固定为本轮启动快照，重复调用仍返回本轮全部增量，不因一次输出未读完而丢失评论。普通评论和 inline 回复使用 `since` 增量拉取；Reviews API 不支持 `since`，thread 状态也需完整枚举，这两类在本地比对后只输出变化。脚本不检测已删除评论；有删除或上下文缺失线索时按 ID 用只读 `gh` 补查原记录。任一请求或分页失败时脚本报错，不能把失败当成“无新回复”。
+基线固定为本轮启动快照，重复调用仍返回本轮全部增量，不因一次输出未读完而丢失评论。普通评论和 inline 回复使用 `since` 增量拉取；Reviews API 不支持 `since`，thread 状态也需完整枚举，这两类在本地比对后只输出变化。thread 删除通过完整列表与基线比对检测，不增加 API 调用；脚本不检测单条评论删除，有上下文缺失线索时按 ID 用只读 `gh` 补查原记录。任一请求或分页失败时脚本报错，不能把失败当成“无新回复”。
 
 完成条件：输入快照中的元数据和讨论已读取，工作稿记录显式关联线索；thread 最终状态在归纳前核定。
 

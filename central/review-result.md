@@ -123,4 +123,4 @@ submit_review({"path":"<REVIEW_WORKSPACE_PATH>/review-result.json"})
 
 `submit_review` 先校验该文件、本轮 scope 和覆盖完成条件，通过后才封存。失败返回 `queued: false` 和具体错误，按错误修正对应文件后重试；失败不会封存。返回 `queued: true` / `Review queued for trusted publication.` 即本轮完成，立即结束 Agent 回合，不再调查、编辑、调用任何工具或再次提交。最终聊天回复只需简短确认，不重复输出 JSON。
 
-后续发布由可信 publisher 完成：使用封存的请求身份，验证 schema、scope、覆盖完成证据及 thread 在当前 PR 中的归属，把 `body` 与全部 inline comments 发布到本轮审查的 head，处理历史 thread，并追加运行元数据。Agent 不通过其他工具发布。
+后续发布由可信 publisher 完成：封存的请求身份、schema、scope 和覆盖完成证据是全部写入的前置条件；通过后将正文、新 finding、请求回复及历史 thread 操作分别发布。单项失败只阻断依赖它的操作，其余继续；thread 写入仍需校验当前 PR 归属。发布器追加运行元数据与实际执行说明，汇总成功、失败和因前置失败未执行的操作；未全部成功时保留失败状态，不推进完整 audit checkpoint。Agent 只提交审查判断，不推断 GitHub 写入已经成功，也不通过其他工具发布。

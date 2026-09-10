@@ -13,13 +13,36 @@ for (const source of ['automatic', 'pr_comment'] as const) {
 test(`${source}: model progress cannot rewrite request identity and publication still rejects incomplete coverage`, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-pipeline-'));
   const writes: unknown[] = [];
+  let failReview = false;
+  let failCoveragePath: string | undefined;
   const server = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk;
+    if (request.method === 'GET' && request.url?.startsWith('/repos/owner/repo/pulls/7/reviews?')) {
+      response.setHeader('Content-Type', 'application/json');
+      response.end('[]');
+      return;
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/repos/owner/repo/pulls/7/comments?')) {
+      response.setHeader('Content-Type', 'application/json'); response.end('[]'); return;
+    }
+    if (request.method === 'POST' && request.url === '/repos/owner/repo/pulls/7/comments') {
+      const finding = JSON.parse(body);
+      writes.push(finding);
+      response.setHeader('Content-Type', 'application/json');
+      response.statusCode = finding.line === 1 ? 422 : 201;
+      response.end(JSON.stringify(finding.line === 1 ? { message: 'invalid diff line' } : { html_url: 'https://github.test/finding' }));
+      return;
+    }
     assert.equal(request.url, '/repos/owner/repo/pulls/7/reviews');
     writes.push(JSON.parse(body));
     response.setHeader('Content-Type', 'application/json');
-    response.end(JSON.stringify({ html_url: 'https://github.test/review/1' }));
+    if (failCoveragePath) {
+      await rm(failCoveragePath);
+      await mkdir(failCoveragePath);
+    }
+    response.statusCode = failReview ? 503 : 201;
+    response.end(JSON.stringify(failReview ? { message: 'review unavailable' } : { html_url: 'https://github.test/review/1' }));
   });
   try {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -68,7 +91,7 @@ test(`${source}: model progress cannot rewrite request identity and publication 
       REVIEW_INVENTORY_DIGEST: outputs.inventory_digest, REVIEW_COMPARISON_START: outputs.comparison_start,
       REVIEW_RUN_ID: '20', REVIEW_RUN_ATTEMPT: '1', REVIEW_RESULT_PATH: resultPath, REVIEW_COVERAGE_PATH: coveragePath, REVIEW_BOT_LOGIN: 'review-app[bot]',
       REVIEW_RUN_URL: 'https://github.test/run', REVIEW_WORKSPACE_URL: 'https://github.test/workspace', REVIEW_MODEL: 'test',
-      GH_TOKEN: 'test-token', GITHUB_API_URL: `http://127.0.0.1:${address.port}` };
+      GITHUB_STEP_SUMMARY: path.join(directory, 'summary'), GH_TOKEN: 'test-token', GITHUB_API_URL: `http://127.0.0.1:${address.port}` };
     const publish = () => exec(process.execPath, ['scripts/publish-review.ts'], { env: publishEnv });
     const assemble = () => exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: publishEnv });
     await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, PULL_NUMBER: '8' } }), /context does not match/);
@@ -92,6 +115,67 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     assert.equal(published.complete_audit, source === 'automatic');
     assert.equal(published.request.text, env.REVIEW_COMMENT_BODY);
     assert.equal(await readFile(contextPath, 'utf8'), sealedContext);
+    // 一条 finding 失败也必须发布后续 finding 和正文，但退出失败且不能推进 checkpoint。
+    await assemble();
+    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [1, 2].map(line => ({
+      path: 'auth.ts', line, start_line: null, body: `finding ${line}`,
+    })), thread_updates: [], request_reply: null }));
+    const beforePartial = writes.length;
+    await assert.rejects(publish(), /invalid diff line/);
+    assert.equal(writes.length - beforePartial, 3);
+    const partialCoverage = JSON.parse(await readFile(coveragePath, 'utf8'));
+    assert.equal(partialCoverage.status, 'draft');
+    assert.equal(partialCoverage.complete_audit, false);
+    const reportPath = path.join(workspace, 'publication-report.json');
+    const partial = JSON.parse(await readFile(reportPath, 'utf8'));
+    assert.equal(partial.operations.filter((item: any) => item.status === 'failed').length, 1);
+    assert.equal(partial.operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
+    assert.match(await readFile(publishEnv.GITHUB_STEP_SUMMARY, 'utf8'), /GitHub 发布操作未全部完成/);
+    failReview = true;
+    await assert.rejects(publish(), /review unavailable/);
+    const multiple = JSON.parse(await readFile(reportPath, 'utf8'));
+    assert.equal(multiple.operations.filter((item: any) => item.status === 'failed').length, 2);
+    assert.equal(multiple.operations.find((item: any) => item.id.startsWith('finding 2')).status, 'succeeded');
+    // GitHub 全部成功时，任一报告出口失败仍须回写 draft，不能保留已有 published 状态。
+    failReview = false;
+    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [], thread_updates: [], request_reply: null }));
+    for (const outlet of ['report', 'summary']) {
+      await writeFile(coveragePath, JSON.stringify(published));
+      if (outlet === 'report') {
+        await rm(reportPath);
+        await mkdir(reportPath);
+      }
+      const before: number = writes.length;
+      await assert.rejects(exec(process.execPath, ['scripts/publish-review.ts'], {
+        env: { ...publishEnv, GITHUB_STEP_SUMMARY: outlet === 'summary' ? workspace : publishEnv.GITHUB_STEP_SUMMARY },
+      }), outlet === 'report' ? /保存发布报告/ : /写入 Actions 摘要/);
+      assert.equal(writes.length - before, 1);
+      const failed = JSON.parse(await readFile(coveragePath, 'utf8'));
+      assert.equal(failed.status, 'draft');
+      assert.equal(failed.complete_audit, false);
+      if (outlet === 'report') {
+        await rm(reportPath, { recursive: true });
+      } else {
+        const operations = JSON.parse(await readFile(reportPath, 'utf8')).operations;
+        assert.equal(operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
+        assert.equal(operations.find((item: any) => item.id === '写入 Actions 摘要').status, 'failed');
+        assert.match(operations.find((item: any) => item.id === '写入 Actions 摘要').error, /EISDIR/);
+        assert.equal(operations.find((item: any) => item.id === '保存覆盖状态').status, 'succeeded');
+      }
+    }
+    failCoveragePath = coveragePath;
+    await assert.rejects(publish(), /保存覆盖状态/);
+    const coverageFailure = JSON.parse(await readFile(reportPath, 'utf8')).operations.find((item: any) => item.id === '保存覆盖状态');
+    assert.equal(coverageFailure.status, 'failed');
+    assert.match(coverageFailure.error, /EISDIR/);
+    failCoveragePath = undefined;
+    await rm(coveragePath, { recursive: true });
+    await assemble();
+    await publish();
+    const recovered = JSON.parse(await readFile(coveragePath, 'utf8'));
+    assert.equal(recovered.status, 'published');
+    assert.equal(recovered.complete_audit, source === 'automatic');
+
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await rm(directory, { recursive: true, force: true });
