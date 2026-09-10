@@ -41,9 +41,9 @@ compaction 后先读取本轮 `notes.md`，按其中的调用方规则恢复入�
 
 - 成本随集合、分页、载荷、并发、锁、事务、重试或外部往返变化时，读取 [`references/performance.md`](references/performance.md)；
 - 当前变化涉及测试、fixture、snapshot、mock、test helper，或生产变化使既有测试错误判定重新可达时，读取 [`references/test-contracts.md`](references/test-contracts.md)；
-- 候选成立后，已有记录可能改变业务授权、归因、严重度、去重或状态时，读取 [`references/known-issues.md`](references/known-issues.md)；查询入口遵循 `evidence.md`。
+- 恢复当前变化的业务契约或已有验收场景，或用已有记录复核候选时，按 `evidence.md` 第 5 节读取 [`references/known-issues.md`](references/known-issues.md)。
 
-完成条件：每个 batch 的证据和候选反证已落盘并标记 complete；ledger/census 每项都有结论，继承项满足 `workspace.md` 的条件，待验证项已查明或按证据门槛明确排除。
+完成条件：每个 batch 满足 `evidence.md` 的行为调查和候选反证要求，证据已落盘并标记 complete；ledger/census 每项都有结论，继承项满足 `workspace.md` 的条件。证据缺口按其实际限制记录，不能由没有 finding 推断行为已证明正确。
 
 ### 可选委派
 
