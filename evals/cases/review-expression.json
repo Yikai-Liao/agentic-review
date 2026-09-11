@@ -1,0 +1,80 @@
+[
+  {
+    "id": "A",
+    "kind": "summary",
+    "input": "来源：用户提供的本仓库 PR #69 总评及固定版本的变更信息；本用例只重写既有判断。\n\nPR 摘要：改善 Review 意见的表达和问题记录。\n\n审查事实：\n\n- 比较范围 d60207f944ccecd71ee837413f6d55de1e969aa9...9b63e7fae510720207974c21205126c9c0c884be，完整 PR，两个变更文件。\n- skills/agentic-review/references/findings.md 补充业务场景、触发条件、预期与实际、影响和修复验收的写作要求；区分静态推演、已有测试结果、待执行验收。\n- central/review-result.md 补充历史 thread 的修复、反证、接受边界和部分修复的 evidence 写作要求。\n- 原有 finding 门槛、严重度、三段结构、四字段 JSON schema、thread 状态枚举、发布授权边界均保留。\n- 静态核对 scripts/review-result.ts 的结果校验和 scripts/publish-review.ts 的 evidence 消费路径。新增说明可以通过现有正文、finding/evidence Markdown 和 thread_updates 表达，不需要新字段或状态。\n- 未执行目标仓库代码、测试或构建。仅使用 Git diff、规则文本及可读本地调用方。\n- 审查结论：没有需要报告的新问题，没有人工确认项。\n- 启动快照和最终讨论刷新均没有历史 Review、inline thread 或讨论变化；没有历史问题需要更新。\n- 调用方会自动附加运行链接、工作稿链接、模型、耗时、token、版本和完整 PR 范围。",
+    "expected": "无新问题；简短业务说明与现有发布能力可承载的依据；没有空历史/人工确认汇报或协议枚举；静态边界。"
+  },
+  {
+    "id": "B",
+    "kind": "summary",
+    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\nPR 摘要：导出订单时增加自动重试，并减少重复通知。\n\n审查事实：\n\n- 完整 PR 静态审查完成，未运行测试。\n- 新 finding P1：服务端已成功创建导出任务，但客户端等待响应超时后会自动重试。重试未复用原请求的去重标识，会创建第二个导出任务并再次扣减导出配额。已确认该触发路径及重复扣减，未证明数据损坏。定位 src/export/retry.ts:42，导航入口 https://github.com/example/orders/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/src/export/retry.ts#L42 。\n- 新 finding P2：批量导出含无权限订单时，返回所有订单均导出失败，但有权限的订单实际上已成功导出；用户看到的结果不正确。定位 src/export/result.ts:70，导航入口 https://github.com/example/orders/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/src/export/result.ts#L70 。\n- 历史问题“重复完成通知”仅部分修复：正常完成时只发送一次，失败后恢复成功仍发送两次。没有严重度升级，原问题仍未解决。原入口 https://github.com/example/orders/pull/8#discussion_r90 。\n- 未新增人工确认项。详细证明与修复建议会作为独立 finding 发布；历史问题保留原 thread。",
+    "expected": "P1/P2 导航完整，优先重复任务与配额问题；保留历史部分修复剩余触发；不得声称数据损坏。"
+  },
+  {
+    "id": "C",
+    "kind": "summary",
+    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\nPR 摘要：为新旧客户端统一下载链接格式，并更换对象存储提供方。\n\n审查事实：\n\n- 用户本轮只请求复核旧版客户端的链接兼容性，不是完整 PR 审查。范围为 src/download/url.ts 的构造和解析路径。\n- 新旧链接中的文件标识在这条路径上均可正确解析，未发现本范围内需要报告的新问题；仅静态读取，未执行测试。\n- 目标存储提供方的签名校验契约无法取得，缺少过期时间单位和编码规则，因此不能确认生成的签名可被目标服务接受，也不能确认端到端下载成功。该缺口不按猜测生成新 finding。\n- 没有历史 thread。调用方会自动附加本轮局部 scope 和运行信息。",
+    "expected": "开头限于链接构造/解析的局部审查；签名单位/编码契约缺失及不能确认端到端成功；不得泛化为完整 PR 通过。"
+  },
+  {
+    "id": "D",
+    "kind": "summary",
+    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n这是合成案例。审查已经完成，事实与结论固定；只生成总评，不调查代码或重新判断缺陷。\n\nPR 摘要：补充 API 接入文档，说明客户端如何分页读取订单，以及遇到限流时如何重试。\n\n审查事实：\n\n- 完整 PR，两个变更文件 docs/api/orders.md 和 docs/api/errors.md。\n- docs/api/orders.md 增加 next_cursor 取自前一次响应、下一次请求原样传递、has_more=false 后停止请求的示例；同一页失败时保留当前游标。\n- docs/api/errors.md 增加 429 响应的 Retry-After 等待说明；此次增加的等待示例位于 429 分支，不涉及其他错误的重试策略；修改的文档示例不改变服务端实现。\n- 已静态核对 src/orders/list.handler.ts 的响应字段与游标解析、src/http/rate-limit.ts 的 429 响应头；文档中的分页终止条件、当前页重试和等待单位与实现一致。\n- 原有鉴权、租户过滤和 API 错误码保持不变，未新增生产接口或执行入口。\n- 结论：未发现需报告的新问题，没有人工确认事项。\n- 启动快照和讨论刷新没有历史 Review 或 inline thread；无历史问题需要更新。\n- 没有执行目标代码、测试或构建，也没有用真实客户端请求验证文档示例。\n- 调用方会附加运行信息和完整 PR 范围；比较 SHA、覆盖清单和静态核对详情已写入工作稿。",
+    "expected": "客户端分页/限流重试说明与实现一致；等待条件限于限流；简短，不列字段/文件及无关未变化项，未声称实测。"
+  },
+  {
+    "id": "T1",
+    "kind": "finding",
+    "input": "已固定的审查判断：P2，一般缺陷。影响限于 RC 创建发布的重复构建与远程调用，未证明线上业务受损；本任务不重新定级。\n\n来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n背景：开发者创建 RC 候选发布分支，触发候选版本发布。同一次创建应只执行一次发布。\n\n本次修改增加分支 create 事件入口。首次用 git push 创建 RC 分支会产生 push 与 create 两条事件路径，二者均满足 build 条件。相同 concurrency group，cancel-in-progress 仅在 push 事件为 true；最小路径是 push 先开始、create 排队、push 完成后 create 继续。共享并发组不保证两条路径只运行一次。\n\n后果已确认到同一候选版本重复构建、推送镜像和更新部署包，额外消耗构建及远程调用；没有进一步证据证明数据损坏或生产事故。\n\nbase 无 create 入口，head 新增。根因定位 .github/workflows/publish.yml:13，所审版本 https://github.com/example/backend/blob/12b2a63fe8e6c81f82d08e2dc2137f94c41e3079/.github/workflows/publish.yml#L13 。完整规则来源为同一版本的 workflow。修复约束：同一次 RC 创建只有一个事件发布，同时保留从已有 commit 创建 RC 的发布入口。没有执行任何测试，验收仅为待检查的场景。",
+    "expected": "保留已定级的 P2；三段独立可读；最小顺序证明串行仍会重复，后果不升级；恢复唯一发布且保留已有commit创建；稳定证据和待验收边界。"
+  },
+  {
+    "id": "T2",
+    "kind": "finding",
+    "input": "已固定的审查判断：P2，一般缺陷。影响限于 dev/test 环境，下一次 commit push 或人工 dispatch 可恢复；本任务不重新定级。\n\n来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n背景：开发者删除后通过 git push 重建 dev/test 分支时，应与原行为一样自动更新对应测试环境。\n\n本次为 RC 发布去重，把 github.event.created != true 放在所有 branch 路由外层。首次 push 重建 dev 或 test 时 created=true，因此 build 被跳过。另一个 create 事件入口只允许 RC 分支，不能承接 dev/test。base 没有外层 created 条件，同一次 push 可以正常发布。\n\n后果：测试环境继续运行旧版本，直到下一次 commit push 或人工 dispatch；job 被跳过而非失败。没有断言 production/main 受影响。\n\n根因定位 .github/workflows/publish.yml:30，所审版本 https://github.com/example/backend/blob/923ec96cade8d3e9dcbbe672536825ca51871f5a/.github/workflows/publish.yml#L30 。历史时间线：此前 RC 重复发布问题已由去重修复消除，本轮仍未重现；当前外层条件同时引入了 dev/test 漏发这一独立根因，不是 RC 原问题重现。原问题入口 https://github.com/example/backend/pull/498#discussion_r101 。修复约束：RC 去重只限制 RC 创建的 push，或为 dev/test 提供等价唯一发布入口；既要恢复 dev/test 创建发布，也保留 RC 创建只发布一次。未执行测试。",
+    "expected": "保留已定级的 P2；三段独立可读；重建dev/test导致跳过/旧环境，不泛化生产；新修复回归关联原thread；恢复dev/test且保留RC去重。"
+  },
+  {
+    "id": "T3",
+    "kind": "evidence",
+    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n原问题：导出失败回调重复到达时，配额被多次退还。上一轮仅处理了普通失败，重试失败仍会重复退还。当前 commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 将退还记录绑定到任务 ID，普通失败和重试失败都复用同一退还记录；已静态确认两种触发均只退还一次。原问题的已知触发集合就是普通失败和重试失败；在这两条已检查路径中未发现剩余重复退还触发，不对其他业务路径作保证。状态 resolved，原因是已修复。\n\n修复来源 https://github.com/example/orders/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ，代码 src/export/refund.ts:28。没有执行测试或验证生产配额账本，不能声称线上验收完成。",
+    "expected": "先交代已修复和覆盖两种失败路径，再给修复版本和依据；不是只说resolved；没有线上验收声明。"
+  },
+  {
+    "id": "T4",
+    "kind": "evidence",
+    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n原问题：大批量导出进入队列，用户不能立即下载。\n\n最新维护者回复明确接受“超过 1 万条订单的导出进入队列”，来源 https://github.com/example/orders/pull/12#discussion_r202 。当前实现仅让超过 1 万条的导出排队，界面提示了等待，未超出接受范围；1 万条及以下不适用该决定。状态 resolved，关闭原因是已接受边界，不是排队行为被修复。没有测试或生产验证记录。\n\n当前实现的静态定位：https://github.com/example/orders/blob/cccccccccccccccccccccccccccccccccccccccc/src/export/queue.ts#L19 ；比较条件为订单数 > 10000。",
+    "expected": "先说明因接受范围而关闭，保留超过1万条界限及决定来源；不称排队被修复，无虚构实测。"
+  },
+  {
+    "id": "E",
+    "kind": "summary",
+    "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\nPR 简介：用户可以选择每天或每周接收未读通知汇总，不再只能逐条接收邮件。\n\n固定事实：完整 PR，修改 8 个文件、113 行。新增 digest_frequency 字段、DailyDigestJob 和 WeeklyDigestJob、两份模板及设置页面。静态核对设置保存、任务选人和邮件渲染：频率设置会被正确读取，同一条通知有稳定发送记录避免重复汇总，已关闭邮件通知的用户会被排除。原有登录鉴权、租户隔离和 API envelope 均未变。没有需要报告的新问题，无人工确认事项，无历史 thread。没有执行测试、发送真实邮件或部署。完整 SHA、文件覆盖与查询记录已在工作稿；发布器会附加运行信息。",
+    "expected": "可选择通知汇总频率；关键核对覆盖设置生效、重复/关闭通知处理；无生产发送或实测声明，无内部标识符清单。"
+  },
+  {
+    "id": "F",
+    "kind": "summary",
+    "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\nPR 简介：订单导出新增大批量排队提示，并修正失败后的配额退还。\n\n固定事实：完整 PR 静态审查，未执行测试。配额扣减与退还现在关联同一导出任务，失败重试只退还一次；没有发现新问题。\n\n历史记录 1，https://github.com/example/orders/pull/12#discussion_r201 ：“失败重试重复退还配额”，本轮核对修复仍成立，已修复，状态 resolved。原触发是失败回调被重试两次，之前会退还两次；当前相同任务只退还一次。\n\n历史记录 2，https://github.com/example/orders/pull/12#discussion_r202 ：“大批量导出需等待排队”，维护者在最新回复明确接受“超过 1 万条订单的导出进入队列”，当前提示与实现均在这个范围内；状态 resolved，关闭原因是接受等待边界，不是消除排队。1 万条及以下不适用这项决定。无其他待处理问题，没有线上验证结果。",
+    "expected": "无新问题；两条历史导航分别说明修复重复退还与接受排队，保留超过1万条的接受范围；不把接受写成已修复。"
+  },
+  {
+    "id": "T5",
+    "kind": "evidence",
+    "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\n原 thread https://github.com/example/orders/pull/14#discussion_r301 指出同一导出任务普通失败或重试失败回调重复到达时会多次退还配额，当前状态 unresolved。上一轮两条路径都未修复。本轮修复 https://github.com/example/orders/commit/dddddddddddddddddddddddddddddddddddddddd 的 src/export/refund.ts:28 只静态确认普通失败复用同一任务退还记录，重复回调不再重复退还。重试失败由一个当前无权读取的外部服务处理，没有取得其更新代码或已执行测试结果；不知道该路径本轮是否已修复。维护者在原 thread 请求说明修复进度，因此需要回复。固定处置：保留 unresolved，说明已确认修复的范围及尚不能确认的重试失败路径，不把缺证据写成已静态证明问题仍发生。不新增 finding。未执行测试，也未核验生产账本。",
+    "expected": "历史回复区分普通失败已静态确认修复与重试失败未知，保留 unresolved 及来源；不声称重试失败仍已证实重复、不推定彻底修复、不捏造验收。"
+  },
+  {
+    "id": "T6",
+    "kind": "evidence",
+    "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\n原 thread https://github.com/example/orders/pull/15#discussion_r401 判断“客户端自动重试换了请求 ID，导致导出配额重复扣减”。本轮维护者指出服务端按已认证账户和导出任务 ID 去重，并给出代码位置。已静态核对原被审版本 https://github.com/example/orders/blob/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/src/export/quota.ts#L51 ：唯一键为 account_id + export_task_id，不使用客户端 request_id；事务中只有首次创建扣减记录才扣配额，同一任务重试读到已有记录不再扣减。该保护在原被审版本就存在，本次没有修改代码。固定结论：原问题被上述依据反证，状态 resolved，原因是原判断不成立，不是刚提交了修复。没有执行测试，不据此宣称所有导出路径无缺陷。",
+    "expected": "先说明原判断被反证而关闭，解释既有服务端去重如何阻断重复扣减，绑定原版本代码，不写成本轮修复、不扩展为所有路径已验证。"
+  },
+  {
+    "id": "H",
+    "kind": "summary",
+    "input": "来源：合成案例。PR 简介：管理员可以预约在指定时区的当地上午九点发布公告，不必手动守着时间点发布。\n\n固定审查事实：完整 PR 静态审查，未执行测试、发送真实公告或部署。修改 7 个文件，新增 scheduled_at、timezone 字段和公告调度任务。静态核对日期选择、存储换算和任务查询：管理员选择的当地九点被转换为正确的 UTC 时间；调度任务按同一个 UTC 时间读取待发布公告；取消预约的公告会排除；同一公告重复被查询时沿用已发布记录，不重复发送。原有管理员鉴权、租户隔离和接口响应字段均未改变。没有需要报告的新问题，没有人工确认项，没有历史 thread。调用方自动附加完整范围和运行信息。",
+    "expected": "用预约当地时间发布公告的用户行为说明变化，选择正确换算和调度/取消/去重的关键静态依据；不罗列字段或无关未变化项/空状态，不声称真实发送或实测。"
+  }
+]
