@@ -67,7 +67,7 @@ thread update 的 `evidence` 说明哪项修复或决定改变了原判断，并
 
 约束：
 
-- `body` 是自由 Markdown，不是固定统计表。它应清楚介绍 PR 改变的行为、实现路径、影响、审查结论、新 finding 导航、历史 thread 状态和必要的 known issue 链接；不要添加 Action footer；
+- `body` 按 [findings.md 的 Review 正文规则](../skills/agentic-review/references/findings.md#review-正文)组织，历史 thread 状态遵循第 2 节；运行元数据与实际发布结果由可信发布器追加，Agent 不添加 Action footer；
 - 标题：有新 finding 或人工确认用 `## 自动代码审查 ⬆️`，否则有未解决历史问题用 `## 自动代码审查 ❌`，其余用 `## 自动代码审查 ✅`。正文分组遵循 `findings.md`，历史状态按第 2 节；
 - `comments` 只保留最终归纳后的新 finding，每项恰好包含 `path`、`line`、`start_line`、`body`；路径必须是仓库相对路径，单行使用 `start_line: null`，多行起始行不得大于 `line`；
 - `thread_updates` 只保留当前 PR 中状态实际变化的历史 inline thread，每项恰好包含 `root_comment_id`、`status`、`evidence`；`status` 只能是 `resolved`、`severity_increased` 或 `reintroduced`；
@@ -78,13 +78,13 @@ thread update 的 `evidence` 说明哪项修复或决定改变了原判断，并
 
 中央 inline finding 必须使用 [findings.md 的模板、Alert 和证明要求](../skills/agentic-review/references/findings.md#finding-内容)，段间空一行，不加“等级：”前缀。
 
-以下是三种请求没有新 finding 或 thread 状态变化时的完整结构示例，正文需按实际审查替换。
+以下是三种请求没有新 finding 或 thread 状态变化时的完整结构示例，示例事实不代表当前 PR，正文需按实际审查替换。
 
 automatic：
 
 ```json
 {
-  "body": "## 自动代码审查 ✅\n\n已审查完整 PR，未发现需要报告的新问题。",
+  "body": "## 自动代码审查 ✅\n\n未发现需要处理的新问题。\n\n这次主要调整审查意见的写法：讲清问题怎么发生、怎样修、怎样验收；后续回复还要说明问题是修好了、原判断不成立，还是接受了某项边界。核对结果：这些说明能由现有评论和状态更新承载，不需要改发布接口或增加权限。\n\n已静态审查完整 PR；未执行测试。",
   "comments": [],
   "thread_updates": [],
   "request_reply": null
@@ -95,7 +95,7 @@ pr_comment：
 
 ```json
 {
-  "body": "## 自动代码审查 ✅\n\n已按评论请求复核鉴权链路，结论仅覆盖本轮记录的范围，未发现新问题。",
+  "body": "## 自动代码审查 ✅\n\n本轮仅按请求复核鉴权链路，未发现新问题；不代表完整 PR 的审查结论。\n\n新增读取入口仍先核对当前用户的资源权限，拒绝请求时不会返回资源内容。以上为静态判断，未执行测试。",
   "comments": [],
   "thread_updates": [],
   "request_reply": null
@@ -106,7 +106,7 @@ thread：
 
 ```json
 {
-  "body": "## 自动代码审查 ❌\n\n已复核当前 thread 涉及的鉴权路径。\n\n⏳ 仍未解决：[缺少权限校验](https://github.com/owner/repo/pull/7#discussion_r123456)",
+  "body": "## 自动代码审查 ❌\n\n原问题仍未解决：当前路径仍在权限校验前读取记录。本轮仅静态复核该 thread 涉及的鉴权路径。\n\n⏳ 仍未解决：[缺少权限校验](https://github.com/owner/repo/pull/7#discussion_r123456)",
   "comments": [],
   "thread_updates": [],
   "request_reply": { "body": "当前调用路径仍在权限校验前读取记录，原问题结论未变。" }
