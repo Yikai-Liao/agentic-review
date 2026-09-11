@@ -25,7 +25,11 @@ workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集
 
 文档同步记录已确认决定时保持 `resolved`，不能仅因决定写入当前 head 而标记 `reintroduced`。
 
-正文每个历史 thread 只列一行状态、finding 标题和链接；状态用 `⏳ 仍未解决`、`⚠️ 风险升级`、`🔁 问题重现`、`✅ 已关闭`，完整证据只写入 thread update。T2→T1、P2→P1/P0 或性能从有界路径变为无界/常见路径属风险升级；测试问题升级为生产问题时更新原 thread。
+正文每个历史 thread 列一行状态、finding 标题和链接，必要时简述部分修复的进展；状态用 `⏳ 仍未解决`、`⚠️ 风险升级`、`🔁 问题重现`、`✅ 已关闭`，完整状态变化证据写入 thread update。T2→T1、P2→P1/P0 或性能从有界路径变为无界/常见路径属风险升级；测试问题升级为生产问题时更新原 thread。
+
+thread update 的 `evidence` 按三段填入不同内容：①仅一句处置结论，区分已修复、原判断被反证、已接受边界；②改变判断的代码或决定、覆盖与剩余触发、接受范围；③静态确认、已有测试和待验收的边界。每项事实只写一次。
+
+第二段用真实来源定位，例如“[aaaaaaa](原 commit URL) 的 `src/export/refund.ts:28` 让两种失败复用退还记录”。链接目标原样保留，标签与目标类型一致；commit 链接不能冒充文件链接。部分修复仍按上方规则判定状态；未解决且无状态变化时，有请求回复就在回复中展开，否则在正文状态行简述。修复引入的新根因另记 finding，并在其“依据与处理”附原 thread 链接。
 
 使用当前 PR 内原 thread 的 root comment ID，每轮最多更新一次；最新 `Pi thread 状态更新` 相同时不重复。根据审查结论决定 resolve/reopen，不以 thread 创建者身份为条件。正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
 
@@ -65,7 +69,7 @@ workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集
 
 约束：
 
-- `body` 是自由 Markdown，不是固定统计表。它应清楚介绍 PR 改变的行为、实现路径、影响、审查结论、新 finding 导航、历史 thread 状态和必要的 known issue 链接；不要添加 Action footer；
+- `body` 逐段填入 [findings.md 的 Review 正文骨架](../skills/agentic-review/references/findings.md#review-正文)，提交前核对每段的内容槽位，历史 thread 状态遵循第 2 节；运行元数据与实际发布结果由可信发布器追加，Agent 不添加 Action footer；
 - 标题：有新 finding 或人工确认用 `## 自动代码审查 ⬆️`，否则有未解决历史问题用 `## 自动代码审查 ❌`，其余用 `## 自动代码审查 ✅`。正文分组遵循 `findings.md`，历史状态按第 2 节；
 - `comments` 只保留最终归纳后的新 finding，每项恰好包含 `path`、`line`、`start_line`、`body`；路径必须是仓库相对路径，单行使用 `start_line: null`，多行起始行不得大于 `line`；
 - `thread_updates` 只保留当前 PR 中状态实际变化的历史 inline thread，每项恰好包含 `root_comment_id`、`status`、`evidence`；`status` 只能是 `resolved`、`severity_increased` 或 `reintroduced`；
@@ -76,13 +80,13 @@ workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集
 
 中央 inline finding 必须使用 [findings.md 的模板、Alert 和证明要求](../skills/agentic-review/references/findings.md#finding-内容)，段间空一行，不加“等级：”前缀。
 
-以下是三种请求没有新 finding 或 thread 状态变化时的完整结构示例，正文需按实际审查替换。
+以下是三种请求没有新 finding 或 thread 状态变化时的完整结构示例，示例事实不代表当前 PR，正文需按实际审查替换。
 
 automatic：
 
 ```json
 {
-  "body": "## 自动代码审查 ✅\n\n已审查完整 PR，未发现需要报告的新问题。",
+  "body": "## 自动代码审查 ✅\n\n未发现需要处理的新问题。\n\n这次要求审查意见讲清问题和修复验收，并记录问题为何关闭。现有评论和状态更新足以承载这些说明，无需改发布接口。\n\n完整 PR 静态审查，未执行测试。",
   "comments": [],
   "thread_updates": [],
   "request_reply": null
@@ -93,7 +97,7 @@ pr_comment：
 
 ```json
 {
-  "body": "## 自动代码审查 ✅\n\n已按评论请求复核鉴权链路，结论仅覆盖本轮记录的范围，未发现新问题。",
+  "body": "## 自动代码审查 ✅\n\n本轮仅按请求复核鉴权链路，未发现新问题；不代表完整 PR 的审查结论。\n\n新增读取入口仍先核对当前用户的资源权限，拒绝请求时不会返回资源内容。以上为静态判断，未执行测试。",
   "comments": [],
   "thread_updates": [],
   "request_reply": null
@@ -104,7 +108,7 @@ thread：
 
 ```json
 {
-  "body": "## 自动代码审查 ❌\n\n已复核当前 thread 涉及的鉴权路径。\n\n⏳ 仍未解决：[缺少权限校验](https://github.com/owner/repo/pull/7#discussion_r123456)",
+  "body": "## 自动代码审查 ❌\n\n原问题仍未解决：当前路径仍在权限校验前读取记录。本轮仅静态复核该 thread 涉及的鉴权路径。\n\n⏳ 仍未解决：[缺少权限校验](https://github.com/owner/repo/pull/7#discussion_r123456)",
   "comments": [],
   "thread_updates": [],
   "request_reply": { "body": "当前调用路径仍在权限校验前读取记录，原问题结论未变。" }

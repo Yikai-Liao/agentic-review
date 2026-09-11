@@ -136,6 +136,14 @@ jobs:
           ref: ${{ github.sha }}
           path: control
           persist-credentials: false
+          # 维护用 Skill 和评测材料不进入 Agent 的控制面工作树或 Skill 发现范围。
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/pi-extensions/
+            /central/
+            /prompts/
+            /scripts/
+            /skills/agentic-review/
 
       - name: Set up Node.js for trusted review scripts
         uses: actions/setup-node@v7.0.0

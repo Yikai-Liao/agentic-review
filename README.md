@@ -17,7 +17,9 @@ GitHub pull_request webhook
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent、aggregator 或 benchmark。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，注册为 Pi Skill 并在首次 Prompt 预载，context compaction 后仍可通过 Skill 发现恢复；`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，workflow 还会生成当前 commits 关联的其他 PR 和当前 PR 自动关闭 Issue 的索引。Agent 先独立审查当前变化，再按候选 finding 定向读取关联记录，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不再维护自研 Pi SDK、multi-agent 或 aggregator。`prompts/review-rules.md` 是唯一入口，Review 方法论位于 `skills/agentic-review/`，注册为 Pi Skill 并在首次 Prompt 预载，context compaction 后仍可通过 Skill 发现恢复；`central/` 下的普通文档接入 GitHub 上下文和可信发布。下游仓库的自定义规则放在 `.agentic-review.md`，workflow 还会生成当前 commits 关联的其他 PR 和当前 PR 自动关闭 Issue 的索引。Agent 先独立审查当前变化，再按候选 finding 定向读取关联记录，不加载全量历史。
+
+Review 方法和表达按 [Darwin 迭代流程](evals/README.md)演进：固定用例、新旧版独立生成、三评委匿名成对比较、长度与事实回归后才保留。Git 只维护工具、用例和精简结果；运行产物在 `evals/experiments/` 本地留存并忽略，不进入生产 Review，也不代替缺陷准确率评测。
 
 ## 本地安装与使用
 

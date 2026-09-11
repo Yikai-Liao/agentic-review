@@ -10,5 +10,5 @@
     "types": ["node"],
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["worker/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
+  "include": ["worker/src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "evals/evaluate.ts"]
 }
