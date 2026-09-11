@@ -138,8 +138,8 @@ export async function blind(root: string, id: string) {
     }));
     const material = `# 匿名成对评判\n\n只评表达，不审查代码。下列 X/Y 标签不表示新旧顺序；同一份材料内标签一致。只读本文件，不读取版本映射、其他评委或源 Prompt。逐对判断是否满足要求，并给出偏好 X/Y/tie；保留具体异议，勿用冗长等同完整。\n\n${await read(dir, 'rubric.md')}\n\n## 固定事实与原始输出\n\n${pretty(pairs)}\n`;
     const packetSha256 = sha(material);
-    const schema = { packetSha256, overall: 'X', cases: pairs.map(pair => ({ id: pair.id, xPass: true, yPass: false, preference: 'X', margin: 'clear', reason: '具体比较依据', concerns: [] })) };
-    const packet = `${material}\n## 提交评价\n\n用 apply_patch 写 evals/experiments/${id}/judges/${judge}.json，严格使用以下 JSON 结构。示例值是占位符，不是预期评价；overall 是整组偏好。\n\n${pretty(schema)}`;
+    const schema = { packetSha256, overall: null, cases: pairs.map(pair => ({ id: pair.id, xPass: null, yPass: null, preference: null, margin: null, reason: '', concerns: [] })) };
+    const packet = `${material}\n## 提交评价\n\n用 apply_patch 写 evals/experiments/${id}/judges/${judge}.json，使用以下 JSON 结构并独立填写所有判断。null 表示尚未评价，提交时必须替换：overall（整组偏好）和 preference 为 X、Y 或 tie；xPass/yPass 为布尔值；margin 为 clear 或 slight；reason 为非空的具体比较依据；concerns 为具体异议的字符串数组，无异议时为空。保留 packetSha256 和各用例 id。\n\n${pretty(schema)}`;
     await save(dir, `judges/${judge}.md`, packet);
     mappings[String(judge)] = { candidate, packetSha256, fileSha256: sha(packet), outputs: Object.fromEntries(Object.entries(outputs).map(([file, content]) => [file, sha(content)])) };
   }

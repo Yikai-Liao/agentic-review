@@ -122,6 +122,29 @@ test('blind evaluation requires every nonempty output and hides variant labels',
   await assert.rejects(blind(f.root, 'trial'), /EEXIST/);
 });
 
+test('neutral judge templates cannot cast votes or pass the gate unchanged', async t => {
+  const f = await fixture(t);
+  await prepare(f.root, 'trial');
+  for (const variant of ['baseline', 'candidate']) for (const repeat of [1, 2]) for (const id of ['A', 'B']) {
+    await f.write(`${f.dir}/outputs/${variant}/r${repeat}/${id}.md`, `相同输出 ${id}`);
+  }
+  await blind(f.root, 'trial');
+  for (const judge of [1, 2, 3]) {
+    const packet = await readFile(path.join(f.root, f.dir, `judges/${judge}.md`), 'utf8');
+    const template = JSON.parse(packet.slice(packet.lastIndexOf('\n{\n')));
+    assert.equal(template.overall, null);
+    for (const item of template.cases) {
+      assert.deepEqual([item.xPass, item.yPass, item.preference, item.margin, item.reason], [null, null, null, null, '']);
+    }
+    await f.write(`${f.dir}/judges/${judge}.json`, JSON.stringify(template));
+  }
+  await assert.rejects(check(f.root, 'trial'), /版本或偏好无效/);
+  await f.judges('tie');
+  const tied = await check(f.root, 'trial');
+  assert.equal(tied.recommendation, 'revise');
+  assert.deepEqual(tied.votes, { candidate: 0, baseline: 0, tie: 3 });
+});
+
 test('paired recommendation requires three judges, majority improvement and passing every case', async t => {
   const f = await fixture(t);
   await prepare(f.root, 'trial'); await f.outputs(); await blind(f.root, 'trial');
