@@ -74,7 +74,7 @@ finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定
 
 `GH_TOKEN` 的可读集合由可信 workflow 在 Agent 启动前固定。自动索引或审查输入中的明确稳定 Issue/PR 引用可在集合内选择私有记录，无须 merge-base 预授权，但不能扩大仓库或权限范围。
 
-读取时机与相关性按 `references/protocol.md` 的“独立依据与到期义务”判断：恢复预期结果时可先读取直接相关的需求、决定或已有验收场景；复核候选时复用或补充相关记录。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+读取时机按 `references/protocol.md` 的“独立依据与到期义务”判断：恢复预期结果时可先读取直接相关的需求、决定或已有验收场景；复核候选时复用或补充相关记录。此时完整读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其证明因果关联、分类并决定本轮关联、排除或 finding。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
 
 `$REVIEW_ASSOCIATIONS_PATH` 由可信 workflow 生成，包含 head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。只选与当前变更的实际路径、业务对象或契约直接相关的最少条目，按 `repository` 和 `number` 读取原始记录：
 

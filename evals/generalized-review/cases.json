@@ -305,6 +305,16 @@
       "id": "C08",
       "group": "code-regression",
       "input": "evals/generalized-review/inputs/C08.md"
+    },
+    {
+      "id": "C09",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C09.md"
+    },
+    {
+      "id": "C10",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C10.md"
     }
   ]
 }

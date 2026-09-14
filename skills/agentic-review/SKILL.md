@@ -23,6 +23,7 @@ metadata:
 横向方法入口：[意图对齐](references/focuses/alignment.md)、[可维护性](references/focuses/maintainability.md)、[可靠性](references/focuses/reliability.md)、[安全](references/focuses/security.md)、[验证](references/focuses/verification.md)。层级表定义适用范围与必要特化；同一侧重点跨层只调查相关链路，不分别启动各层全量 Review。
 
 - 开始调查时使用 [共同协议](references/protocol.md)；形成、接受或排除候选时使用 [结论契约](references/findings.md)。
+- 关联 Issue、PR、需求、决定、验收或历史问题记录会影响当前契约、风险接受、归因或状态时，使用 [关联记录与既有问题](references/known-issues.md)，读取原文、证明关联、分类并接入本轮处理。
 - 有历史结果、返修、分批、委派或跨会话恢复时使用 [工作稿与复核](references/review-state.md)。单批首次审查可在一份私有记录中保存范围、依据、候选/排除理由及未完成项，不先创建整套目录。
 - 需要实验或判读实测结果时使用 [证据权限](references/evidence-access.md)。默认静态只读，选择侧重点不增加执行权限。
 - 请求、证据、返修或上报需要交接格式时，按需使用 [模板入口](assets/request.md)，不要求每轮填表。

@@ -29,7 +29,7 @@
 | `workspace.md` | 共享 review-state/evidence-access；中央布局、完整提交门槛及归纳读取规则在 central/review-result |
 | `delegation.md` | review-state：授权、已有工具、至少两个独立 batch、单层委派与单写者；子任务不查询私有记忆 |
 | `target-selection.md` | levels/code/target-selection，保留本地范围及重命名/复制两端路径 |
-| `known-issues.md` | protocol 的来源与关联、review-state 的状态、findings 的历史披露；平台查询边界在中央适配器 |
+| `known-issues.md` | 按需保留为关联记录处理入口：原文、因果关联、内容分类与当前 Review 去重；关闭证据引用 review-state，最终披露引用 findings，平台查询边界仍在中央适配器 |
 | `evidence.md` | protocol、findings、levels/code/behavior；代码现实路径与生产影响证明不以通用口号替代 |
 | `performance.md` | levels/code/performance，保留现实规模、成本差分、可避免性及语义保持证明 |
 | `test-contracts.md` | levels/code/test-contracts，保留 census/fingerprint、违反/允许探针、独立价值与删除证明 |
