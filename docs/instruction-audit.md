@@ -2,6 +2,8 @@
 
 本记录供维护者复核，不加入默认 Prompt 或 AGENTS 必读路径。
 
+**历史版本说明**：下文保留 2026-09-07 及后续注明日期的审计事实，旧文件名和加载数量不是通用化实验的当前操作指令。当前结构、中央默认范围与验证边界见 [通用化实验](generalized-review.md)；本记录不证明新版本通过了同一审计。
+
 ## 基线与范围
 
 - 审计日期：2026-09-07；已执行 `git fetch origin`，开发基线与 `origin/main` 均为 `c92711e6bbebbfd874bc17fcb3d4f6a6f7b779e5`。
@@ -93,7 +95,7 @@
 
 以下是逐项语义走查，不是模型 A/B 基准，也不宣称测得实际延迟或 finding 质量提升。
 
-后续变更（2026-09-10，[PR #67](https://github.com/Qiyin-Tech/agentic-review/pull/67)）：关联记录的读取时机已扩展到契约恢复阶段，现行规则见 [evidence.md 第 5 节](../skills/agentic-review/references/evidence.md#5-按需读取外部契约与-known-issue)。下表保留 2026-09-07 的审计结论。
+后续变更（2026-09-10，[PR #67](https://github.com/Qiyin-Tech/agentic-review/pull/67)）：关联记录的读取时机已扩展到契约恢复阶段，当时规则见 [固定版本 evidence.md 第 5 节](https://github.com/Qiyin-Tech/agentic-review/blob/3bc3cc07c8966657799ec251af9b6acc9ff3acf2/skills/agentic-review/references/evidence.md#5-按需读取外部契约与-known-issue)。下表保留 2026-09-07 的审计结论。
 
 | 任务 | 修改后的关键决策 |
 |---|---|

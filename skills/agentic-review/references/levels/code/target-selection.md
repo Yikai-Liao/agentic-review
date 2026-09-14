@@ -1,6 +1,6 @@
 # 本地变化范围
 
-先确认当前目录属于 Git worktree，再按用户意图选择唯一范围。不要用提交数量代替代码差异。
+本文件解析代码 delta 的范围；audit 使用用户指定模块的固定快照，不要求先有 diff。delta 先确认 Git worktree，再按用户意图选择唯一范围。不要用提交数量代替代码差异。
 
 ## 未提交变化
 
@@ -18,4 +18,4 @@
 
 当前存在未提交变化时默认审查它们；工作区干净时请用户指定 commit、分支或两个 ref，不擅自选择最近一次提交。
 
-完成条件：记录实际使用的 base/head、是否包含 working tree 和 untracked 文件，以及完整 changed file 清单。
+完成条件：记录实际使用的 base/head、是否包含 working tree 和 untracked 文件，以及完整 changed file 清单。清单保留变更类型和重命名/复制的两端路径；按路径读取这些变化时同时包含两端，路径按字面处理。

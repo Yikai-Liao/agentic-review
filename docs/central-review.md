@@ -4,6 +4,8 @@
 
 下游仓库只安装 Review GitHub App。Review workflow、模型 key 和 App private key 全部留在中央仓库；目标仓库的维护者不能通过修改自己的 workflow 获取中央凭证。
 
+通用化实验中，中央入口固定 `level = code`，默认调查行为与意图对齐，并按机制触发安全、可靠性、性能、测试有效性和测试经济性。具体选择写在 [中央 prompt](../prompts/review-rules.md)，方法与证明由 [code 层](../skills/agentic-review/references/levels/code.md) 及引用定义。不因 skill 支持更多层级就扩审需求/架构/计划，不默认追加风格、可维护性或验证充分性专项；读取上层材料仅用于恢复代码契约。实验分支的检查不等于线上部署或模型行为兼容认证，见 [实验说明](generalized-review.md)。
+
 ## 事件链
 
 ```text
@@ -28,7 +30,7 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前作为 `review-context` artifact 单独封存，模型只更新 `review-progress.json` 中的 scope 决策和文件进度。隔离发布 job 下载封存上下文并核对 workflow 输入，组装 `review-coverage.json`，自动汇总 batch 和机器状态；未完成覆盖也保存为范围历史，完成且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
-可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 在恢复契约或复核候选时，按 [evidence.md 第 5 节](../skills/agentic-review/references/evidence.md#5-按需读取外部契约与-known-issue) 读取直接相关的原始记录；没有关联入口时不扩展查询。索引是按需只读入口，不证明条目相关，也不构成业务授权、修复或验收证据。
+可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 在恢复契约或复核候选时，按 [独立依据与到期义务](../skills/agentic-review/references/protocol.md#独立依据与到期义务) 和 [GitHub 来源适配器](../central/github-context.md) 读取直接相关的原始记录；没有关联入口时不扩展查询。索引是按需只读入口，不证明条目相关，也不构成业务授权、修复或验收证据。
 
 输入包含 PR 元数据、讨论快照、项目规则和 workspace 恢复清单；模型按固定 SHA 从本地 Git 获取变化。准备阶段迁移选中历史的索引、batch、旧结果参考和可确定的文件进度：同一快照保留完整证据的完成状态，当前 thread 对应文件、新代码快照以及每次 PR 评论请求的范围内文件保留待审状态，上次失败也不免除新请求的复核义务。恢复清单提供本轮绝对路径与初始待审文件；模型按最新讨论和跨文件影响核定继承，局部更新已有索引与证据。自然语言范围外条目由模型判断；改变 scope 会自动重置旧排除项。预载控制规则直接使用，缺失、compaction 或 schema 不明确时才恢复。
 
@@ -65,7 +67,7 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill，其完整内容、必读 reference 和中央适配器同时附加到首次 Prompt，context compaction 后可通过 Skill 发现重新读取。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。必读规则的预载成本固定；随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill。首次 Prompt 附加 `SKILL.md`、共享 `references/{protocol,findings,review-state,evidence-access}.md`、`references/levels/code.md` 和 `central/{github-context,review-result}.md`；领域特化按触发读取，其他三个 level 不预载。compaction 后按中央入口恢复相同集合，正文及 inline 模板由中央结果适配器提供。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 输入信任边界
 

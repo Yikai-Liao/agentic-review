@@ -462,7 +462,8 @@ jobs:
             cat control/prompts/review-rules.md
             for file in \
               control/skills/agentic-review/SKILL.md \
-              control/skills/agentic-review/references/{workspace,evidence,findings}.md \
+              control/skills/agentic-review/references/{protocol,findings,review-state,evidence-access}.md \
+              control/skills/agentic-review/references/levels/code.md \
               control/central/{github-context,review-result}.md; do
               printf '\n\n## %s\n\n' "$file"
               cat "$file"

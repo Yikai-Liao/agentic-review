@@ -36,7 +36,7 @@ node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 
 ## 3. 读取历史结果和代码差分
 
-`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `workspace.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。它不改变本轮 scope。
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `references/review-state.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。它不改变本轮 scope。
 
 本地 Git 是 diff 的唯一来源。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
@@ -68,13 +68,13 @@ git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff -
 
 finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文；要确认 merge-base 版本时从目标 Git 按 full 区间的 merge-base SHA 读取，base checkout 是 `$REVIEW_BASE_SHA` 的快照。
 
-完成条件：scope 内变化及影响面已调查，最新讨论已归类，ledger 覆盖与继承满足 `workspace.md`。
+完成条件：scope 内变化及影响面已调查，最新讨论已归类，ledger 覆盖与继承满足 `references/review-state.md`。
 
 ## 4. 恢复契约或复核候选时读取关联记录
 
 `GH_TOKEN` 的可读集合由可信 workflow 在 Agent 启动前固定。自动索引或审查输入中的明确稳定 Issue/PR 引用可在集合内选择私有记录，无须 merge-base 预授权，但不能扩大仓库或权限范围。
 
-读取时机与相关性按 `evidence.md` 第 5 节判断：恢复预期结果时可先读取直接相关的需求、决定或已有验收场景；复核候选时复用或补充相关记录。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+读取时机与相关性按 `references/protocol.md` 的“独立依据与到期义务”判断：恢复预期结果时可先读取直接相关的需求、决定或已有验收场景；复核候选时复用或补充相关记录。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
 
 `$REVIEW_ASSOCIATIONS_PATH` 由可信 workflow 生成，包含 head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。只选与当前变更的实际路径、业务对象或契约直接相关的最少条目，按 `repository` 和 `number` 读取原始记录：
 

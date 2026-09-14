@@ -33,4 +33,4 @@
 
 查询失败如实记录错误及证据缺口，不扩大权限。空结果只表示当前身份、条件和已读取范围内未命中，不证明资料或 Issue 不存在。
 
-需要判断历史 Issue、决定或验收记录时，读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`；字段状态按项目语义解释。
+需要判断历史 Issue、决定或验收记录时，读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/review-state.md`；字段状态按项目语义解释。
