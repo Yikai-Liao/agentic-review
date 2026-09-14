@@ -58,7 +58,13 @@ type CommentPayload = {
   };
 };
 
-const acceptedActions = new Set(['opened', 'reopened', 'synchronize', 'ready_for_review']);
+const acceptedActions = new Set([
+  'opened',
+  'reopened',
+  'synchronize',
+  'ready_for_review',
+  'converted_to_draft',
+]);
 const commentEvents = new Set(['issue_comment', 'pull_request_review_comment']);
 const api = 'https://api.github.com';
 
@@ -145,8 +151,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
 export function shouldDispatch(payload: PullRequestPayload, allowedOwner: string): boolean {
   return payload.repository.owner.login.toLowerCase() === allowedOwner.toLowerCase()
-    && acceptedActions.has(payload.action)
-    && !payload.pull_request.draft;
+    && acceptedActions.has(payload.action);
 }
 
 /** Remove examples from quoted/fenced/inline code before looking for a real mention. */

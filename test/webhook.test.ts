@@ -27,10 +27,11 @@ test('reads organization and control repository from deployment configuration', 
   });
 });
 
-test('dispatches only accepted non-draft organization pull requests', () => {
+test('dispatches accepted organization pull request events, including drafts', () => {
   assert.equal(shouldDispatch(payload, 'Example-Org'), true);
   assert.equal(shouldDispatch({ ...payload, action: 'closed' }, 'Example-Org'), false);
-  assert.equal(shouldDispatch({ ...payload, pull_request: { ...payload.pull_request, draft: true } }, 'Example-Org'), false);
+  assert.equal(shouldDispatch({ ...payload, pull_request: { ...payload.pull_request, draft: true } }, 'Example-Org'), true);
+  assert.equal(shouldDispatch({ ...payload, action: 'converted_to_draft', pull_request: { ...payload.pull_request, draft: true } }, 'Example-Org'), true);
   assert.equal(shouldDispatch(payload, 'Different-Org'), false);
 });
 
