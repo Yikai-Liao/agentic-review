@@ -234,3 +234,12 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   assert.ok(prompt.includes('PRODUCTION skills/agentic-review/SKILL.md'));
   assert.ok(!prompt.includes('DARWIN_MAINTENANCE_SENTINEL'));
 });
+
+test('production Pi runtime explicitly enables bounded provider retries', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const runtime = workflow.split('      - name: Configure Pi runtime\n')[1].split('\n      - name:')[0];
+  assert.match(runtime, /cat > "\$HOME\/\.pi\/agent\/settings\.json"/);
+  assert.match(runtime, /"enabled": false/);
+  assert.match(runtime, /"maxRetries": 3[\s\S]*"maxRetryDelayMs": 120000/);
+  assert.match(workflow, /id: pi-review\n\s+timeout-minutes: 15/);
+});

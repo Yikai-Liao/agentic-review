@@ -428,6 +428,21 @@ jobs:
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
           cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
+          # shaftoe action 不提供 retry input；Pi SDK 的 retry 默认值在不同
+          # 版本间可能变化，因此在受信运行时显式配置。容量错误只保留
+          # provider 层这一份 retry budget；禁用 Agent 层重放，避免每次
+          # provider retry exhaustion 又重新执行一轮 provider retries。
+          cat > "$HOME/.pi/agent/settings.json" <<'JSON'
+          {
+            "retry": {
+              "enabled": false,
+              "provider": {
+                "maxRetries": 3,
+                "maxRetryDelayMs": 120000
+              }
+            }
+          }
+          JSON
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
               openai: {
