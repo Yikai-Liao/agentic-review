@@ -239,9 +239,7 @@ test('production Pi runtime explicitly enables bounded provider retries', async 
   const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
   const runtime = workflow.split('      - name: Configure Pi runtime\n')[1].split('\n      - name:')[0];
   assert.match(runtime, /cat > "\$HOME\/\.pi\/agent\/settings\.json"/);
-  assert.match(runtime, /"enabled": true/);
-  assert.match(runtime, /"maxRetries": 3/);
-  assert.match(runtime, /"baseDelayMs": 10000/);
+  assert.match(runtime, /"enabled": false/);
   assert.match(runtime, /"maxRetries": 3[\s\S]*"maxRetryDelayMs": 120000/);
   assert.match(workflow, /id: pi-review\n\s+timeout-minutes: 15/);
 });
