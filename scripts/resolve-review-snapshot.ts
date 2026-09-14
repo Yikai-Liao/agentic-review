@@ -18,7 +18,7 @@ export async function resolveReviewSnapshot(options: {
   );
   if (!response.ok) throw new Error(`Review snapshot lookup failed: ${response.status}`);
   const pr = await response.json() as { state: string; draft: boolean; base: { sha: string; repo: { id: number } }; head: { sha: string } };
-  if (pr.state !== 'open' || pr.draft !== false || String(pr.base?.repo?.id) !== options.repositoryId) throw new Error('Pull request is not eligible for review');
+  if (pr.state !== 'open' || String(pr.base?.repo?.id) !== options.repositoryId) throw new Error('Pull request is not eligible for review');
   const baseSha = pr.base.sha;
   const headSha = pr.head?.sha;
   if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(headSha)) throw new Error('Invalid review snapshot');
