@@ -77,10 +77,10 @@ test('关联记录规则由可信中央入口按需加载，分类不替代 find
   }
   const categories = [...rules.matchAll(/^\| ([^|]+) \|/gm)].map(match => match[1].trim());
   assert.deepEqual(categories, ['分类', '计划中', '已确认 / 已接受', '已修复', '未解决', '状态不明']);
-  assert.ok(rules.includes('(review-state.md#w6-状态变更需要什么证据)'));
+  assert.ok(rules.includes('(review-state.md#状态变更需要什么证据)'));
   assert.ok(rules.includes('(findings.md#输出)'));
-  assert.ok(rules.includes('触发条件或状态 → 当前审查单元/修改点 → 数据、接口、消费者或验收结果'));
-  assert.ok(rules.includes('当前变化扩大影响、使原保护/接受前提失效或重新引入问题'));
+  assert.ok(rules.includes('记录中的触发条件或状态，怎样连接到当前修改，再怎样影响数据、接口、使用方或验收结果'));
+  assert.ok(rules.includes('当前变化扩大影响、使原保护或接受前提失效，或重新引入问题'));
   // 只防止加载/职责契约再次丢失；语义正反例在 C09/C10，不声称模型已通过。
 });
 

@@ -1,17 +1,17 @@
 # agentic-review 通用化实验
 
-目标是在同一仓库、同一 skill 名称下扩展审查对象，而不是长期维护第二个产品。当前分支提供通用协议与代码特化的组合，中央服务仍承担代码审查职责。**可以检出试用不等于可以切换生产，也不等于模型行为已证明不退化。**
+目标是在同一仓库、同一 skill 名称下，让 Review 支持从需求、架构、开发计划到代码的全过程，而不是长期维护第二个产品。各层帮助理解、传递和完善用户目标，并通过按需组合的审查视角支持高效、优雅、可维护的实现；共同使用证据、结论和复核方法。中央服务仍只承担代码审查职责。**可以检出试用不等于可以切换生产，也不等于模型行为已证明不退化。**
 
 ## 方法与调用方的边界
 
 | 位置 | 负责什么 |
 |---|---|
-| [Skill 入口](../skills/agentic-review/SKILL.md) | 选择 requirements、architecture、plan、code，按任务选择侧重点 |
-| `references/protocol.md` | 版本、范围、独立依据、覆盖与反证 |
-| `references/findings.md` | 结论性质、成立门槛、去重、关闭条件和通用表达 |
-| `references/review-state.md` | 工作稿、历史状态、继承/重开、单写者和委派 |
-| `references/evidence-access.md` | 默认静态与调用方明确授权的隔离验证边界 |
-| `references/levels/`、`references/focuses/` | 本层成熟度、观察对象、横向方法及必要特化；不是全组合流水线 |
+| [Skill 入口](../skills/agentic-review/SKILL.md) | 解释方法目的、纵向层级与横向视角的关系，引导选择范围、完成审查并接回开发 |
+| `references/protocol.md` | 固定版本和范围，查清当前要求，完成调查并验证疑点 |
+| `references/findings.md` | 区分结论性质，核实证据，去重并说明处理完成条件 |
+| `references/review-state.md` | 记录进度和问题状态，判断何时复用或重新调查，处理修复、恢复及可选委派 |
+| `references/evidence-access.md` | 默认只读推演；明确授权后如何隔离实验，以及如何核实实测证据 |
+| `references/levels/`、`references/focuses/` | 各层定义对象与当前阶段要求，横向视角提供调查方法；不要求执行所有组合 |
 | [中央入口](../prompts/review-rules.md) | 选择 code，展开六项默认调查及触发条件，不重新定义判断标准 |
 | [中央结果协议](../central/review-result.md) | 固定工作稿布局、正文/inline 排版、JSON、thread 和提交终点 |
 

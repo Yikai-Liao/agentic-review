@@ -1,6 +1,6 @@
 # agentic-review
 
-可复用的独立 Review Skill 与中央 PR Review 控制面。本实验版将审查泛化为 requirements、architecture、plan、code 四个层级及按需侧重点，共享证据、结论和复核协议；skill 名称仍为 `agentic-review`。中央服务固定执行静态代码审查，不因能力泛化自动审查整份需求、架构或计划，也不向下游保存模型或 GitHub 凭证。
+可复用的独立 Review Skill 与中央 PR Review 控制面。本实验版纵向支持需求、架构、开发计划和代码，横向按需组合意图对齐、可维护性、可靠性、安全和验证等视角，共用证据、结论与复核方法；skill 名称仍为 `agentic-review`。中央服务固定执行静态代码审查，不因能力泛化自动审查整份需求、架构或计划，也不向下游保存模型或 GitHub 凭证。
 
 这是准备合入 main 的通用化实验，不是已经证明行为无损的生产替换。结构、接入检查与模型效果分别验收；范围、迁移决定及剩余验证见 [通用化实验](docs/generalized-review.md)。
 
@@ -42,7 +42,7 @@ $agentic-review 审查 docs/architecture.md 的状态、失败与恢复责任，
 $agentic-review 审查 docs/plan.md 的依赖、迁移中间态和集成验收责任。
 ```
 
-完整层级、侧重点及 simplify/harden 映射见 [Skill 入口](skills/agentic-review/SKILL.md)。本地工作稿复用调用方路径（如 `REVIEW_WORKSPACE_PATH`）；未提供时在 Git 管理目录或系统临时目录安全创建，不进入目标 working tree。小任务可用单份记录，待返修的证据保留并报告路径；一次性临时稿成功输出后可清理。中央固定使用 `notes.md`、`batches/` 与 Actions artifact，不受本地轻量布局影响。委派只在调用方允许、已有工具且至少两个 batch 可独立调查时使用，单层子任务仅返回指定范围证据；规则见 [工作稿与复核](skills/agentic-review/references/review-state.md)。
+方法哲学、层级与视角的选择，以及 simplify/harden 的适用方法见 [Skill 入口](skills/agentic-review/SKILL.md)。本地工作稿复用调用方路径（如 `REVIEW_WORKSPACE_PATH`）；未提供时在 Git 管理目录或系统临时目录安全创建，不进入目标 working tree。小任务可用单份记录，待返修的证据保留并报告路径；一次性临时稿成功输出后可清理。中央固定使用 `notes.md`、`batches/` 与 Actions artifact，不受本地轻量布局影响。委派只在调用方允许、已有工具且至少两个 batch 可独立调查时使用，单层子任务仅返回指定范围证据；规则见 [工作稿与复核](skills/agentic-review/references/review-state.md)。
 
 本地受信任运行时提供的持久记忆也可以作为 known issue 来源。主 Agent 应恢复可复核的原始记录；无法恢复原文的摘要只用于定位，不能单独证明“已修复”或“已确认”。
 
