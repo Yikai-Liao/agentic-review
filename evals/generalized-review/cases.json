@@ -315,6 +315,36 @@
       "id": "C10",
       "group": "code-regression",
       "input": "evals/generalized-review/inputs/C10.md"
+    },
+    {
+      "id": "D01",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D01.md"
+    },
+    {
+      "id": "D02",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D02.md"
+    },
+    {
+      "id": "D03",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D03.md"
+    },
+    {
+      "id": "D04",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D04.md"
+    },
+    {
+      "id": "D05",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D05.md"
+    },
+    {
+      "id": "D06",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D06.md"
     }
   ]
 }

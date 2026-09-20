@@ -7,11 +7,12 @@
 | 位置 | 负责什么 |
 |---|---|
 | [Skill 入口](../skills/agentic-review/SKILL.md) | 解释方法目的、纵向层级与横向视角的关系，引导选择范围、完成审查并接回开发 |
-| `references/protocol.md` | 固定版本和范围，查清当前要求，完成调查并验证疑点 |
+| `references/protocol.md` | 固定版本和范围，建立依据、调查与反证，反查覆盖并说明取证缺口 |
 | `references/findings.md` | 区分结论性质，核实证据，去重并说明处理完成条件 |
-| `references/review-state.md` | 记录进度和问题状态，判断何时复用或重新调查，处理修复、恢复及可选委派 |
+| `references/review-state.md` | 管理记录、进度、问题状态和交付条件，处理证据继承、修复、恢复及可选委派 |
 | `references/evidence-access.md` | 默认只读推演；明确授权后如何隔离实验，以及如何核实实测证据 |
 | `references/levels/`、`references/focuses/` | 各层定义对象与当前阶段要求，横向视角提供调查方法；不要求执行所有组合 |
+| `assets/review-record.md` | 提供记录提示，复用上述方法与状态定义 |
 | [中央入口](../prompts/review-rules.md) | 选择 code，展开六项默认调查及触发条件，不重新定义判断标准 |
 | [中央结果协议](../central/review-result.md) | 固定工作稿布局、正文/inline 排版、JSON、thread 和提交终点 |
 
