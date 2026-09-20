@@ -4,7 +4,7 @@
 
 下游仓库只安装 Review GitHub App。Review workflow、模型 key 和 App private key 全部留在中央仓库；目标仓库的维护者不能通过修改自己的 workflow 获取中央凭证。
 
-通用化实验中，中央入口固定 `level = code`，默认调查行为与意图对齐，并按机制触发安全、可靠性、性能、测试有效性和测试经济性。具体选择写在 [中央 prompt](../prompts/review-rules.md)，方法与证明由 [code 层](../skills/agentic-review/references/levels/code.md) 及引用定义。不因 skill 支持更多层级就扩审需求/架构/计划，不默认追加风格、可维护性或验证充分性专项；读取上层材料仅用于恢复代码契约。实验分支的检查不等于线上部署或模型行为兼容认证，见 [实验说明](generalized-review.md)。
+通用化实验中，中央入口固定 `level = code`，默认调查行为与意图对齐，并按机制触发安全、可靠性、性能、测试有效性和测试经济性。具体选择写在 [中央 prompt](../prompts/review-rules.md)，方法与证明由 [code 层](../skills/agentic-review/references/levels/code.md) 及其引用的横向视角定义。不因 skill 支持更多层级就扩审需求/架构/计划，不默认追加风格、可维护性或验证充分性专项；读取上层材料仅用于恢复代码契约。实验分支的检查不等于线上部署或模型行为兼容认证，见 [实验说明](generalized-review.md)。
 
 ## 事件链
 

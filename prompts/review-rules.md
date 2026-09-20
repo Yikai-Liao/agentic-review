@@ -25,7 +25,7 @@
 
 4. 性能与资源成本：成本随集合、分页、载荷、并发、锁、事务、重试或外部往返
    变化时，调查现实规模下显著且可避免的成本退化或放大。
-   使用 references/levels/code/performance.md；不以缺少 SLA 为由跳过调查，
+   使用 references/focuses/performance.md 的代码层方法；不以缺少 SLA 为由跳过调查，
    也不把复杂度形状或微优化偏好当成问题证据。
 
 5. 测试有效性：变化涉及测试、parameter row、assertion、snapshot、fixture、mock

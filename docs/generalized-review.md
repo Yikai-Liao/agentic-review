@@ -31,7 +31,7 @@
 | `target-selection.md` | levels/code/target-selection，保留本地范围及重命名/复制两端路径 |
 | `known-issues.md` | 按需保留为关联记录处理入口：原文、因果关联、内容分类与当前 Review 去重；关闭证据引用 review-state，最终披露引用 findings，平台查询边界仍在中央适配器 |
 | `evidence.md` | protocol、findings、levels/code/behavior；代码现实路径与生产影响证明不以通用口号替代 |
-| `performance.md` | levels/code/performance，保留现实规模、成本差分、可避免性及语义保持证明 |
+| `performance.md` | focuses/performance，保留代码成本证明，并扩展需求目标、架构容量和计划验证的跨层方法 |
 | `test-contracts.md` | levels/code/test-contracts，保留 census/fingerprint、违反/允许探针、独立价值与删除证明 |
 | `findings.md` | 共享成立/去重/历史披露、code 的 P/T 特化；中央正文和 Alert/inline 模板完整迁到 central/review-result |
 
@@ -43,7 +43,7 @@
 
 - 本地支持四层和额外专项，不默认强制加载全部规则或创建中央式多文件工作稿。调用方可使用通用结论，不限于代码 P/T；不能把新性质冒充旧标签。
 - 通用方法默认静态。隔离实验仅在调用方明确授权且环境边界成立时可执行；**中央服务仍禁止运行目标代码、安装依赖、修复或直接发布**。
-- 新 code 方法使用同一套证据与状态协议，不再调用旧完整入口。原生产行为、性能和测试证明以及高风险确认要求由 code 特化承接。
+- 新 code 方法使用同一套证据与状态协议，不再调用旧完整入口。原生产行为和测试证明以及高风险确认要求由 code 特化承接，性能证明由横向性能视角在代码层承接。
 - 中央工作稿仍是 `notes.md`、`batches/` 和固定结果文件；完整 scope 覆盖、最新讨论、状态判断及唯一提交不因通用层允许报告部分调查而放宽。
 - 发布器、JSON schema、token 权限、GitHub thread 操作、部署路由不因本实验增加新分支或新权限。中央外的专项若需要新输出能力，应单独完成其接入，不静默挤入 P/T。
 
