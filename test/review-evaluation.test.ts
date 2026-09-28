@@ -241,6 +241,30 @@ test('production Pi runtime enables bounded provider retries and one-hour review
   assert.match(runtime, /cat > "\$HOME\/\.pi\/agent\/settings\.json"/);
   assert.match(runtime, /"enabled": false/);
   assert.match(runtime, /"maxRetries": 3[\s\S]*"maxRetryDelayMs": 120000/);
-  assert.match(workflow, /  review:\n    needs: prepare-lark-cli\n    environment: lark-review\n    runs-on: ubuntu-latest\n    timeout-minutes: 75/);
-  assert.match(workflow, /id: pi-review\n\s+timeout-minutes: 60/);
+
+  const assertReviewTimeouts = (source: string) => {
+    const reviewJob = source.split(/^  review:\s*$/m)[1]?.split(/^  [\w-]+:\s*$/m)[0];
+    assert.ok(reviewJob, 'review job must exist');
+    assert.match(reviewJob, /^    timeout-minutes: 75$/m);
+
+    const piStep = reviewJob.split(/^      - /m).find(step => /^(?:id:| {8}id:) pi-review$/m.test(step));
+    assert.ok(piStep, 'pi-review step must exist');
+    assert.match(piStep, /^(?:timeout-minutes:| {8}timeout-minutes:) 60$/m);
+  };
+
+  assertReviewTimeouts(workflow);
+  const reorderedJob = workflow.replace(
+    '    runs-on: ubuntu-latest\n    timeout-minutes: 75',
+    '    timeout-minutes: 75\n    runs-on: ubuntu-latest',
+  );
+  assert.notEqual(reorderedJob, workflow);
+  const reorderedStep = reorderedJob.replace(
+    '        id: pi-review\n        timeout-minutes: 60',
+    '        timeout-minutes: 60\n        id: pi-review',
+  );
+  assert.notEqual(reorderedStep, reorderedJob);
+  assertReviewTimeouts(reorderedStep);
+
+  assert.throws(() => assertReviewTimeouts(workflow.replace(/^    timeout-minutes: 75$/m, '    timeout-minutes: 74')));
+  assert.throws(() => assertReviewTimeouts(workflow.replace(/^        timeout-minutes: 60$/m, '        timeout-minutes: 59')));
 });
