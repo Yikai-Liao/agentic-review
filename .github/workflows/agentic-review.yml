@@ -76,7 +76,7 @@ jobs:
     needs: prepare-lark-cli
     environment: lark-review
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     outputs:
       owner: ${{ steps.target.outputs.owner }}
       name: ${{ steps.target.outputs.name }}
@@ -487,7 +487,7 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
-        timeout-minutes: 15
+        timeout-minutes: 60
         uses: shaftoe/pi-coding-agent-action@v2.27.1
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
