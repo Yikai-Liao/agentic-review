@@ -253,18 +253,18 @@ test('production Pi runtime enables bounded provider retries and one-hour review
   };
 
   assertReviewTimeouts(workflow);
-  const reorderedJob = workflow.replace(
-    '    runs-on: ubuntu-latest\n    timeout-minutes: 75',
-    '    timeout-minutes: 75\n    runs-on: ubuntu-latest',
-  );
-  assert.notEqual(reorderedJob, workflow);
-  const reorderedStep = reorderedJob.replace(
-    '        id: pi-review\n        timeout-minutes: 60',
-    '        timeout-minutes: 60\n        id: pi-review',
-  );
-  assert.notEqual(reorderedStep, reorderedJob);
-  assertReviewTimeouts(reorderedStep);
-
-  assert.throws(() => assertReviewTimeouts(workflow.replace(/^    timeout-minutes: 75$/m, '    timeout-minutes: 74')));
-  assert.throws(() => assertReviewTimeouts(workflow.replace(/^        timeout-minutes: 60$/m, '        timeout-minutes: 59')));
+  const reordered = [
+    'jobs:',
+    '  review:',
+    '    timeout-minutes: 75',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - timeout-minutes: 60',
+    '        id: pi-review',
+    '  publish:',
+    '    timeout-minutes: 10',
+  ].join('\n');
+  assertReviewTimeouts(reordered);
+  assert.throws(() => assertReviewTimeouts(reordered.replace('    timeout-minutes: 75', '    timeout-minutes: 74')));
+  assert.throws(() => assertReviewTimeouts(reordered.replace('      - timeout-minutes: 60', '      - timeout-minutes: 59')));
 });
