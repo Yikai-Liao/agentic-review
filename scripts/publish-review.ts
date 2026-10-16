@@ -16,7 +16,7 @@ type FooterMetadata = {
   outputTokens?: number;
   cost?: number;
   piVersion?: string;
-  actionVersion?: string;
+  actionRef?: string;
   scopeDescription?: string;
 };
 type PublishOptions = {
@@ -145,9 +145,11 @@ export function buildFooter({
   outputTokens,
   cost,
   piVersion,
-  actionVersion,
+  actionRef,
   scopeDescription,
 }: FooterMetadata) {
+  const actionVersion = actionRef?.match(/^shaftoe\/pi-coding-agent-action@v(\d+\.\d+\.\d+)$/)?.[1];
+  if (actionRef && !actionVersion) throw new Error('Invalid Pi action release reference');
   const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
   if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
   if (Number.isFinite(durationSeconds)) parts.push(`Time: ${formatDuration(durationSeconds!)}`);
@@ -342,7 +344,7 @@ export async function main() {
         durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
         inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
         outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
-        piVersion: process.env.REVIEW_PI_VERSION, actionVersion: process.env.REVIEW_ACTION_VERSION, scopeDescription,
+        piVersion: process.env.REVIEW_PI_VERSION, actionRef: process.env.REVIEW_PI_ACTION_REF, scopeDescription,
       }),
     };
     return { coverage, coveragePath, options };
