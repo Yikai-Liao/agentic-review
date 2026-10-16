@@ -38,6 +38,8 @@ permissions:
   contents: read
 
 env:
+  # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
+  REVIEW_THINKING_LEVEL: xhigh
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
 
@@ -76,7 +78,7 @@ jobs:
     needs: prepare-lark-cli
     environment: lark-review
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     outputs:
       owner: ${{ steps.target.outputs.owner }}
       name: ${{ steps.target.outputs.name }}
@@ -385,6 +387,7 @@ jobs:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
+          REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
         run: |
           node control/scripts/prepare-review-input.ts
 
@@ -427,6 +430,21 @@ jobs:
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
           cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
+          # shaftoe action 不提供 retry input；Pi SDK 的 retry 默认值在不同
+          # 版本间可能变化，因此在受信运行时显式配置。容量错误只保留
+          # provider 层这一份 retry budget；禁用 Agent 层重放，避免每次
+          # provider retry exhaustion 又重新执行一轮 provider retries。
+          cat > "$HOME/.pi/agent/settings.json" <<'JSON'
+          {
+            "retry": {
+              "enabled": false,
+              "provider": {
+                "maxRetries": 3,
+                "maxRetryDelayMs": 120000
+              }
+            }
+          }
+          JSON
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
             providers: {
               openai: {
@@ -436,7 +454,7 @@ jobs:
                   api: "openai-responses",
                   reasoning: true,
                   input: ["text", "image"],
-                  contextWindow: 272000,
+                  contextWindow: 500000,
                   maxTokens: 128000,
                   thinkingLevelMap: {
                     off: "none",
@@ -471,7 +489,7 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
-        timeout-minutes: 15
+        timeout-minutes: 60
         uses: shaftoe/pi-coding-agent-action@v2.27.1
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
@@ -523,7 +541,7 @@ jobs:
           # 模型 API 凭证；不与 GitHub installation token 混用。
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
-          thinking_level: high
+          thinking_level: ${{ env.REVIEW_THINKING_LEVEL }}
           # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
           auto_compaction: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
@@ -670,7 +688,6 @@ jobs:
           REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REVIEW_WORKSPACE_URL: ${{ needs.review.outputs.workspace_url }}
           REVIEW_MODEL: openai/${{ vars.REVIEW_AGENT_MODEL }}
-          REVIEW_THINKING_LEVEL: high
           REVIEW_DURATION_SECONDS: ${{ needs.review.outputs.duration_seconds }}
           REVIEW_INPUT_TOKENS: ${{ needs.review.outputs.input_tokens }}
           REVIEW_OUTPUT_TOKENS: ${{ needs.review.outputs.output_tokens }}

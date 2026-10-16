@@ -4,6 +4,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
+import { parse } from 'yaml';
 import { prepare, blind, check } from '../evals/evaluate.ts';
 
 async function fixture(t: TestContext) {
@@ -235,4 +236,40 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   assert.ok(prompt.includes('PRODUCTION skills/agentic-review/SKILL.md'));
   for (const file of levels) assert.ok(!prompt.includes(`PRODUCTION ${file}`));
   assert.ok(!prompt.includes('DARWIN_MAINTENANCE_SENTINEL'));
+});
+
+test('production Pi runtime enables bounded provider retries and one-hour review', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const runtime = workflow.split('      - name: Configure Pi runtime\n')[1].split('\n      - name:')[0];
+  assert.match(runtime, /cat > "\$HOME\/\.pi\/agent\/settings\.json"/);
+  assert.match(runtime, /"enabled": false/);
+  assert.match(runtime, /"maxRetries": 3[\s\S]*"maxRetryDelayMs": 120000/);
+
+  const assertReviewTimeouts = (source: string) => {
+    const reviewJob = (parse(source) as {
+      jobs?: { review?: { 'timeout-minutes'?: number; steps?: Array<{ id?: string; 'timeout-minutes'?: number }> } };
+    }).jobs?.review;
+    assert.ok(reviewJob, 'review job must exist');
+    assert.equal(reviewJob['timeout-minutes'], 75);
+
+    const piStep = reviewJob.steps?.find(step => step.id === 'pi-review');
+    assert.ok(piStep, 'pi-review step must exist');
+    assert.equal(piStep['timeout-minutes'], 60);
+  };
+
+  assertReviewTimeouts(workflow);
+  const reordered = [
+    'jobs:',
+    '  review:',
+    '    timeout-minutes: 75 # 为结果上传预留时间',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - timeout-minutes: 60 # Agent 审查时间',
+    '        id: pi-review',
+    '  publish:',
+    '    timeout-minutes: 10',
+  ].join('\n');
+  assertReviewTimeouts(reordered);
+  assert.throws(() => assertReviewTimeouts(reordered.replace('timeout-minutes: 75', 'timeout-minutes: 74')));
+  assert.throws(() => assertReviewTimeouts(reordered.replace('timeout-minutes: 60', 'timeout-minutes: 59')));
 });

@@ -20,7 +20,7 @@ Review App `pull_request`、`issue_comment` 和 `pull_request_review_comment` we
 
 Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 去重、用 Dispatcher App 触发中央 workflow。它不执行目标代码，也不持有模型或 Review App 凭证。
 
-接受的自动事件是非 draft PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`。新建的 PR 普通评论由 `issue_comment.created` 触发，inline thread 回复由 `pull_request_review_comment.created` 触发；Worker 只保留 PR 上、正文含有效 bot mention 的人类评论。评论编辑不重新触发，引用块、代码块和 inline code 中的 mention 不触发，重复 delivery 按 delivery ID 去重。`workflow_dispatch` 的自动请求携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open、非 draft 快照；自动事件排队后快照变化会显式失败。评论请求没有 SHA，workflow 实际开始时读取当前 base/head 并固定本轮快照。
+接受的自动事件是 draft 和普通 PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`、`converted_to_draft`。新建的 PR 普通评论由 `issue_comment.created` 触发，inline thread 回复由 `pull_request_review_comment.created` 触发；Worker 只保留 PR 上、正文含有效 bot mention 的人类评论。评论编辑不重新触发，引用块、代码块和 inline code 中的 mention 不触发，重复 delivery 按 delivery ID 去重。`workflow_dispatch` 的自动请求携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open 快照；自动事件排队后快照变化会显式失败。draft PR 同样会创建和更新 Check 及发布 Review，但 draft 状态本身仍由 GitHub 阻止合并。评论请求没有 SHA，workflow 实际开始时读取当前 base/head 并固定本轮快照。
 
 同一 PR 的所有请求进入同一个 workflow 级 concurrency group，Review 和 publish 共享槽位；不同 PR 可以并行。使用 `queue: max`、`cancel-in-progress: false`，每个 group 最多 100 个 pending，超出后 GitHub 取消新增任务。FIFO 按任务开始等待的时间计算，而不是 webhook 发出时间，因此它提供有界等待队列，不承诺事件的绝对顺序。实现依据见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
@@ -30,7 +30,7 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前作为 `review-context` artifact 单独封存，模型只更新 `review-progress.json` 中的 scope 决策和文件进度。隔离发布 job 下载封存上下文并核对 workflow 输入，组装 `review-coverage.json`，自动汇总 batch 和机器状态；未完成覆盖也保存为范围历史，完成且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
-可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`。Agent 在恢复契约或复核候选时，按[当前阶段要求的调查方法](../skills/agentic-review/references/protocol.md#先查清当前阶段需要满足什么)和 [GitHub 来源适配器](../central/github-context.md) 读取直接相关的原始记录；没有关联入口时不扩展查询。索引是按需只读入口，不证明条目相关，也不构成业务授权、修复或验收证据。
+可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`，并将索引写入 Agent 必读的 Review 输入。Agent 按 [中央关联读取流程](../central/github-context.md#4-恢复契约或复核候选时读取关联记录) 核对相关来源；恢复契约时按需读取原始记录，提交新 finding 或人工确认前必须核对相关源 PR 的完整讨论。`read-related-pr.ts` 复用当前 PR 的分页逻辑，包含普通评论、Review、行内评论和回复及 thread 状态，避免遗漏历史决定。没有关联入口时不扩展查询；索引本身不证明条目相关，也不构成业务授权、修复或验收证据。
 
 输入包含 PR 元数据、讨论快照、项目规则和 workspace 恢复清单；模型按固定 SHA 从本地 Git 获取变化。准备阶段迁移选中历史的索引、batch、旧结果参考和可确定的文件进度：同一快照保留完整证据的完成状态，当前 thread 对应文件、新代码快照以及每次 PR 评论请求的范围内文件保留待审状态，上次失败也不免除新请求的复核义务。恢复清单提供本轮绝对路径与初始待审文件；模型按最新讨论和跨文件影响核定继承，局部更新已有索引与证据。自然语言范围外条目由模型判断；改变 scope 会自动重置旧排除项。预载控制规则直接使用，缺失、compaction 或 schema 不明确时才恢复。
 

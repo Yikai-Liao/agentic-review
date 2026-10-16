@@ -192,6 +192,8 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 `check token` 在 Pi 启动前创建 Check；publisher 使用封存并核对过的请求身份，重新校验结果 schema、scope、覆盖与 root comment 在当前 PR 中的归属，成功发布 Review、回复历史 thread 和执行 resolve/reopen 后，completion 才能标记成功。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自动 resolve/reopen 根据审查结论，不限制 thread 创建者。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；失败不能推进完整 audit checkpoint。
 
+Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：禁用 Agent 层重放，只保留 3 次 provider 层 HTTP 429/5xx 重试，形成单一 retry budget；provider 层优先遵循服务端的 `Retry-After`，单次服务端退避上限为 120 秒（最多 3 次等待，即 360 秒），从而不会在 provider retry exhaustion 后再次复制整轮请求。`Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的结果上传留出时间。该机制只重试可识别的瞬时错误，不会把凭证、模型不存在、配额耗尽或账单错误伪装成成功；所有重试耗尽后仍会失败并由 publisher 保留工作稿。若仍频繁出现容量错误，应检查 `REVIEW_AGENT_BASE_URL` 的网关容量或切换模型/Provisioned Throughput，不能无限增加重试次数。
+
 发布统一采用 fail soft：公共输入校验失败停止全部写入；校验通过后，正文、每条 finding、请求回复、每个 thread 的状态同步和证据回复各自执行，异常只阻断依赖该操作的后续步骤。查询失败不能当作空列表继续写入。正文与 finding 分开请求，避免一条无效行号使全部结果无法发布；失效的历史 thread 也不影响其他结果。工作稿上传与发布按实际前置依赖编排，上传失败不阻断已经准备好的 GitHub 写入。
 
 `review-publication-<run>-<attempt>` artifact 中的 `publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败同样使 publisher 失败。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
