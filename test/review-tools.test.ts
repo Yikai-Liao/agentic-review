@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { parse } from 'yaml';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
 import { buildFooter, publishReview } from '../scripts/publish-review.ts';
 
@@ -402,4 +403,24 @@ test('footer preserves action metadata', () => {
     }),
     '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Pi SDK v0.82.1 | Action v2.27.0',
   );
+});
+
+test('production workflow shares the thinking level between Pi and the published footer', async () => {
+  type Job = { env?: Record<string, string>; steps: Array<{ id?: string; env?: Record<string, string>; with?: Record<string, unknown> }> };
+  const workflow = parse(await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8')) as {
+    env: Record<string, string>; jobs: { review: Job; publish: Job };
+  };
+  const agent = workflow.jobs.review.steps.find(step => step.id === 'pi-review')!;
+  const publisher = workflow.jobs.publish.steps.find(step => step.id === 'publish-review')!;
+  const agentEnv = { ...workflow.env, ...workflow.jobs.review.env, ...agent.env };
+  const publishEnv = { ...workflow.env, ...workflow.jobs.publish.env, ...publisher.env };
+  const agentLevel = agent.with?.thinking_level === '${{ env.REVIEW_THINKING_LEVEL }}'
+    ? agentEnv.REVIEW_THINKING_LEVEL : agent.with?.thinking_level;
+  assert.equal(publishEnv.REVIEW_THINKING_LEVEL, agentLevel);
+  assert.equal(agentLevel, 'xhigh');
+  assert.equal(agent.with?.thinking_level, '${{ env.REVIEW_THINKING_LEVEL }}');
+  assert.match(buildFooter({
+    runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/artifact/1',
+    model: 'openai/gpt-test', thinkingLevel: publishEnv.REVIEW_THINKING_LEVEL,
+  }), /\(thinking: xhigh\)/);
 });
