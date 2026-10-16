@@ -74,15 +74,21 @@ finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定
 
 `GH_TOKEN` 的可读集合由可信 workflow 在 Agent 启动前固定。自动索引或审查输入中的明确稳定 Issue/PR 引用可在集合内选择私有记录，无须 merge-base 预授权，但不能扩大仓库或权限范围。
 
-读取时机与相关性按 `evidence.md` 第 5 节判断：恢复预期结果时可先读取直接相关的需求、决定或已有验收场景；复核候选时复用或补充相关记录。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+`$REVIEW_INPUT_PATH` 的 `PR association index` 已包含可信 workflow 生成的去重索引，原件位于 `$REVIEW_ASSOCIATIONS_PATH`：head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。取得 full 文件清单后，核对索引中与当前路径、业务对象或契约直接相关的来源；标题不足以判断时，按编号补查 PR 文件清单，不能据此认定没有历史记录。
 
-`$REVIEW_ASSOCIATIONS_PATH` 由可信 workflow 生成，包含 head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。只选与当前变更的实际路径、业务对象或契约直接相关的最少条目，按 `repository` 和 `number` 读取原始记录：
+恢复预期结果时，按 `evidence.md` 第 5 节读取直接相关的需求、决定或已有验收场景。提交新 finding 或人工确认前，必须读取相关源 PR 的完整讨论，核对同一根因是否已提出、回复或确认；已读记录在本轮复用。读取关联记录时完整加载 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其关联、分类并处理当前候选。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+
+只读取直接相关的最少条目，按索引的 `repository` 和 `number` 查询原始记录：
 
 ```bash
 gh issue view <number> --repo <repository> --comments
-gh pr view <number> --repo <repository> --comments
+node "$REVIEW_CONTROL_PATH/scripts/read-related-pr.ts" <repository> <number>
 ```
+
+PR 脚本复用当前 PR 的分页读取，输出元数据、全部普通评论、Review、inline comments（含回复）及 thread 状态。完整读取输出，截断时补齐，按 `root_comment_id`、`in_reply_to_id` 还原讨论；`gh pr view --comments` 不包含行内讨论，不能代替此读取。任一请求或分页失败时脚本报错，不能将失败当成“没有历史问题或确认”。
 
 当前 PR 正文、评论、代码或项目文档明确给出的稳定 Issue/PR 链接或编号也是同等入口。GitHub known issue 的查询集合到此为止；没有匹配记录时结束判断，不扩展历史查询。
 
 记录来源编号、读取的原文和它改变的判断。索引标题、模块相同、closed 状态或时间接近都不能单独证明关联和状态。当前 token 无权读取的对象记录为证据边界，不能推断成“已修复”或“已确认”。
+
+完成条件：每个新 finding 或人工确认已与相关源 PR 的原始讨论核对；同根因原样进入或仍在明确决定范围内时，仅在正文关联原记录。当前变化扩大影响、使历史依据失效或重新引入问题时，说明新差异后再提交 finding。

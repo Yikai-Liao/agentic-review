@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
+import { parse } from 'yaml';
 import { listReviewAssociations } from '../scripts/list-review-associations.ts';
 
 const commits = ['1'.repeat(40), '2'.repeat(40)];
@@ -134,6 +135,13 @@ test('paginates commit-associated pull requests', async () => {
 
 test('prepares the association index before running Pi', async () => {
   const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /Prepare review association index[\s\S]*?node control\/scripts\/list-review-associations\.ts[\s\S]*?Run Pi review/);
-  assert.match(workflow, /REVIEW_ASSOCIATIONS_PATH: \$\{\{ runner\.temp \}\}\/review-associations\.json/);
+  const steps = parse(workflow).jobs.review.steps;
+  const associations = steps.findIndex((step: { name: string }) => step.name === 'Prepare review association index');
+  const input = steps.findIndex((step: { name: string }) => step.name === 'Prepare review input');
+  const agent = steps.findIndex((step: { name: string }) => step.name === 'Run Pi review');
+  assert.ok(associations >= 0 && input > associations && agent > input);
+  assert.equal(steps[associations].run, 'node control/scripts/list-review-associations.ts');
+  for (const index of [associations, input, agent]) {
+    assert.equal(steps[index].env.REVIEW_ASSOCIATIONS_PATH, '${{ runner.temp }}/review-associations.json');
+  }
 });
