@@ -15,7 +15,13 @@ test('prepared input captures discussion baseline and project rules without gene
       REVIEW_WORKSPACE_PATH: directory,
       REVIEW_CONTEXT_PATH: path.join(directory, 'review-context.json'),
       REVIEW_INPUT_PATH: path.join(directory, 'input.md'),
+      REVIEW_ASSOCIATIONS_PATH: path.join(directory, 'associations.json'),
     });
+    const associations = {
+      pull_requests: [{ repository: 'owner/repo', number: 59, title: '源 PR', url: 'https://github.com/owner/repo/pull/59' }],
+      issues: [],
+    };
+    writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
     writeFileSync(path.join(directory, 'AGENTS.md'), '项目约束');
     writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { text: '只看鉴权' } }));
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({ ledger: [] }));
@@ -30,6 +36,8 @@ test('prepared input captures discussion baseline and project rules without gene
     const input = readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8');
     assert.ok(input.includes('测试 PR'));
     assert.ok(input.includes('## Review request'));
+    const index = input.split('## PR association index\n\n')[1].split('\n\n## ')[0];
+    assert.deepEqual(JSON.parse(index), associations);
     assert.ok(input.includes('只看鉴权'));
     assert.ok(input.includes('项目约束'));
     assert.ok(input.includes('明确决定'));
@@ -39,6 +47,13 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.equal(baseline.repository, 'owner/repo');
     assert.ok(baseline.fingerprints.inline_comments['1']);
     assert.throws(() => main(() => { throw new Error('GitHub unavailable'); }), /GitHub unavailable/);
+    writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify({ pull_requests: [], issues: [] }));
+    main(run);
+    assert.ok(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8').includes('"pull_requests": []'));
+    writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, 'invalid json');
+    assert.throws(() => main(run), SyntaxError);
+    rmSync(process.env.REVIEW_ASSOCIATIONS_PATH!);
+    assert.throws(() => main(run), /ENOENT/);
   } finally {
     process.env = originalEnv;
     rmSync(directory, { recursive: true, force: true });

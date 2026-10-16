@@ -386,6 +386,7 @@ jobs:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
+          REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
         run: |
           node control/scripts/prepare-review-input.ts
 

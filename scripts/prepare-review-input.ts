@@ -19,6 +19,8 @@ export function main(run = (command: string, args: string[]) =>
   const sections: string[] = ['# Review input'];
   const section = (title: string, text: string) => sections.push(`## ${title}\n\n${text}`);
   section('Untrusted PR metadata', run('gh', ['pr', 'view', pull, '--repo', repository, '--json', 'title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits']));
+  const associations = JSON.parse(readFileSync(required('REVIEW_ASSOCIATIONS_PATH'), 'utf8'));
+  section('PR association index', JSON.stringify(associations, null, 2));
   const context = JSON.parse(readFileSync(required('REVIEW_CONTEXT_PATH'), 'utf8'));
   section('Review request', JSON.stringify(context));
   const { discussion, baseline } = readDiscussion(repository, pull, run);
