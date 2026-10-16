@@ -38,6 +38,8 @@ permissions:
   contents: read
 
 env:
+  # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
+  REVIEW_THINKING_LEVEL: xhigh
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
 
@@ -539,7 +541,7 @@ jobs:
           # 模型 API 凭证；不与 GitHub installation token 混用。
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
-          thinking_level: xhigh
+          thinking_level: ${{ env.REVIEW_THINKING_LEVEL }}
           # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
           auto_compaction: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
@@ -686,7 +688,6 @@ jobs:
           REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REVIEW_WORKSPACE_URL: ${{ needs.review.outputs.workspace_url }}
           REVIEW_MODEL: openai/${{ vars.REVIEW_AGENT_MODEL }}
-          REVIEW_THINKING_LEVEL: high
           REVIEW_DURATION_SECONDS: ${{ needs.review.outputs.duration_seconds }}
           REVIEW_INPUT_TOKENS: ${{ needs.review.outputs.input_tokens }}
           REVIEW_OUTPUT_TOKENS: ${{ needs.review.outputs.output_tokens }}
