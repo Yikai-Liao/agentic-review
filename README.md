@@ -1,8 +1,8 @@
 # agentic-review
 
-可复用的独立 Review Skill 与中央 PR Review 控制面。本实验版纵向支持需求、架构、开发计划和代码，横向按需组合意图对齐、可维护性、可靠性、安全和验证等视角，共用证据、结论与复核方法；skill 名称仍为 `agentic-review`。中央服务默认执行静态代码审查，允许本轮请求或下游仓库指令选择其他层级，不向下游保存模型或 GitHub 凭证。
+可复用的独立 Review Skill 与中央 PR Review 控制面，纵向支持需求、架构、开发计划和代码，横向按需组合意图对齐、可维护性、可靠性、安全和验证等视角，共用证据、结论与复核方法；skill 名称仍为 `agentic-review`。中央服务默认执行静态代码审查，允许本轮请求或下游仓库指令选择其他层级，不向下游保存模型或 GitHub 凭证。
 
-这是准备合入 main 的通用化实验，不是已经证明行为无损的生产替换。结构、接入检查与模型效果分别验收；范围、迁移决定及剩余验证见 [通用化实验](docs/generalized-review.md)。
+范围、迁移决定及验证记录见[通用化说明](docs/generalized-review.md)。程序接线检查与模型行为分别记录，已运行、未通过和未运行的验证按实际版本列明。
 
 ## 运行链路
 
@@ -31,7 +31,7 @@ Review 方法和表达按 [Darwin 迭代流程](evals/README.md)演进：固定�
 npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
 ```
 
-试用本实验分支时，在隔离项目中复制当前 checkout 的整个 `skills/agentic-review/` 到 `.agents/skills/agentic-review/`，再显式调用 `$agentic-review`。不要把上面的默认安装命令当成已选中实验分支；不要覆盖生产宿主或同时加载两份同名 skill。
+使用尚未合入 main 的开发分支时，在隔离项目中复制当前 checkout 的整个 `skills/agentic-review/` 到 `.agents/skills/agentic-review/`，再显式调用 `$agentic-review`。上面的安装命令始终选择 main；同一宿主只加载一份同名 Skill。
 
 本地可以审查未提交变化、指定 commit、分支差异，也可以明确选择需求、架构或计划。只审查已有产物，不直接创作或修复。例如：
 
