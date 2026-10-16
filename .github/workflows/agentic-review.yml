@@ -488,7 +488,7 @@ jobs:
       - name: Run Pi review
         id: pi-review
         timeout-minutes: 60
-        uses: shaftoe/pi-coding-agent-action@v2.27.1
+        uses: shaftoe/pi-coding-agent-action@v2.30.0
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
@@ -542,6 +542,8 @@ jobs:
           thinking_level: high
           # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
           auto_compaction: true
+          # 允许用 JavaScript 编排现有工具，并在返回模型前筛选查询结果。
+          enable_codemode: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
           load_builtin_extensions: false
           # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
@@ -558,6 +560,7 @@ jobs:
             bash
             set_review_scope
             submit_review
+            codemode
           # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
 
