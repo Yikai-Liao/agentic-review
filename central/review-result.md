@@ -6,6 +6,8 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`，遵循 [共享工作稿规则](../skills/agentic-review/references/review-state.md)。中央入口使用 `notes.md` 作唯一索引，详细证据放在 `batches/<batch-id>.md`，最终文件为 `review-result.json`；不另建 `review.md` 索引。工作稿作为限期、受权限保护的 Actions artifact 保留。
 
+在索引保存[中央入口](review-rules.md#选择审查层级)要求的层级、选择依据及对应产物；恢复或复核时先核对这些调查前提，层级改变后按新职责重新核定覆盖。
+
 中央提交要求全部 scope 内覆盖完成；共享规则允许如实记录部分调查，但不能据此绕过中央 ledger 校验或提交成功。未完成项保持 pending，保留具体阻塞和证据，不生成假 complete。
 
 准备阶段已记录默认 scope。调查前对照本轮请求核定；显式请求改变范围时调用 `set_review_scope` 更新 `mode`、`ranges`、`rationale` 和 `explicit_text`，否则直接使用默认值。每个区间包含比较起止 SHA 和足以恢复范围的 targets；保留默认计划中的全部义务，只有显式限定时才缩小范围。最新实际 scope 是下一轮恢复范围的唯一来源。
@@ -37,9 +39,9 @@ thread update 的 `evidence` 按三段填入不同内容：①仅一句处置结
 
 ## 3. 最终归纳
 
-代码调查完成后、生成最终 JSON 前，执行 `central/github-context.md` 的讨论增量脚本，完整读取新增或编辑的评论与 thread 状态，再按第 2 节核定历史问题。查询失败或输出未读完时，先补齐证据再完成归纳。已关闭且没有问题重现或风险升级证据的 thread 按 `✅ 已关闭` 表达；UI 关闭不等同于代码已修复，明确回复中的决定按其实际内容记录。仅因启动快照缺少回复不能断言“没有确认”。若刷新引发进一步代码调查，调查完成后再次刷新，再生成结果。
+本轮调查完成后、生成最终 JSON 前，执行 `central/github-context.md` 的讨论增量脚本，完整读取新增或编辑的评论与 thread 状态，再按第 2 节核定历史问题。查询失败或输出未读完时，先补齐证据再完成归纳。已关闭且没有问题重现或风险升级证据的 thread 按 `✅ 已关闭` 表达；UI 关闭不等同于产物已修复，明确回复中的决定按其实际内容记录。仅因启动快照缺少回复不能断言“没有确认”。若刷新引发进一步调查，调查完成后再次刷新，再生成结果。
 
-按 `references/review-state.md` 核对 scope 内 ledger/census 覆盖和继承，按共享 `references/findings.md` 归纳最深共享根因与证据，按 `references/levels/code.md` 确定 P/T 标签；更新 `notes.md` 最终状态后再生成 JSON，记录最后刷新时点及改变的判断。局部 scope 的正文应明确结论范围。归纳先读 `notes.md` 和 complete batch 的结论/候选；仅在存活 finding、跨 batch 根因冲突、覆盖不一致或约束无法恢复时补读相关完整证明，不重扫已完成且无关联候选的分析；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
+按 `references/review-state.md` 核对 scope 内 ledger/census 覆盖和继承，按共享 `references/findings.md` 归纳最深共享根因与证据。代码层的生产、测试和高风险待决问题使用 `references/levels/code.md` 的 P/T 或人工确认标签；其他结论使用共享规则的缺陷、待决事项、改进机会、验证缺口，并按实际影响说明优先级，不套用代码标签。结论性质仍须属于所选层级及受托视角。更新 `notes.md` 最终状态后再生成 JSON，记录最后刷新时点及改变的判断。局部 scope 的正文应明确结论范围。归纳先读 `notes.md` 和 complete batch 的结论/候选；仅在存活 finding、跨 batch 根因冲突、覆盖不一致或约束无法恢复时补读相关完整证明，不重扫已完成且无关联候选的分析；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
 
 ## 4. 最终 JSON
 
@@ -72,7 +74,7 @@ thread update 的 `evidence` 按三段填入不同内容：①仅一句处置结
 约束：
 
 - `body` 逐段填入 [中央 Review 正文骨架](#review-正文)，提交前核对每段的内容槽位，历史 thread 状态遵循第 2 节；运行元数据与实际发布结果由可信发布器追加，Agent 不添加 Action footer；
-- 标题：有新 finding 或人工确认用 `## 自动代码审查 ⬆️`，否则有未解决历史问题用 `## 自动代码审查 ❌`，其余用 `## 自动代码审查 ✅`。正文分组遵循下方“Review 正文”，历史状态按第 2 节；
+- 标题：仅选择 code 时使用“自动代码审查”，其他情况使用“自动审查”并在正文说明所选层级。有新 finding 用 `⬆️`，否则有未解决历史问题用 `❌`，其余用 `✅`，例如 `## 自动代码审查 ⬆️`。正文分组遵循下方“Review 正文”，历史状态按第 2 节；
 - `comments` 只保留最终归纳后的新 finding，每项恰好包含 `path`、`line`、`start_line`、`body`；路径必须是仓库相对路径，单行使用 `start_line: null`，多行起始行不得大于 `line`；
 - `thread_updates` 只保留当前 PR 中状态实际变化的历史 inline thread，每项恰好包含 `root_comment_id`、`status`、`evidence`；`status` 只能是 `resolved`、`severity_increased` 或 `reintroduced`；
 - `request_reply` 必须存在，thread @ 请求填写对象 `{"body":"针对原 thread 的非空答复"}`，即使结论没有变化；automatic 和 pr_comment 请求填写 `null`。回复目标由可信请求决定，无须填写目标 ID；
@@ -82,7 +84,9 @@ thread update 的 `evidence` 按三段填入不同内容：①仅一句处置结
 
 中央 inline finding 必须使用 [中央 finding 模板及 Alert](#finding-内容)，段间空一行，不加“等级：”前缀。
 
-以下是三种请求没有新 finding 或 thread 状态变化时的完整结构示例，示例事实不代表当前 PR，正文需按实际审查替换。
+各层级共用上述 JSON。新 finding 有合法 full diff 位置时写入 `comments`；无法绑定有效行的遗漏或跨产物问题，在总 `body` 中保留完整证明及固定版本定位，不虚构评论行。所有问题均纳入正文导航，同一根因不重复。
+
+以下是三种请求的完整结构示例，示例事实不代表当前 PR，正文需按实际审查替换。
 
 automatic：
 
@@ -95,12 +99,17 @@ automatic：
 }
 ```
 
-pr_comment：
+pr_comment（下游仓库选择需求层）：
 
 ```json
 {
-  "body": "## 自动代码审查 ✅\n\n本轮仅按请求复核鉴权链路，未发现新问题；不代表完整 PR 的审查结论。\n\n新增读取入口仍先核对当前用户的资源权限，拒绝请求时不会返回资源内容。以上为静态判断，未执行测试。",
-  "comments": [],
+  "body": "## 自动审查 ⬆️\n\n本轮按项目规则审查需求变化，发现离线使用目标被缩减。\n\n这次需求稿将记录流程限定为在线提交。\n\n- 缺陷：离线用户无法记录，违背已确认的使用场景。见 docs/requirements.md:12。\n\n本轮仅静态审查需求及必要依据，未验证实现。",
+  "comments": [{
+    "path": "docs/requirements.md",
+    "line": 12,
+    "start_line": null,
+    "body": "> [!WARNING]\n> **缺陷：在线提交限制排除了已确认的离线记录场景**\n\n**📌 问题与触发**\n\n原始诉求要求离线也能记录；本次需求稿只允许联网提交。用户在无网络环境下无法保存记录，当前材料没有放弃离线目标的明确决定。\n\n**💥 影响**\n\n离线使用者被排除在本次交付范围外，实现即使符合这份需求稿也无法满足原始目标。\n\n**🛠️ 依据与处理**\n\n依据是输入中的原始诉求和本次需求第 12 行。应恢复离线记录要求，或取得有权者缩小范围的明确决定；复核时确认无网络场景仍能记录。"
+  }],
   "thread_updates": [],
   "request_reply": null
 }
@@ -138,7 +147,7 @@ thread：
 [范围]静态审查，未执行测试。
 ```
 
-第二段用两句、至多 80 字写行为变化和核对结果。“finding/evidence Markdown、thread_updates、schema”译为“评论和问题记录”。省略空历史/确认项，文件与未变化事项留工作稿。
+第二段用两句、至多 80 字写产物变化和核对结果。“finding/evidence Markdown、thread_updates、schema”译为“评论和问题记录”。省略空历史/确认项，文件与未变化事项留工作稿。
 
 有新问题或历史记录：
 
@@ -158,7 +167,9 @@ thread：
 
 导航外最多 180 字。回读草稿，逐段删掉槽位外的内容；将内部标识符改成中文业务含义，关键证据限制始终保留。
 
-以下模板只定义中央发布封装。成立门槛、严重度及根因归纳以共享结论契约和代码层为准。
+无法绑定合法 inline 位置的 finding，在正文另列“问题详情”并使用下方完整模板；这部分证明不计入导航外 180 字，不能只用导航摘要代替。
+
+以下模板只定义中央发布封装。成立门槛、优先级及根因归纳以共享结论契约和所选层级为准。
 
 ## Finding 内容
 
@@ -187,6 +198,8 @@ Alert 与标题：
 - P2/T2：`WARNING`；
 - T1：`CAUTION`；
 - 人工确认：`IMPORTANT`。
+
+使用通用问题性质时，缺陷、验证缺口用 `WARNING`，待决事项用 `IMPORTANT`，改进机会用 `TIP`；已证明严重影响当前交付的缺陷可用 `CAUTION`。这些 Alert 只用于表达，成立门槛仍由共享结论规则和所选层级定义。
 
 标题只写触发与后果，细节留正文。每段使用完整短句，关键标识符首次出现时介绍业务含义。版本与定位放在“依据与处理”，链接用文件名或短 SHA 作标签并绑定所审版本；行内评论复用调用方定位。正文保留理解结论所需的因果关系。具体表达式构成根因时，在“依据与处理”放一个带语言标识的最小代码块，不复制变化位置已清楚展示的内容。
 

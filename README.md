@@ -1,6 +1,6 @@
 # agentic-review
 
-可复用的独立 Review Skill 与中央 PR Review 控制面。本实验版纵向支持需求、架构、开发计划和代码，横向按需组合意图对齐、可维护性、可靠性、安全和验证等视角，共用证据、结论与复核方法；skill 名称仍为 `agentic-review`。中央服务固定执行静态代码审查，不因能力泛化自动审查整份需求、架构或计划，也不向下游保存模型或 GitHub 凭证。
+可复用的独立 Review Skill 与中央 PR Review 控制面。本实验版纵向支持需求、架构、开发计划和代码，横向按需组合意图对齐、可维护性、可靠性、安全和验证等视角，共用证据、结论与复核方法；skill 名称仍为 `agentic-review`。中央服务默认执行静态代码审查，允许本轮请求或下游仓库指令选择其他层级，不向下游保存模型或 GitHub 凭证。
 
 这是准备合入 main 的通用化实验，不是已经证明行为无损的生产替换。结构、接入检查与模型效果分别验收；范围、迁移决定及剩余验证见 [通用化实验](docs/generalized-review.md)。
 
@@ -19,7 +19,7 @@ GitHub pull_request webhook
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不维护自研 Pi SDK、multi-agent 或 aggregator。[中央入口](prompts/review-rules.md) 选择 code 层，明确行为与意图对齐、安全边界、可靠性与恢复、性能与资源成本、测试有效性、测试经济性的默认调查及触发条件；不承载另一套判断门槛。Review 方法论位于 `skills/agentic-review/`；入口、共享规则、code 入口及中央适配器首次预载，具体特化按触发加载，compaction 后从控制面恢复。`central/` 接入 GitHub 上下文、工作稿及可信发布格式。下游项目事实放在 `.agentic-review.md`；关联索引供契约恢复或候选复核时按需读取原始记录，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不维护自研 Pi SDK、multi-agent 或 aggregator。[中央入口](central/review-rules.md) 默认选择 code 层，承担行为与意图对齐、安全边界、可靠性与恢复、性能与资源成本、测试有效性、测试经济性六项职责；下游可选择需求、架构或计划层，具体方法和证明来自 `skills/agentic-review/`。入口、共享规则及中央适配器首次预载，读取项目规则后再加载所选层级和视角，compaction 后从控制面恢复。`central/` 集中管理入口、GitHub 上下文、工作稿及可信发布格式。下游层级选择和项目约定放在 `.agentic-review.md` 或 `AGENTS.md`；关联索引供契约恢复或候选复核时按需读取原始记录，不加载全量历史。
 
 Review 方法和表达按 [Darwin 迭代流程](evals/README.md)演进：固定用例、新旧版独立生成、三评委匿名成对比较、长度与事实回归后才保留。Git 只维护工具、用例和精简结果；运行产物在 `evals/experiments/` 本地留存并忽略，不进入生产 Review，也不代替缺陷准确率评测。
 
@@ -62,6 +62,7 @@ $agentic-review 审查 docs/plan.md 的依赖、迁移中间态和集成验收�
 
 适合写入：
 
+- 审查层级及适用产物，例如需求文档按 requirements、设计文档按 architecture、开发计划按 plan；未指定时默认 code；
 - 项目特有的 Review 重点及触发条件，例如修改鉴权时重点追踪租户归属，修改事件时重点核对消费者兼容性；
 - 业务不变量和高风险边界，例如状态转换、租户归属、金额、业务日期、幂等和兼容性要求；
 - 代码难以直接推断的调用关系、消费者、生成文件和不可执行区域；
@@ -72,12 +73,18 @@ $agentic-review 审查 docs/plan.md 的依赖、迁移中间态和集成验收�
 
 写作时直接描述事实和操作条件：说明“何时检查什么、依据在哪里、怎样算完成”。Review 重点应绑定具体路径、文件类型、业务对象或变更信号，用来安排调查优先级，不能把其他 diff 排除在审查外。使用稳定的路径、字段、Issue 标签、记录 ID 或仓库地址；不写角色设定、宽泛的“仔细审查”、个人风格偏好，也不要把当前 known issue 全量复制进文件。
 
+层级选择优先采用本轮请求中的明确要求，其次是 Head `.agentic-review.md`，再其次是 Head `AGENTS.md`；没有明确选择时使用 code。项目规则可以按路径或文件类型指定层级，层级改变不会缩小 PR 文件范围，也不会改变执行或发布权限。
+
 需要额外项目上下文时，说明触发条件、具体文件路径和用途。中央 Review 不自动枚举 Target Skill，只按这些显式引用读取。
 
 下面是一个自然语言示例；标题和组织方式可以按项目调整：
 
 ```markdown
 # 本仓库 Review 规则
+
+## 审查层级
+
+- `docs/requirements/` 下的需求文档按 requirements 层审查；`docs/architecture/` 下的设计文档按 architecture 层审查；其他变化默认 code。
 
 ## Review 重点
 
@@ -108,7 +115,7 @@ $agentic-review 审查 docs/plan.md 的依赖、迁移中间态和集成验收�
 - 修改 `src/orders/` 中的状态转换、补偿或事件兼容性时，读取 `.agents/skills/order-domain/SKILL.md`，只用其中的订单状态和事件契约补充调查。
 ```
 
-Review 读取输入提供的 base/head `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信规则预载后直接使用，compaction 后从控制面恢复；PR、评论和项目规则构成启动输入，diff 不拼接进去，而是按固定 SHA 从本地 Git 读取。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件，仅补充事实和调查路径，不能扩大权限或改写中央规则。
+Review 读取输入提供的 base/head `.agentic-review.md` 与 `AGENTS.md`，按 head 理解合并后预期生效的规则，并审查规则本身的变化。中央可信规则预载后直接使用，compaction 后从控制面恢复；PR、评论和项目规则构成启动输入，diff 不拼接进去，而是按固定 SHA 从本地 Git 读取。Target Skill 不会被自动枚举；`.agentic-review.md` 可按当前变化显式引用具体文件，用于选择层级、补充项目约定和调查路径。执行权限、共同证据门槛和可信发布协议继续由控制面定义。
 
 可信 workflow 在 Agent 启动前把只读 token 的可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大这个集合。在该集合内，自动关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。单个 installation token 不能跨 owner，Agent 也不按关键词、`git blame` 或提交历史扩展 GitHub known issue 查询。
 

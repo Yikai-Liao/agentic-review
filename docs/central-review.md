@@ -4,7 +4,7 @@
 
 下游仓库只安装 Review GitHub App。Review workflow、模型 key 和 App private key 全部留在中央仓库；目标仓库的维护者不能通过修改自己的 workflow 获取中央凭证。
 
-通用化实验中，中央入口固定 `level = code`，默认调查行为与意图对齐，并按机制触发安全、可靠性、性能、测试有效性和测试经济性。具体选择写在 [中央 prompt](../prompts/review-rules.md)，方法与证明由 [code 层](../skills/agentic-review/references/levels/code.md) 及其引用的横向视角定义。不因 skill 支持更多层级就扩审需求/架构/计划，不默认追加风格、可维护性或验证充分性专项；读取上层材料仅用于恢复代码契约。实验分支的检查不等于线上部署或模型行为兼容认证，见 [实验说明](generalized-review.md)。
+中央入口默认 `level = code`，本轮请求或下游 Head `.agentic-review.md`、`AGENTS.md` 可以明确选择需求、架构、开发计划或代码层；优先顺序和恢复规则见[中央入口](../central/review-rules.md#选择审查层级)。各层按自己的范围表选择方法，不因 Skill 支持更多能力就自动扩审。code 默认承担行为与意图对齐、安全、可靠性、性能、测试有效性和测试经济性六项职责，不默认追加风格、可维护性或验证充分性专项。项目指令选择层级，中央继续固定只读权限、PR 范围、完整覆盖和可信发布边界。实验分支的检查不等于线上部署或模型行为兼容认证，见[实验说明](generalized-review.md)。
 
 ## 事件链
 
@@ -67,7 +67,7 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`prompts/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill。首次 Prompt 附加 `SKILL.md`、共享 `references/{protocol,findings,review-state,evidence-access}.md`、`references/levels/code.md` 和 `central/{github-context,review-result}.md`；领域特化按触发读取，其他三个 level 不预载。compaction 后按中央入口恢复相同集合，正文及 inline 模板由中央结果适配器提供。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
+`central/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill。首次 Prompt 附加 `SKILL.md`、共享 `references/{protocol,findings,review-state,evidence-access}.md` 和 `central/{github-context,review-result}.md`，不预载固定层级。读取本轮请求和项目规则后，完整加载所选层级及其触发的视角，选择及来源保存到 `notes.md`；compaction 后恢复共同规则和已选层级。正文及 inline 模板由中央结果适配器提供，非代码层使用通用结论性质，不套用 P/T。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 输入信任边界
 

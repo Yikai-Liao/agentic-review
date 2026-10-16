@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { main } from '../scripts/prepare-review-input.ts';
@@ -9,14 +9,20 @@ test('prepared input captures discussion baseline and project rules without gene
   const directory = mkdtempSync(path.join(tmpdir(), 'review-input-'));
   const originalEnv = { ...process.env };
   try {
+    const base = path.join(directory, 'base');
+    const head = path.join(directory, 'head');
+    mkdirSync(base);
+    mkdirSync(head);
     Object.assign(process.env, {
       REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '60',
-      REVIEW_TARGET_PATH: directory, REVIEW_BASE_PATH: directory,
+      REVIEW_TARGET_PATH: head, REVIEW_BASE_PATH: base,
       REVIEW_WORKSPACE_PATH: directory,
       REVIEW_CONTEXT_PATH: path.join(directory, 'review-context.json'),
       REVIEW_INPUT_PATH: path.join(directory, 'input.md'),
     });
-    writeFileSync(path.join(directory, 'AGENTS.md'), '项目约束');
+    writeFileSync(path.join(base, '.agentic-review.md'), '默认按 code 层审查。');
+    writeFileSync(path.join(head, '.agentic-review.md'), '设计文档按 architecture 层审查。');
+    writeFileSync(path.join(head, 'AGENTS.md'), '项目约束：开发计划按 plan 层审查。');
     writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { text: '只看鉴权' } }));
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({ ledger: [] }));
     const run = (command: string, args: string[]) => {
@@ -32,6 +38,9 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.ok(input.includes('## Review request'));
     assert.ok(input.includes('只看鉴权'));
     assert.ok(input.includes('项目约束'));
+    assert.ok(input.includes('## Base .agentic-review.md\n\n默认按 code 层审查。'));
+    assert.ok(input.includes('## Head .agentic-review.md\n\n设计文档按 architecture 层审查。'));
+    assert.ok(input.includes('## Head AGENTS.md\n\n项目约束：开发计划按 plan 层审查。'));
     assert.ok(input.includes('明确决定'));
     assert.ok(input.includes('Workspace resume manifest'));
     assert.ok(input.includes(path.join(directory, 'review-progress.json')));
