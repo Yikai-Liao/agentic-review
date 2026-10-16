@@ -452,7 +452,7 @@ jobs:
                   api: "openai-responses",
                   reasoning: true,
                   input: ["text", "image"],
-                  contextWindow: 272000,
+                  contextWindow: 500000,
                   maxTokens: 128000,
                   thinkingLevelMap: {
                     off: "none",
@@ -539,7 +539,7 @@ jobs:
           # 模型 API 凭证；不与 GitHub installation token 混用。
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
-          thinking_level: high
+          thinking_level: xhigh
           # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
           auto_compaction: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
