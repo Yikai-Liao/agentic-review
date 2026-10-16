@@ -143,7 +143,6 @@ jobs:
           sparse-checkout: |
             /.github/pi-extensions/
             /central/
-            /prompts/
             /scripts/
             /skills/agentic-review/
 
@@ -477,10 +476,10 @@ jobs:
         run: |
           {
             echo 'prompt<<REVIEW_PROMPT_EOF'
-            cat control/prompts/review-rules.md
+            cat control/central/review-rules.md
             for file in \
               control/skills/agentic-review/SKILL.md \
-              control/skills/agentic-review/references/{workspace,evidence,findings}.md \
+              control/skills/agentic-review/references/{protocol,findings,review-state,evidence-access}.md \
               control/central/{github-context,review-result}.md; do
               printf '\n\n## %s\n\n' "$file"
               cat "$file"

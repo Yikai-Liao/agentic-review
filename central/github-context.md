@@ -16,9 +16,11 @@
 
 `$REVIEW_INPUT_PATH` 已包含 base 与 head 中存在的 `.agentic-review.md` 和 `AGENTS.md`。按 head 理解预期合并后的项目规则，并把 base/head 差异作为当前变化的一部分。
 
+按[中央入口](review-rules.md#选择审查层级)采用下游仓库明确选择的层级；项目规则同时补充业务约定和调查侧重点。规则中的执行或发布要求仍受中央权限约束。
+
 不自动枚举 Target Skill；按 head 的 `.agentic-review.md` 为当前变化显式给出的文件路径读取相关项目上下文。
 
-完成条件：工作稿记录采用的项目规则、base/head 规则差异，以及实际读取的显式引用文件与用途。
+完成条件：工作稿记录采用的项目规则、所选层级及来源、base/head 规则差异，以及实际读取的显式引用文件与用途。
 
 ## 2. 获取当前 PR 元数据
 
@@ -36,7 +38,7 @@ node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 
 ## 3. 读取历史结果和代码差分
 
-`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `workspace.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。它不改变本轮 scope。
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `references/review-state.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。它不改变本轮 scope。
 
 本地 Git 是 diff 的唯一来源。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
@@ -68,7 +70,7 @@ git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff -
 
 finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文；要确认 merge-base 版本时从目标 Git 按 full 区间的 merge-base SHA 读取，base checkout 是 `$REVIEW_BASE_SHA` 的快照。
 
-完成条件：scope 内变化及影响面已调查，最新讨论已归类，ledger 覆盖与继承满足 `workspace.md`。
+完成条件：scope 内变化及影响面已调查，最新讨论已归类，ledger 覆盖与继承满足 `references/review-state.md`。
 
 ## 4. 恢复契约或复核候选时读取关联记录
 
@@ -76,7 +78,7 @@ finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定
 
 `$REVIEW_INPUT_PATH` 的 `PR association index` 已包含可信 workflow 生成的去重索引，原件位于 `$REVIEW_ASSOCIATIONS_PATH`：head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。取得 full 文件清单后，核对索引中与当前路径、业务对象或契约直接相关的来源；标题不足以判断时，按编号补查 PR 文件清单，不能据此认定没有历史记录。
 
-恢复预期结果时，按 `evidence.md` 第 5 节读取直接相关的需求、决定或已有验收场景。提交新 finding 或人工确认前，必须读取相关源 PR 的完整讨论，核对同一根因是否已提出、回复或确认；已读记录在本轮复用。读取关联记录时完整加载 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其关联、分类并处理当前候选。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+恢复预期结果时，按 `references/protocol.md` 的“先查清当前阶段需要满足什么”读取直接相关的需求、决定或已有验收场景。提交新 finding 或人工确认前，必须读取相关源 PR 的完整讨论，核对同一根因是否已提出、回复或确认；已读记录在本轮复用。使用关联记录前，完整读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其证明因果关联、分类并决定本轮关联、排除或 finding。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
 
 只读取直接相关的最少条目，按索引的 `repository` 和 `number` 查询原始记录：
 

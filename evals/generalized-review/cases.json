@@ -1,0 +1,350 @@
+{
+  "format_version": 1,
+  "cases": [
+    {
+      "id": "A01",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A01.md"
+    },
+    {
+      "id": "A02",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A02.md"
+    },
+    {
+      "id": "A03",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A03.md"
+    },
+    {
+      "id": "A04",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A04.md"
+    },
+    {
+      "id": "A05",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A05.md"
+    },
+    {
+      "id": "A06",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A06.md"
+    },
+    {
+      "id": "A07",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A07.md"
+    },
+    {
+      "id": "A08",
+      "group": "architecture",
+      "input": "evals/generalized-review/inputs/A08.md"
+    },
+    {
+      "id": "P01",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P01.md"
+    },
+    {
+      "id": "P02",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P02.md"
+    },
+    {
+      "id": "P03",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P03.md"
+    },
+    {
+      "id": "P04",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P04.md"
+    },
+    {
+      "id": "P05",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P05.md"
+    },
+    {
+      "id": "P06",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P06.md"
+    },
+    {
+      "id": "P07",
+      "group": "plan",
+      "input": "evals/generalized-review/inputs/P07.md"
+    },
+    {
+      "id": "S01",
+      "group": "simplify",
+      "input": "evals/generalized-review/inputs/S01.md"
+    },
+    {
+      "id": "S02",
+      "group": "simplify",
+      "input": "evals/generalized-review/inputs/S02.md"
+    },
+    {
+      "id": "S03",
+      "group": "simplify",
+      "input": "evals/generalized-review/inputs/S03.md"
+    },
+    {
+      "id": "S04",
+      "group": "simplify",
+      "input": "evals/generalized-review/inputs/S04.md"
+    },
+    {
+      "id": "S05",
+      "group": "simplify",
+      "input": "evals/generalized-review/inputs/S05.md"
+    },
+    {
+      "id": "S06",
+      "group": "simplify",
+      "input": "evals/generalized-review/inputs/S06.md"
+    },
+    {
+      "id": "H01",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H01.md"
+    },
+    {
+      "id": "H02",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H02.md"
+    },
+    {
+      "id": "H03",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H03.md"
+    },
+    {
+      "id": "H04",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H04.md"
+    },
+    {
+      "id": "H05",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H05.md"
+    },
+    {
+      "id": "H06",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H06.md"
+    },
+    {
+      "id": "H07",
+      "group": "harden",
+      "input": "evals/generalized-review/inputs/H07.md"
+    },
+    {
+      "id": "R01",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R01.md"
+    },
+    {
+      "id": "R02",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R02.md"
+    },
+    {
+      "id": "R03",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R03.md"
+    },
+    {
+      "id": "R04",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R04.md"
+    },
+    {
+      "id": "R05",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R05.md"
+    },
+    {
+      "id": "R06",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R06.md"
+    },
+    {
+      "id": "R07",
+      "group": "revision",
+      "input": "evals/generalized-review/inputs/R07.md"
+    },
+    {
+      "id": "B01",
+      "group": "boundary",
+      "input": "evals/generalized-review/inputs/B01.md"
+    },
+    {
+      "id": "B02",
+      "group": "boundary",
+      "input": "evals/generalized-review/inputs/B02.md"
+    },
+    {
+      "id": "B03",
+      "group": "boundary",
+      "input": "evals/generalized-review/inputs/B03.md"
+    },
+    {
+      "id": "B04",
+      "group": "boundary",
+      "input": "evals/generalized-review/inputs/B04.md"
+    },
+    {
+      "id": "B05",
+      "group": "boundary",
+      "input": "evals/generalized-review/inputs/B05.md"
+    },
+    {
+      "id": "B06",
+      "group": "boundary",
+      "input": "evals/generalized-review/inputs/B06.md"
+    },
+    {
+      "id": "Q01",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q01.md"
+    },
+    {
+      "id": "Q02",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q02.md"
+    },
+    {
+      "id": "Q03",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q03.md"
+    },
+    {
+      "id": "Q04",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q04.md"
+    },
+    {
+      "id": "Q05",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q05.md"
+    },
+    {
+      "id": "Q06",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q06.md"
+    },
+    {
+      "id": "Q07",
+      "group": "requirements",
+      "input": "evals/generalized-review/inputs/Q07.md"
+    },
+    {
+      "id": "X01",
+      "group": "cross-level",
+      "input": "evals/generalized-review/inputs/X01.md"
+    },
+    {
+      "id": "X02",
+      "group": "cross-level",
+      "input": "evals/generalized-review/inputs/X02.md"
+    },
+    {
+      "id": "X03",
+      "group": "cross-level",
+      "input": "evals/generalized-review/inputs/X03.md"
+    },
+    {
+      "id": "X04",
+      "group": "cross-level",
+      "input": "evals/generalized-review/inputs/X04.md"
+    },
+    {
+      "id": "X05",
+      "group": "cross-level",
+      "input": "evals/generalized-review/inputs/X05.md"
+    },
+    {
+      "id": "C01",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C01.md"
+    },
+    {
+      "id": "C02",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C02.md"
+    },
+    {
+      "id": "C03",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C03.md"
+    },
+    {
+      "id": "C04",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C04.md"
+    },
+    {
+      "id": "C05",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C05.md"
+    },
+    {
+      "id": "C06",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C06.md"
+    },
+    {
+      "id": "C07",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C07.md"
+    },
+    {
+      "id": "C08",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C08.md"
+    },
+    {
+      "id": "C09",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C09.md"
+    },
+    {
+      "id": "C10",
+      "group": "code-regression",
+      "input": "evals/generalized-review/inputs/C10.md"
+    },
+    {
+      "id": "D01",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D01.md"
+    },
+    {
+      "id": "D02",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D02.md"
+    },
+    {
+      "id": "D03",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D03.md"
+    },
+    {
+      "id": "D04",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D04.md"
+    },
+    {
+      "id": "D05",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D05.md"
+    },
+    {
+      "id": "D06",
+      "group": "investigation",
+      "input": "evals/generalized-review/inputs/D06.md"
+    }
+  ]
+}

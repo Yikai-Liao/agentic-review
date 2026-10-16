@@ -4,7 +4,7 @@
 
 - `worker/`：webhook 验签、过滤、去重和 dispatch；部署时读 [部署说明](docs/deploy-central-review.md)。
 - `.github/workflows/agentic-review.yml` 编排中央 Review；`scripts/` 实现上下文准备和可信发布，`test/` 覆盖这些行为，检查命令见 `package.json`。
-- `skills/agentic-review/` 是对外发布的静态审查方法；`prompts/review-rules.md` 是中央入口，`central/` 接入 GitHub 上下文和结果协议。
+- `skills/agentic-review/` 是可安装的通用审查方法，共享协议加 requirements/architecture/plan/code 特化；`central/` 提供默认 code、允许下游指令选择层级的中央入口，并接入 GitHub 上下文、工作稿和结果协议。层级选择、迁移与验证记录见 [通用化说明](docs/generalized-review.md)。
 - `.agentic-review.md` 只补充本仓库的审查重点；`.agents/skills/writing-for-agents/` 用于设计和审计 Agent 指令。
 
 ## 实现约束
