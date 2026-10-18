@@ -40,9 +40,8 @@ permissions:
 env:
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
-  # uses 与发布 footer 共用完整引用；SDK 版本为该 release 捆绑版本的声明。
+  # uses 与发布 footer 共用完整引用；footer 的 Action 版本由该引用派生。
   REVIEW_PI_ACTION_REF: &pi-action shaftoe/pi-coding-agent-action@v2.30.0
-  REVIEW_PI_VERSION: 1.0.4
 
 concurrency:
   # 同一 PR 的自动事件与 @ 请求共享队列；发布 job 完成后才释放并发槽。

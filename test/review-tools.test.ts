@@ -397,9 +397,8 @@ test('footer preserves action metadata', () => {
       inputTokens: 700_000,
       outputTokens: 15_300,
       cost: 0,
-      piVersion: '0.82.1',
       actionRef: 'shaftoe/pi-coding-agent-action@v2.27.0',
     }),
-    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Pi SDK v0.82.1 | Action v2.27.0',
+    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Action v2.27.0',
   );
 });

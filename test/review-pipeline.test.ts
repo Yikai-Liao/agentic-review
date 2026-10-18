@@ -91,7 +91,7 @@ test(`${source}: model progress cannot rewrite request identity and publication 
       REVIEW_INVENTORY_DIGEST: outputs.inventory_digest, REVIEW_COMPARISON_START: outputs.comparison_start,
       REVIEW_RUN_ID: '20', REVIEW_RUN_ATTEMPT: '1', REVIEW_RESULT_PATH: resultPath, REVIEW_COVERAGE_PATH: coveragePath, REVIEW_BOT_LOGIN: 'review-app[bot]',
       REVIEW_RUN_URL: 'https://github.test/run', REVIEW_WORKSPACE_URL: 'https://github.test/workspace', REVIEW_MODEL: 'test',
-      REVIEW_PI_ACTION_REF: 'shaftoe/pi-coding-agent-action@v9.8.7', REVIEW_PI_VERSION: '1.2.3',
+      REVIEW_PI_ACTION_REF: 'shaftoe/pi-coding-agent-action@v9.8.7',
       GITHUB_STEP_SUMMARY: path.join(directory, 'summary'), GH_TOKEN: 'test-token', GITHUB_API_URL: `http://127.0.0.1:${address.port}` };
     const publish = () => exec(process.execPath, ['scripts/publish-review.ts'], { env: publishEnv });
     const assemble = () => exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: publishEnv });
@@ -111,7 +111,7 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     await publish();
     assert.equal(writes.length, 1);
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
-    assert.match((writes[0] as { body: string }).body, /Pi SDK v1\.2\.3 \| Action v9\.8\.7/);
+    assert.match((writes[0] as { body: string }).body, /\| Action v9\.8\.7/);
     const published = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(published.status, 'published');
     assert.equal(published.complete_audit, source === 'automatic');

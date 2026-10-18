@@ -15,7 +15,6 @@ type FooterMetadata = {
   inputTokens?: number;
   outputTokens?: number;
   cost?: number;
-  piVersion?: string;
   actionRef?: string;
   scopeDescription?: string;
 };
@@ -144,7 +143,6 @@ export function buildFooter({
   inputTokens,
   outputTokens,
   cost,
-  piVersion,
   actionRef,
   scopeDescription,
 }: FooterMetadata) {
@@ -157,7 +155,6 @@ export function buildFooter({
     parts.push(`Tokens: ${formatNumber(inputTokens! + outputTokens!)}`);
   }
   if (Number.isFinite(cost) && cost !== 0) parts.push(`Cost: $${Math.abs(cost!).toFixed(2)}`);
-  if (piVersion) parts.push(`Pi SDK v${piVersion}`);
   if (actionVersion) parts.push(`Action v${actionVersion}`);
   if (scopeDescription) parts.push(`审查范围: ${scopeDescription}`);
   return parts.join(' | ');
@@ -344,7 +341,7 @@ export async function main() {
         durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
         inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
         outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
-        piVersion: process.env.REVIEW_PI_VERSION, actionRef: process.env.REVIEW_PI_ACTION_REF, scopeDescription,
+        actionRef: process.env.REVIEW_PI_ACTION_REF, scopeDescription,
       }),
     };
     return { coverage, coveragePath, options };
