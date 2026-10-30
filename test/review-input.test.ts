@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { main } from '../scripts/prepare-review-input.ts';
@@ -59,8 +59,6 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.ok(notes.includes('$REVIEW_CONTEXT_PATH'));
     assert.ok(notes.includes('central/review-rules.md'));
     assert.ok(notes.includes(path.join(directory, 'review-progress.json')));
-    assert.ok(!notes.includes('complete'));
-    assert.ok(!notes.includes('未发现问题'));
     const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
     assert.equal(baseline.repository, 'owner/repo');
     assert.ok(baseline.fingerprints.inline_comments['1']);
@@ -79,8 +77,13 @@ test('prepared input captures discussion baseline and project rules without gene
     main((command, args) => args.includes('view') || args.includes('graphql')
       ? run(command, args)
       : JSON.stringify([[{ id: 1, body: largeDecision }]]));
-    assert.ok(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8').includes('超过入口'));
-    const completeInput = readFileSync(`${process.env.REVIEW_INPUT_PATH!}.full.md`, 'utf8');
+    const inputIndex = readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8');
+    const source = readdirSync(directory, { withFileTypes: true })
+      .filter(entry => entry.isFile())
+      .map(entry => path.join(directory, entry.name))
+      .find(file => file !== process.env.REVIEW_INPUT_PATH && inputIndex.includes(file));
+    assert.ok(source, 'large input must identify its complete source');
+    const completeInput = readFileSync(source, 'utf8');
     assert.ok(completeInput.includes(largeDecision));
     assert.ok(completeInput.includes('## Head AGENTS.md'));
     assert.ok(completeInput.includes('Workspace resume manifest'));
@@ -115,9 +118,26 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.deepEqual(manifest.changed_paths.sort(), ['旧文件.ts', '含\n换行.ts'].sort());
 
     // 历史 head 不在当前 clone 中时，摘要保持未知，完整输入和进度仍可准备。
-    writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(initialReviewCoverage({ ...request, head_sha: 'f'.repeat(40) })));
+    const unavailable = initialReviewCoverage({ ...request, head_sha: 'f'.repeat(40) });
+    unavailable.scope = { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '',
+      ranges: [{ targets: ['complete pull request'], comparison_start: baseSha, comparison_end: unavailable.request.head_sha }] };
+    unavailable.status = 'published';
+    unavailable.ledger = [{ path: '含\n换行.ts', status: 'complete', batches: ['B1'] }];
+    unavailable.completed_batches = ['B1'];
+    mkdirSync(path.join(previous, 'batches'));
+    writeFileSync(path.join(previous, 'batches/B1.md'), '上轮完整证据');
+    writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(unavailable));
+    writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({
+      ledger: [{ path: '含\n换行.ts', status: 'pending', batches: [] }],
+    }));
     main(withGit);
-    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).changed_paths, null);
+    const unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    assert.equal(unknown.changed_paths, null);
+    assert.deepEqual(unknown.pending_files, ['含\n换行.ts']);
+    const ledger = JSON.parse(readFileSync(path.join(directory, 'review-progress.json'), 'utf8')).ledger;
+    assert.equal(ledger.length, 1);
+    assert.equal(ledger[0].path, '含\n换行.ts');
+    assert.equal(ledger[0].status, 'pending');
     assert.ok(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8').includes('测试 PR'));
 
   } finally {

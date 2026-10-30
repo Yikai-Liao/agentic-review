@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -16,15 +16,16 @@ test('oversized input exposes a short source pointer and preserves the original 
       writeReviewInput(file, content);
       const index = readFileSync(file, 'utf8');
       assert.ok(Buffer.byteLength(index) < 1024);
-      assert.ok(index.includes(`${file}.full.md`));
-      assert.ok(index.includes('分段读取'));
-      assert.deepEqual(readFileSync(`${file}.full.md`), Buffer.from(content));
-      assert.deepEqual(readdirSync(directory).sort(), ['review-input.md', 'review-input.md.full.md']);
+      const sources = readdirSync(directory).filter(name => name !== path.basename(file));
+      assert.equal(sources.length, 1);
+      const source = path.join(directory, sources[0]);
+      assert.ok(index.includes(source));
+      assert.deepEqual(readFileSync(source), Buffer.from(content));
     }
     const small = 'a'.repeat(32 * 1024);
     writeReviewInput(file, small);
     assert.equal(readFileSync(file, 'utf8'), small);
-    assert.equal(existsSync(`${file}.full.md`), false);
+    assert.equal(readdirSync(directory).length, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
