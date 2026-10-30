@@ -24,6 +24,14 @@ function assertAgentCredentials(workflow: any) {
     for (const [name, value] of Object.entries(fields)) {
       const expressions = String(value).match(/\$\{\{[\s\S]*?\}\}/g) ?? [];
       for (const expression of expressions) {
+        const normalized = expression.replace(/\s/g, '').replace(/\[['"]([^'"]+)['"]\]/g, '.$1');
+        for (const reference of normalized.matchAll(/steps\.([\w-]+)\.outputs\.token\b/gi)) {
+          const producer = review.steps.find((step: { id?: string }) => step.id === reference[1]);
+          assert.ok(producer?.uses?.startsWith('actions/create-github-app-token@'), 'unapproved Agent token source');
+          const permissions = Object.entries(producer.with).filter(([key]) => key.startsWith('permission-'));
+          assert.ok(permissions.length > 0, 'Agent token permissions must be explicit');
+          assert.ok(permissions.every(([, permission]) => permission === 'read'), 'Agent token must be read-only');
+        }
         if (!/\bsecrets\s*(?:\.|\[)/i.test(expression)) continue;
         // 唯一允许直接传入的 Secret 是模型 API key，与变量取名无关。
         assert.equal(`${location}.${name}`, 'with.token');
@@ -62,6 +70,16 @@ test('Agent credential checks reject renamed secrets in inherited env and action
     target.FEISHU_USER_TOKEN = "${{ secrets['FEISHU_USER_ACCESS_TOKEN'] }}";
     assert.throws(() => assertAgentCredentials(changed), level);
   }
+  // 写令牌经步骤输出转交、或现有 token 被放宽权限，同样必须失败。
+  const writeToken = structuredClone(workflow);
+  const agent = writeToken.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+  const publicationToken = workflow.jobs.publish.steps.find((step: { id?: string }) => step.id === 'publication-token');
+  writeToken.jobs.review.steps.unshift(structuredClone(publicationToken));
+  agent.env.EXTRA_TOKEN = '${{ steps.publication-token.outputs.token }}';
+  assert.throws(() => assertAgentCredentials(writeToken), /read-only/);
+  const widened = structuredClone(workflow);
+  widened.jobs.review.steps.find((step: { id?: string }) => step.id === 'read-token').with['permission-contents'] = 'write';
+  assert.throws(() => assertAgentCredentials(widened), /read-only/);
   const harmless = structuredClone(workflow);
   harmless.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review').env.REVIEW_DIAGNOSTICS = 'enabled';
   assert.doesNotThrow(() => assertAgentCredentials(harmless));
