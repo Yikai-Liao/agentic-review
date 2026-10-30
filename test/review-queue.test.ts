@@ -76,7 +76,8 @@ test('the reusable execution serializes the entire review and trusted publicatio
   assert.deepEqual(Object.keys(entry.jobs), ['review']);
   assert.equal(execution.concurrency.queue, 'max');
   assert.equal(execution.concurrency['cancel-in-progress'], false);
-  assert.equal(execution.jobs.publish.needs, 'review');
+  assert.deepEqual(Object.keys(execution.jobs), ['review']);
+  assert.ok(execution.jobs.review.steps.some((step: { id?: string }) => step.id === 'complete-check'));
   assert.equal(execution.on.workflow_dispatch, undefined);
   assert.deepEqual(entry.permissions, execution.permissions);
 });

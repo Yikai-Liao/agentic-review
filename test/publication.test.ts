@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
 import { publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
@@ -255,28 +256,43 @@ test('局部 thread 请求重跑更新旧回复中的失败说明，不重复回
 
 test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成功', async () => {
   const workflow = readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
-  const steps: Record<string, { outcome: string }> = Object.fromEntries([
-    'publisher-checkout', 'publisher-node', 'download-progress', 'download-context', 'assemble-workspace',
-    'download-result', 'publication-token', 'publish-review', 'publication-report', 'completion-workspace',
-  ].map(id => [id, { outcome: 'success' }]));
-  const needs = { review: { outputs: { context_artifact_id: '1', pi_outcome: 'success' } } };
+  const execution = parse(workflow).jobs.review.steps;
+  const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = Object.fromEntries([
+    'pi-review', 'review-context', 'review-check', 'review-workspace', 'publisher-checkout', 'download-context',
+    'assemble-workspace', 'publication-token', 'publish-review', 'publication-report', 'completion-workspace',
+  ].map(id => [id, { outcome: 'success', outputs: {} }]));
+  steps['review-check'].outputs.check_id = '1';
   function shouldRun(id: string, cancelled = false) {
-    const block = workflow.split(`        id: ${id}\n`)[1]?.split('\n      - name:')[0];
-    const expression = block?.match(/if: \$\{\{ (.+) \}\}/)?.[1];
+    const condition = execution.find((step: { id?: string }) => step.id === id)?.if;
+    const expression = condition?.match(/^\$\{\{ (.+) \}\}$/)?.[1];
     assert.ok(expression, `Missing explicit dependency condition for ${id}`);
     // 执行工作流中的条件本身；status 函数必须显式出现，避免 Actions 隐含 success() 阻断独立步骤。
-    assert.match(expression, /cancelled\(\)/);
-    return runInNewContext(expression.replace(/steps\.([\w-]+)\.outcome/g, 'steps["$1"].outcome'), {
-      steps, needs, cancelled: () => cancelled,
+    assert.match(expression, /(?:cancelled|always)\(\)/);
+    return runInNewContext(expression.replace(/steps\.([\w-]+)\./g, 'steps["$1"].'), {
+      steps, cancelled: () => cancelled, always: () => true,
     });
   }
+  steps['pi-review'].outcome = 'failure';
+  assert.equal(shouldRun('publication-token'), true);
+  assert.equal(shouldRun('publisher-checkout'), true);
+  assert.equal(shouldRun('download-context'), true);
+  assert.equal(shouldRun('assemble-workspace'), true);
+  assert.equal(shouldRun('publish-review'), false);
+  assert.equal(shouldRun('complete-check'), true);
+  steps['pi-review'].outcome = 'success';
+  steps['review-check'].outputs.check_id = '';
+  assert.equal(shouldRun('publication-token'), false);
+  assert.equal(shouldRun('complete-check'), false);
+  steps['review-check'].outputs.check_id = '1';
+  steps['review-workspace'].outcome = 'failure';
+  assert.equal(shouldRun('assemble-workspace'), true);
+  assert.equal(shouldRun('publish-review'), true);
   steps['publication-token'].outcome = 'failure';
   assert.equal(shouldRun('publisher-checkout'), true);
   assert.equal(shouldRun('assemble-workspace'), true);
   assert.equal(shouldRun('publish-review'), false);
   steps['publication-token'].outcome = 'success';
   steps['download-context'].outcome = 'failure';
-  assert.equal(shouldRun('download-result'), true);
   assert.equal(shouldRun('assemble-workspace'), false);
   steps['assemble-workspace'].outcome = 'skipped';
   assert.equal(shouldRun('publish-review'), false);
@@ -294,13 +310,13 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(shouldRun('completion-workspace', true), false);
 
   const completion = workflow.split('      - name: Complete Agentic Review check')[1];
-  assert.match(completion, /PUBLISH_JOB_STATUS: \$\{\{ job.status \}\}/);
+  assert.match(completion, /REVIEW_JOB_STATUS: \$\{\{ job.status \}\}/);
   const script = completion.split('          script: |\n')[1].split('\n').map(line => line.slice(12)).join('\n');
-  async function conclusion(jobStatus: string, publicationOutcome = 'success') {
+  async function conclusion(jobStatus: string, publicationOutcome = 'success', agentOutcome = 'success') {
     let payload: any;
     await runInNewContext(`(async () => { ${script} })()`, {
-      process: { env: { REPOSITORY: 'owner/repo', CHECK_ID: '1', PI_REVIEW_OUTCOME: 'success',
-        PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: 'success', PUBLISH_JOB_STATUS: jobStatus } },
+      process: { env: { REPOSITORY: 'owner/repo', CHECK_ID: '1', PI_REVIEW_OUTCOME: agentOutcome,
+        PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: 'success', REVIEW_JOB_STATUS: jobStatus } },
       github: { rest: { checks: { update: async (value: any) => { payload = value; } } } },
     });
     return payload.conclusion;
@@ -308,6 +324,8 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(await conclusion('success'), 'success');
   assert.equal(await conclusion('failure'), 'failure');
   assert.equal(await conclusion('success', 'failure'), 'failure');
+  assert.equal(await conclusion('failure', 'skipped', 'failure'), 'failure');
+  assert.equal(await conclusion('cancelled', 'skipped', 'cancelled'), 'cancelled');
   assert.equal(await conclusion('cancelled'), 'cancelled');
 });
 

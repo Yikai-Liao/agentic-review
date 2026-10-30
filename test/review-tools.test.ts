@@ -525,12 +525,12 @@ test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
 test('production workflow shares the thinking level between Pi and the published footer', async () => {
   type Job = { env?: Record<string, string>; steps: Array<{ id?: string; env?: Record<string, string>; with?: Record<string, unknown> }> };
   const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8')) as {
-    env: Record<string, string>; jobs: { review: Job; publish: Job };
+    env: Record<string, string>; jobs: { review: Job };
   };
   const agent = workflow.jobs.review.steps.find(step => step.id === 'pi-review')!;
-  const publisher = workflow.jobs.publish.steps.find(step => step.id === 'publish-review')!;
+  const publisher = workflow.jobs.review.steps.find(step => step.id === 'publish-review')!;
   const agentEnv = { ...workflow.env, ...workflow.jobs.review.env, ...agent.env };
-  const publishEnv = { ...workflow.env, ...workflow.jobs.publish.env, ...publisher.env };
+  const publishEnv = { ...workflow.env, ...workflow.jobs.review.env, ...publisher.env };
   const agentLevel = agent.with?.thinking_level === '${{ env.REVIEW_THINKING_LEVEL }}'
     ? agentEnv.REVIEW_THINKING_LEVEL : agent.with?.thinking_level;
   assert.equal(publishEnv.REVIEW_THINKING_LEVEL, agentLevel);

@@ -10,7 +10,7 @@ import { buildFooter } from '../scripts/publish-review.ts';
 
 const metadata = { runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/workspace', model: 'openai/gpt-test' };
 type Step = { id?: string; name?: string; env?: Record<string, string>; run?: string };
-type Workflow = { jobs: { review: { outputs: Record<string, string>; steps: Step[] }; publish: { steps: Step[] } } };
+type Workflow = { jobs: { review: { steps: Step[] } } };
 const workflowPath = new URL('../.github/workflows/review-execution.yml', import.meta.url);
 
 test('费用估算保留低成本调用，区分零费用、缺失和无效统计', () => {
@@ -23,9 +23,8 @@ test('费用估算保留低成本调用，区分零费用、缺失和无效统�
 
 test('发布费用直接使用 Pi Action 的统计输出', async () => {
   const workflow = parse(await readFile(workflowPath, 'utf8')) as Workflow;
-  assert.equal(workflow.jobs.review.outputs.cost, '${{ steps.pi-review.outputs.cost }}');
-  const publisher = workflow.jobs.publish.steps.find(step => step.id === 'publish-review')!;
-  assert.equal(publisher.env?.REVIEW_COST, '${{ needs.review.outputs.cost }}');
+  const publisher = workflow.jobs.review.steps.find(step => step.id === 'publish-review')!;
+  assert.equal(publisher.env?.REVIEW_COST, '${{ steps.pi-review.outputs.cost }}');
 });
 
 test('运行时只覆盖模型能力，保留 Pi 目录的价格与分档', async () => {
