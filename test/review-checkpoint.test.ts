@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import {
   findReviewCheckpoint,
   findReviewCheckpointSafely,
   findReviewWorkspaceArtifact,
   findReviewWorkspaceArtifactSafely,
+  main,
 } from '../scripts/find-review-checkpoint.ts';
 import { findLatestReviewWorkspace } from '../scripts/find-review-request.ts';
 
@@ -111,6 +116,104 @@ test('returns no checkpoint when no successful review exists', async () => {
       },
     },
   })), null);
+});
+
+test('合并修复后保留可信审查基线，冲突解决仍进入增量差异', async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'review-checkpoint-'));
+  const originalEnv = { ...process.env };
+  const git = (...args: string[]) => execFileSync('git', ['-C', directory, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
+  try {
+    git('init', '-b', 'review');
+    git('config', 'user.name', 'Review Test');
+    git('config', 'user.email', 'review@example.test');
+    git('config', 'commit.gpgsign', 'false');
+    const source = path.join(directory, 'limit.ts');
+    const commitSource = (value: number) => {
+      writeFileSync(source, `export const limit = ${value};\n`);
+      git('add', 'limit.ts');
+      git('commit', '-m', `设置上限 ${value}`);
+      return git('rev-parse', 'HEAD');
+    };
+    const baseSha = commitSource(1);
+    // 同一 base 上有审查记录但未合入当前 head 的提交，不得成为候选。
+    git('checkout', '-b', 'unmerged');
+    const unrelatedSha = commitSource(99);
+    git('checkout', 'review');
+    const reviewedSha = commitSource(2);
+    git('checkout', '-b', 'fix');
+    commitSource(3);
+    git('checkout', 'review');
+    git('merge', '--no-ff', 'fix', '-m', '合并小修复');
+    const mergedSha = git('rev-parse', 'HEAD');
+
+    git('checkout', '-b', 'conflicting-fix');
+    commitSource(4);
+    git('checkout', 'review');
+    commitSource(5);
+    assert.throws(() => git('merge', '--no-ff', 'conflicting-fix', '-m', '合并有冲突的修复'));
+    const resolvedSha = commitSource(6);
+    const output = path.join(directory, 'output');
+    let expired = false;
+    let reviewedBase = baseSha;
+    const queried = new Set<string>();
+    const artifactRequests: string[] = [];
+    Object.assign(process.env, {
+      REVIEW_TARGET_PATH: directory, REPOSITORY: 'owner/repo', REPOSITORY_ID: '1',
+      PULL_NUMBER: '7', BASE_SHA: baseSha, REVIEW_APP_SLUG: 'review-app', GH_TOKEN: 'read-token',
+      CONTROL_REPOSITORY: 'control/review', CONTROL_TOKEN: 'control-token',
+      GITHUB_GRAPHQL_URL: 'https://api.github.test/graphql', GITHUB_API_URL: 'https://api.github.test',
+      GITHUB_OUTPUT: output,
+    });
+    t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === process.env.GITHUB_GRAPHQL_URL) {
+        const { variables } = JSON.parse(String(init?.body)) as { variables: Record<string, string> };
+        const repository = Object.fromEntries(Object.entries(variables)
+          .filter(([key]) => key.startsWith('oid'))
+          .map(([key, sha]) => {
+            queried.add(sha);
+            return [key.replace('oid', 'c'), commit(sha, [reviewedSha, unrelatedSha].includes(sha)
+              ? [check(sha, { externalId: `1:7:${reviewedBase}:${sha}:automatic:99:1` })] : [])];
+          }));
+        return Response.json({ data: { repository } });
+      }
+      artifactRequests.push(String(input));
+      return Response.json({ artifacts: [{ id: 3, name: 'review-completed-workspace-1-7-automatic-99-1', expired }] });
+    });
+    const resolve = async (headSha: string) => {
+      process.env.HEAD_SHA = headSha;
+      writeFileSync(output, '');
+      await main();
+      return readFileSync(output, 'utf8');
+    };
+
+    for (const [name, headSha, value] of [
+      ['普通合并', mergedSha, 3], ['冲突解决', resolvedSha, 6],
+    ] as const) {
+      await t.test(name, async () => {
+        assert.equal(await resolve(headSha), `head_sha=${reviewedSha}\nrun_id=99\nrun_attempt=1\nworkspace_artifact_id=3\n`);
+        const focus = git('diff', `${reviewedSha}..${headSha}`, '--', 'limit.ts');
+        assert.ok(focus.includes(`+export const limit = ${value};`));
+      });
+    }
+    assert.ok(queried.has(reviewedSha));
+    assert.ok(!queried.has(unrelatedSha));
+    assert.deepEqual(artifactRequests, Array(2).fill('https://api.github.test/repos/control/review/actions/runs/99/artifacts?per_page=100'));
+
+    await t.test('工作稿过期时不接入基线', async () => {
+      expired = true;
+      assert.equal(await resolve(resolvedSha), 'head_sha=\nrun_id=\nrun_attempt=\nworkspace_artifact_id=\n');
+    });
+    await t.test('不同 base 的完成记录不能复用', async () => {
+      expired = false;
+      reviewedBase = 'e'.repeat(40);
+      artifactRequests.length = 0;
+      assert.equal(await resolve(resolvedSha), 'head_sha=\nrun_id=\nrun_attempt=\nworkspace_artifact_id=\n');
+      assert.deepEqual(artifactRequests, []);
+    });
+  } finally {
+    process.env = originalEnv;
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('finds the unexpired workspace artifact for the reviewed run', async () => {

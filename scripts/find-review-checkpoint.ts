@@ -232,6 +232,8 @@ export async function main() {
   if (!shaPattern.test(mergeBase)) throw new Error('Invalid merge base');
   const { stdout } = await exec('git', ['-C', targetPath, 'rev-list', '--topo-order', headSha, `^${mergeBase}`]);
   const commits = stdout.trim() ? stdout.trim().split('\n') : [];
+  // 候选均为当前 head 的祖先；merge 的净变化（含冲突解决）仍进入 focus diff。
+  // 未改完成项可延续；间接影响由 Agent 沿增量按需重开。
   let checkpoint = await findReviewCheckpointSafely({
     commits,
     repository,
@@ -242,12 +244,6 @@ export async function main() {
     token,
     graphql,
   });
-  if (checkpoint) {
-    const { stdout: merges } = await exec('git', [
-      '-C', targetPath, 'rev-list', '--merges', `${checkpoint.headSha}..${headSha}`,
-    ]);
-    if (merges.trim()) checkpoint = null;
-  }
   const [checkpointRunId, checkpointRunAttempt] = checkpoint?.runId.split(':') ?? [];
   const artifactId = checkpoint
     ? await findReviewWorkspaceArtifactSafely({

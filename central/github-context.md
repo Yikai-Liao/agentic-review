@@ -38,11 +38,11 @@ node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 
 ## 3. 读取历史结果和代码差分
 
-`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，按 `references/review-state.md` 接入 checkpoint 对应的只读工作稿；先用最新 PR 讨论、thread 状态和增量 diff 更新前提，再判定继承或重开。它不改变本轮 scope。
+`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，接入 checkpoint 对应的历史记录，已完成项默认延续；按 `references/review-state.md` 从新变化和最新讨论出发，沿实际影响重开相关项。本轮 scope 保持不变，完整覆盖由历史已完成调查和本轮增量调查共同构成。
 
 本地 Git 是 diff 的唯一来源。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
-先查询 full 区间的完整文件清单和规模：
+首次调查或没有可用基线时，查询 full 区间的完整文件清单和规模：
 
 ```bash
 git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
@@ -66,7 +66,9 @@ git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff -
 
 单文件过大时从 `--unified=0` 输出中过滤 hunk 头定位，再通过行区间分页读取 patch，所需源码上下文也按行读取。工具截断后继续补齐未读区间，记录覆盖进度。diff 直接从 Git 读取，不预生成或合并为单个文件。
 
-在本轮 scope 内，无历史工作稿时逐批覆盖全部变化；有历史时用相同 Git 选项查询 focus 区间，优先调查其文件、hunk 和影响面，再从 full 区间补充历史未完成项及 finding 位置，其余按继承条件复用。focus 清单为空只表示没有净代码变化，仍需处理最新讨论和历史未完成项；focus 中已从 full 清单消失的路径也要检查撤销变化对旧结论的影响。
+有可用基线时，先用相同 Git 选项查询 focus 区间，读取本轮恢复清单的 `pending_files`；小增量一次读取 focus patch，大增量按路径和 hunk 读取。调查新变化、历史未完成项及其实际影响，按需从 full 区间补充证据。已完成项保持原状态，直到新 diff、最新讨论或职责变化触及其调用方、共享契约或旧结论前提，再标为 `pending` 并复核相关部分。
+
+focus 清单为空时处理最新讨论和历史未完成项。focus 中已从 full 清单消失的路径仍需检查撤销变化对旧结论的影响。full 文件清单由 `review-progress.json` 保留，增量复审无需为继承完成项再次遍历 full patch。
 
 finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文；要确认 merge-base 版本时从目标 Git 按 full 区间的 merge-base SHA 读取，base checkout 是 `$REVIEW_BASE_SHA` 的快照。
 
