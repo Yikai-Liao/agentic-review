@@ -7,7 +7,10 @@ import { test } from 'node:test';
 import { parse } from 'yaml';
 
 test('missing repository thinking level fails before issuing review tokens, configured levels remain selectable', () => {
-  const workflow = parse(readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8'));
+  const entry = parse(readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8'));
+  const execution = entry.jobs.review.uses;
+  const workflow = execution
+    ? parse(readFileSync(new URL(`../${execution}`, import.meta.url), 'utf8')) : entry;
   const jobLevel = structuredClone(workflow);
   delete jobLevel.env?.REVIEW_THINKING_LEVEL;
   for (const job of Object.values(jobLevel.jobs) as Array<{ env?: Record<string, string> }>) {

@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@actions/expressions':
+        specifier: 0.3.61
+        version: 0.3.61
       '@types/node':
         specifier: 24.12.0
         version: 24.12.0
@@ -22,6 +25,10 @@ importers:
         version: 2.9.1
 
 packages:
+
+  '@actions/expressions@0.3.61':
+    resolution: {integrity: sha512-Ig+tXELvTjlqxQAWBQnLNn2dPpNraLMdSnT+vDzDPmJtbNUhIAH/Z9kVT8pZ8UtJi9vUGs8hwHE8JFJmbOnLEA==}
+    engines: {node: '>= 20'}
 
   '@esbuild/aix-ppc64@0.27.7':
     resolution: {integrity: sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg==}
@@ -217,6 +224,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@actions/expressions@0.3.61': {}
 
   '@esbuild/aix-ppc64@0.27.7':
     optional: true

@@ -211,7 +211,7 @@ test('duplicate or stale judge results fail instead of counting extra votes', as
 
 test('production sparse checkout and actual prompt loader exclude maintenance skills and evaluations', async t => {
   const f = await fixture(t);
-  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const checkout = workflow.split('      - name: Checkout control-plane rules\n')[1].split('\n      - name:')[0];
   assert.ok(checkout.includes('sparse-checkout-cone-mode: false'));
   const patterns = checkout.match(/sparse-checkout: \|\n((?:            .+\n?)+)/)![1].split('\n').map(line => line.trim()).filter(Boolean);
@@ -239,7 +239,7 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
 });
 
 test('production Pi runtime enables bounded provider retries and one-hour review', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const runtime = workflow.split('      - name: Configure Pi runtime\n')[1].split('\n      - name:')[0];
   assert.match(runtime, /cat > "\$HOME\/\.pi\/agent\/settings\.json"/);
   assert.match(runtime, /"enabled": false/);
