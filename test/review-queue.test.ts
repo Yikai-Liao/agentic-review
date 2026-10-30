@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { runInNewContext } from 'node:vm';
+import { data, Evaluator, Lexer, Parser } from '@actions/expressions';
 import { parse } from 'yaml';
 
 const entry = parse(readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8'));
 const execution = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
 
-// 这两条表达式只使用上下文、字符串与布尔运算；比较实际分组关系，不固定前缀和拼写。
+// 使用 Actions 表达式语义比较实际分组关系，不固定前缀、函数或条件拼写。
 function groupFor(template: string, repository: string, pull: string, source: string, run: number) {
-  return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => String(runInNewContext(expression, {
+  const context = JSON.parse(JSON.stringify({
     inputs: { repository_id: repository, pull_number: pull, trigger_source: source },
-    github: { run_id: run },
-  }))).toLowerCase();
+    github: { run_id: String(run) },
+  }), data.reviver);
+  return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => {
+    const parsed = new Parser(new Lexer(expression).lex().tokens, ['inputs', 'github'], []).parse();
+    return new Evaluator(parsed, context).evaluate().coerceString();
+  }).toLowerCase();
 }
 
 function assertGrouping(admission: string, serialized: string) {
@@ -41,6 +45,10 @@ test('automatic admission replaces only pending automatic requests, preserving e
   assertGrouping(admission.group, execution.concurrency.group);
   const equivalent = "other-admission-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source != 'automatic' && github.run_id || 'automatic' }}";
   assert.doesNotThrow(() => assertGrouping(equivalent, 'other-execution-${{ inputs.repository_id }}-${{ inputs.pull_number }}'));
+  assert.doesNotThrow(() => assertGrouping(
+    "${{ format('entry-{0}-{1}-{2}', inputs['repository_id'], inputs['pull_number'], inputs.trigger_source != 'AUTOMATIC' && github.run_id || 'automatic') }}",
+    "${{ format('execution-{0}-{1}', inputs.repository_id, inputs.pull_number) }}",
+  ));
   const request = "${{ inputs.trigger_source == 'automatic' && 'automatic' || github.run_id }}";
   for (const broken of [
     `entry-\${{ inputs.pull_number }}-${request}`,
