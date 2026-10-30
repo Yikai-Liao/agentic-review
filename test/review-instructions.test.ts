@@ -85,6 +85,21 @@ test('关联记录规则由可信中央入口按需加载，分类不替代 find
   // 只防止加载/职责契约再次丢失；语义正反例在 C09/C10，不声称模型已通过。
 });
 
+test('中央保留默认职责清单和层级入口', async () => {
+  const prompt = await read('central/review-rules.md');
+  assert.match(prompt, /level = code/);
+  const focuses = [...prompt.matchAll(/^\d\. ([^：]+)：/gm)].map(match => match[1]);
+  assert.deepEqual(focuses, ['行为与意图对齐', '安全边界', '可靠性与恢复', '性能与资源成本', '测试有效性']);
+  assert.ok(prompt.includes('仅执行本入口选定的分支'));
+  assert.ok(prompt.includes('不自动启动独立的需求、架构或计划审查'));
+  assert.ok(prompt.includes('不默认追加可维护性/风格/架构偏好专项或验证充分性审计'));
+  assert.ok(prompt.includes('Head `.agentic-review.md`'));
+  assert.ok(prompt.includes('Head `AGENTS.md`'));
+  assert.ok(prompt.includes('references/levels/<level>.md'));
+  assert.ok(!/沿用原有默认|旧有默认侧重点/.test(prompt));
+  // 仅校验调用契约文字，不把字符串出现当作模型行为已通过。
+});
+
 test('安装包及当前维护文档的本地链接闭合，运行包不依赖仓库外规则', async () => {
   const runtime = await markdownFiles('skills/agentic-review');
   const documents = ['README.md', 'AGENTS.md', ...runtime, ...await markdownFiles('central'), ...await markdownFiles('docs'), 'evals/README.md', 'evals/generalized-review/README.md'];
