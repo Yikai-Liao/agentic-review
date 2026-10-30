@@ -433,7 +433,7 @@ jobs:
       - name: Run Pi review
         id: pi-review
         timeout-minutes: 60
-        uses: shaftoe/pi-coding-agent-action@v2.30.0
+        uses: shaftoe/pi-coding-agent-action@v2.30.1
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
