@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildReviewRequest, validateReviewScope, validateReviewRanges, type ReviewCoverage } from './review-request.ts';
 
-export type CoverageEntry = { path: string; status: 'pending' | 'complete' | 'out_of_scope'; batches: string[] };
+export type CoverageEntry = { path: string; status: 'pending' | 'complete' | 'out_of_scope' };
 const record = (value: unknown): value is Record<string, any> => typeof value === 'object' && value !== null && !Array.isArray(value);
-const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string' && item.trim().length > 0) && new Set(value).size === value.length;
 const relative = (value: string) => value.length > 0 && !path.posix.isAbsolute(value) && !value.split('/').some((part) => part === '..' || part === '.');
 
 export function inventoryDigest(files: string[]): string {
@@ -24,7 +23,7 @@ export function parseReviewCoverage(value: unknown): ReviewCoverage {
   const rebuilt = buildReviewRequest({ source: r.source, commentId: r.comment_id, rootCommentId: r.root_comment_id, text: r.text, repository: r.repository, pullNumber: r.pull_number, baseSha: r.base_sha, headSha: r.head_sha, comparisonStart: r.comparison_start, runId: r.run_id, runAttempt: r.run_attempt, now: r.requested_at });
   if (Object.keys(r).length !== Object.keys(rebuilt).length || Object.entries(rebuilt).some(([key, item]) => r[key] !== item)) throw new Error('Invalid coverage request');
   if (!['requested', 'draft', 'published', 'failed'].includes(value.status) || typeof value.complete_audit !== 'boolean'
-    || !strings(value.completed_batches) || typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))) throw new Error('Invalid coverage state');
+    || typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))) throw new Error('Invalid coverage state');
   if (value.default_plan !== undefined) {
     const plan = value.default_plan;
     if (!record(plan) || !['pr', 'thread'].includes(plan.kind) || !['full', 'incremental', 'focused'].includes(plan.mode)
@@ -37,10 +36,15 @@ export function parseReviewCoverage(value: unknown): ReviewCoverage {
   if ((value.status === 'draft' || value.status === 'published') && !value.scope) throw new Error('Missing coverage scope');
   if (value.complete_audit && (value.status !== 'published' || r.source !== 'automatic' || value.scope?.mode !== 'full')) throw new Error('Invalid complete audit');
   if (!Array.isArray(value.ledger) || value.ledger.some((entry: unknown) => !record(entry) || typeof entry.path !== 'string' || !relative(entry.path)
-    || !['pending', 'complete', 'out_of_scope'].includes(entry.status) || !strings(entry.batches)
-    || entry.batches.some((batch: string) => !/^[A-Za-z0-9_-]+$/.test(batch)))) throw new Error('Invalid coverage ledger');
+    || !['pending', 'complete', 'out_of_scope'].includes(entry.status))) throw new Error('Invalid coverage ledger');
   if (new Set(value.ledger.map((entry: CoverageEntry) => entry.path)).size !== value.ledger.length) throw new Error('Duplicate coverage path');
-  return value as ReviewCoverage;
+  const coverage: ReviewCoverage = {
+    request: rebuilt, status: value.status, complete_audit: value.complete_audit, updated_at: value.updated_at,
+    ledger: value.ledger.map((entry: CoverageEntry) => ({ path: entry.path, status: entry.status })),
+  };
+  if (value.scope !== undefined) coverage.scope = value.scope;
+  if (value.default_plan !== undefined) coverage.default_plan = value.default_plan;
+  return coverage;
 }
 
 // 合并的历史记录由代码生成，模型可写文件不含 request、默认计划或发布状态。
@@ -55,15 +59,10 @@ export async function readReviewProgress(contextPath: string, progressPath: stri
     ...progress.scope,
     kind: context.request.source === 'thread' ? 'thread' : 'pr',
   };
-  // 校验 ledger 后才汇总，模型不再维护第二份 batch 清单。
-  const completedBatches = Array.isArray(progress.ledger)
-    ? [...new Set(progress.ledger.flatMap((entry: any) => Array.isArray(entry?.batches) ? entry.batches : []))]
-    : [];
   return parseReviewCoverage({
     request: context.request,
     default_plan: context.default_plan,
     scope,
-    completed_batches: completedBatches,
     ledger: progress.ledger,
     status: progress.scope ? 'draft' : 'requested',
     complete_audit: false,
@@ -71,21 +70,13 @@ export async function readReviewProgress(contextPath: string, progressPath: stri
   });
 }
 
-export async function validateCoverageCompletion(coverage: ReviewCoverage, workspace: string, expectedDigest: string): Promise<void> {
+export async function validateCoverageCompletion(coverage: ReviewCoverage, expectedDigest: string): Promise<void> {
   parseReviewCoverage(coverage);
   if (!coverage.scope || !['draft', 'published'].includes(coverage.status)) throw new Error('Review coverage is not ready for publication');
   if (!/^[0-9a-f]{64}$/.test(expectedDigest) || inventoryDigest(coverage.ledger.map((entry) => entry.path)) !== expectedDigest) throw new Error('Coverage does not match trusted change inventory');
-  const used = new Set<string>();
   for (const entry of coverage.ledger) {
-    if (entry.status === 'out_of_scope' && coverage.scope.mode !== 'full' && entry.batches.length === 0) continue;
-    if (entry.status !== 'complete' || entry.batches.length === 0) throw new Error(`Incomplete coverage: ${entry.path}`);
-    entry.batches.forEach((batch) => used.add(batch));
-  }
-  if (coverage.completed_batches.length !== used.size || coverage.completed_batches.some((batch) => !used.has(batch))) throw new Error('Completed batches do not match coverage ledger');
-  const root = await realpath(workspace);
-  for (const batch of used) {
-    const file = await realpath(path.join(root, 'batches', `${batch}.md`));
-    if (!file.startsWith(`${root}${path.sep}`) || !(await readFile(file, 'utf8')).trim()) throw new Error(`Missing batch evidence: ${batch}`);
+    if (entry.status === 'out_of_scope' && coverage.scope.mode !== 'full') continue;
+    if (entry.status !== 'complete') throw new Error(`Incomplete coverage: ${entry.path}`);
   }
 }
 
@@ -101,6 +92,6 @@ async function main() {
   const workspace = process.env.PREVIOUS_WORKSPACE_PATH!;
   const coverage = parseReviewCoverage(JSON.parse(await readFile(path.join(workspace, 'review-coverage.json'), 'utf8')));
   validateAuditCheckpoint(coverage, { repository: process.env.REPOSITORY!, pullNumber: Number(process.env.PULL_NUMBER), base: process.env.CHECKPOINT_BASE!, head: process.env.CHECKPOINT_HEAD!, run: process.env.CHECKPOINT_RUN!, attempt: process.env.CHECKPOINT_ATTEMPT! });
-  await validateCoverageCompletion(coverage, workspace, inventoryDigest(coverage.ledger.map((entry) => entry.path)));
+  await validateCoverageCompletion(coverage, inventoryDigest(coverage.ledger.map((entry) => entry.path)));
 }
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });

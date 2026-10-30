@@ -41,7 +41,6 @@ export type ReviewCoverage = {
   scope?: ReviewScope;
   default_plan?: DefaultReviewPlan;
   status: 'requested' | 'draft' | 'published' | 'failed';
-  completed_batches: string[];
   ledger: CoverageEntry[];
   complete_audit: boolean;
   updated_at: string;
@@ -117,7 +116,7 @@ export async function persistReviewProgress(file: string, progress: ReviewProgre
 }
 
 export function initialReviewCoverage(request: ReviewRequest): ReviewCoverage {
-  return { request, status: 'requested', completed_batches: [], ledger: [], complete_audit: false, updated_at: request.requested_at };
+  return { request, status: 'requested', ledger: [], complete_audit: false, updated_at: request.requested_at };
 }
 
 export function comparisonUsable(targetPath: string, start: string, end: string): boolean {
@@ -232,7 +231,7 @@ export async function main() {
         || previous.request.source !== process.env.REVIEW_PREVIOUS_SOURCE) throw new Error('Previous coverage does not match selected artifact');
       if (process.env.REVIEW_PREVIOUS_PUBLISHED === 'true') {
         if (previous.status !== 'published') throw new Error('Completion artifact is not published');
-        await validateCoverageCompletion(previous, previousPath, inventoryDigest(previous.ledger.map((entry) => entry.path)));
+        await validateCoverageCompletion(previous, inventoryDigest(previous.ledger.map((entry) => entry.path)));
       } else {
         previous = { ...previous, status: previous.scope ? 'draft' : 'requested', complete_audit: false };
       }
@@ -243,7 +242,7 @@ export async function main() {
   const coverage = initialReviewCoverage(request);
   coverage.default_plan = prepareDefaultReviewPlan(request, previous, (start, end) => comparisonUsable(process.env.REVIEW_TARGET_PATH!, start, end));
   coverage.ledger = reviewInventory(process.env.REVIEW_TARGET_PATH!, request, coverage.default_plan)
-    .map((file) => ({ path: file, status: 'pending', batches: [] }));
+    .map((file) => ({ path: file, status: 'pending' }));
   await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\n`);
   const context: ReviewContext = { request, default_plan: coverage.default_plan };
   await mkdir(path.dirname(contextPath), { recursive: true, mode: 0o700 });

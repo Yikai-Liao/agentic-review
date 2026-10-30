@@ -17,7 +17,7 @@ function request(source: 'automatic' | 'pr_comment' | 'thread', currentHead = he
 function previous(status: ReviewCoverage['status'], previousHead = oldHead): ReviewCoverage {
   const value = request('pr_comment', previousHead);
   return {
-    request: value, status, completed_batches: ['auth'], ledger: [], complete_audit: false, updated_at: value.requested_at,
+    request: value, status, ledger: [], complete_audit: false, updated_at: value.requested_at,
     scope: { kind: 'pr', mode: 'focused', rationale: 'auth', explicit_text: 'auth', ranges: [{ targets: ['auth'], comparison_start: base, comparison_end: previousHead }] },
   };
 }
@@ -102,8 +102,7 @@ test('consecutive failures preserve every interval, including retries before sco
   const secondRequest = request('pr_comment', head);
   const secondPlan = prepareDefaultReviewPlan(secondRequest, previous('failed'), () => true);
   const second: ReviewCoverage = {
-    request: secondRequest, default_plan: secondPlan, status: 'requested',
-    completed_batches: [], ledger: [], complete_audit: false, updated_at: secondRequest.requested_at,
+    request: secondRequest, default_plan: secondPlan, status: 'requested', ledger: [], complete_audit: false, updated_at: secondRequest.requested_at,
   };
   const sameHead = prepareDefaultReviewPlan(secondRequest, second, () => true);
   assert.deepEqual(sameHead.ranges, secondPlan.ranges);

@@ -141,13 +141,13 @@ test('prepared input captures discussion baseline and project rules without gene
     unavailable.scope = { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '',
       ranges: [{ targets: ['complete pull request'], comparison_start: baseSha, comparison_end: unavailable.request.head_sha }] };
     unavailable.status = 'published';
-    unavailable.ledger = [{ path: '含\n换行.ts', status: 'complete', batches: ['B1'] }];
-    unavailable.completed_batches = ['B1'];
-    mkdirSync(path.join(previous, 'batches'));
-    writeFileSync(path.join(previous, 'batches/B1.md'), '上轮完整证据');
+    unavailable.ledger = [{ path: '含\n换行.ts', status: 'complete' }];
     writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(unavailable));
+    writeFileSync(path.join(previous, 'review-result.json'), JSON.stringify({
+      body: '未发现问题。', comments: [], thread_updates: [], request_reply: null,
+    }));
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({
-      ledger: [{ path: '含\n换行.ts', status: 'pending', batches: [] }],
+      ledger: [{ path: '含\n换行.ts', status: 'pending' }],
     }));
     main(withGit);
     const unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));

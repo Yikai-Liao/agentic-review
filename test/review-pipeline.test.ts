@@ -80,7 +80,7 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     assert.equal(JSON.parse(sealedContext).request.text, env.REVIEW_COMMENT_BODY);
     const progress = JSON.parse(await readFile(progressPath, 'utf8'));
     assert.deepEqual(Object.keys(progress), ['ledger', 'scope']);
-    assert.deepEqual(progress.ledger, [{ path: 'auth.ts', status: 'pending', batches: [] }]);
+    assert.deepEqual(progress.ledger, [{ path: 'auth.ts', status: 'pending' }]);
     progress.scope = { mode: 'full', rationale: '完整审查', explicit_text: '',
       ranges: [{ targets: ['complete pull request'], comparison_start: base, comparison_end: head }] };
     // 模型可以整段重写进度，但文件中没有要原样搬运的请求或机器状态。
@@ -100,16 +100,17 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     await assemble();
     await assert.rejects(publish(), /Incomplete coverage/);
     assert.equal(writes.length, 0);
-    progress.ledger[0] = { path: 'auth.ts', status: 'complete', batches: ['auth'] };
-    await mkdir(path.join(workspace, 'batches'));
-    await writeFile(path.join(workspace, 'batches/auth.md'), '已核对鉴权调用方和失败路径。');
+    progress.ledger[0] = { path: 'auth.ts', status: 'complete' };
     await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: '改写请求' } }));
     await assert.rejects(assemble(), /progress fields/);
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
-    assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).completed_batches, ['auth']);
+    assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
+    const bodyFinding = '## 自动代码审查 ⬆️\n\n问题详情：auth.ts 删除必要的权限约束，未授权请求可到达写入路径；须恢复约束并复核合法请求。';
+    await writeFile(resultPath, JSON.stringify({ body: bodyFinding, comments: [], thread_updates: [], request_reply: null }));
     await publish();
     assert.equal(writes.length, 1);
+    assert.ok((writes[0] as { body: string }).body.includes(bodyFinding));
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
     assert.match((writes[0] as { body: string }).body, /\| Action v9\.8\.7/);
     const published = JSON.parse(await readFile(coveragePath, 'utf8'));
@@ -237,8 +238,8 @@ test('trusted inventory includes reverted incremental files and intervals from r
     coverage.scope = { ...old.scope, kind: 'pr', mode: 'incremental', ranges: coverage.default_plan!.ranges };
     coverage.status = 'draft';
     coverage.ledger[1].status = 'out_of_scope';
-    await assert.rejects(validateCoverageCompletion(coverage, workspace, outputs.inventory_digest), /Incomplete coverage: auth.ts/);
-    await assert.rejects(validateCoverageCompletion({ ...coverage, ledger: [coverage.ledger[1]] }, workspace, outputs.inventory_digest), /inventory/);
+    await assert.rejects(validateCoverageCompletion(coverage, outputs.inventory_digest), /Incomplete coverage: auth.ts/);
+    await assert.rejects(validateCoverageCompletion({ ...coverage, ledger: [coverage.ledger[1]] }, outputs.inventory_digest), /inventory/);
     // 第二轮保存实际范围后仍失败；第三轮必须继续携带 A→B 和 B→C。
     await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify(coverage));
     await writeFile(path.join(directory, 'payments.ts'), 'new payments');

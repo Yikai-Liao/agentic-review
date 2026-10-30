@@ -20,7 +20,7 @@ async function assertSubmissionFailed(response: Promise<any>, error: RegExp) {
 }
 const result = {
   body: '## Review 总结\n\n这个 PR 修复了清理行为。',
-  comments: [{ path: 'src/gc.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
+  comments: [{ path: 'src/auth.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
   thread_updates: [{
     root_comment_id: 123,
     status: 'resolved' as const,
@@ -99,9 +99,9 @@ async function configureProgress(directory: string, source: 'automatic' | 'pr_co
     text: '审查请求\r\n保留换行', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha, runId: '99' });
   process.env.REVIEW_CONTEXT_PATH = path.join(directory, 'review-context.json');
   process.env.REVIEW_PROGRESS_PATH = path.join(directory, 'workspace', 'review-progress.json');
-  process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest([]);
+  process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
   await writeFile(process.env.REVIEW_CONTEXT_PATH, JSON.stringify({ request }));
-  await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [], scope: {
+  await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'complete' }], scope: {
     mode: 'full', rationale: '完整审查', explicit_text: '',
     ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }],
   } }));
@@ -132,7 +132,7 @@ test('submit_review seals one JSON file from the review workspace', async () => 
   }
 });
 
-test('scope and submission need only model decisions, not machine identity or duplicated batch lists', async () => {
+test('范围与提交只需要模型判断和文件进度，不搬运请求身份', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-scope-'));
   const originalEnv = { ...process.env };
   try {
@@ -141,7 +141,7 @@ test('scope and submission need only model decisions, not machine identity or du
     await configureProgress(directory, 'pr_comment');
     const progressPath = process.env.REVIEW_PROGRESS_PATH!;
     const originalContext = await readFile(process.env.REVIEW_CONTEXT_PATH!, 'utf8');
-    await writeFile(progressPath, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending', batches: [] }] }));
+    await writeFile(progressPath, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending' }] }));
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     const tools = new Map<string, any>();
@@ -157,13 +157,11 @@ test('scope and submission need only model decisions, not machine identity or du
     const saved = JSON.parse(await readFile(progressPath, 'utf8'));
     assert.deepEqual(Object.keys(saved).sort(), ['ledger', 'scope']);
     assert.deepEqual(Object.keys(saved.scope).sort(), ['explicit_text', 'mode', 'ranges', 'rationale']);
-    assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending', batches: [] }]);
+    assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending' }]);
     process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
     await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
     await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
-    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete', batches: ['auth'] };
-    await mkdir(path.join(workspace, 'batches'));
-    await writeFile(path.join(workspace, 'batches/auth.md'), '已核对鉴权调用方和失败路径。');
+    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete' };
     await writeFile(progressPath, JSON.stringify(saved));
     await tools.get('submit_review').execute('call', { path: resultPath });
     assert.deepEqual(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')), summary);
@@ -296,7 +294,7 @@ test('publisher creates one review, updates threads, and appends the footer', as
   assert.match(finding.body, /agentic-review-publication:/);
   assert.deepEqual({ ...finding, body: result.comments[0].body }, {
     commit_id: headSha,
-    path: 'src/gc.ts',
+    path: 'src/auth.ts',
     line: 42,
     start_line: 40,
     side: 'RIGHT',
