@@ -92,3 +92,36 @@ test('resume preserves the index and completed files while reopening the request
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('同一快照恢复无 batch 的完成项，代码变化后重新核定', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'review-no-candidate-'));
+  try {
+    const previousPath = path.join(directory, 'previous');
+    const workspace = path.join(directory, 'current');
+    mkdirSync(previousPath);
+    mkdirSync(workspace);
+    const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 7,
+      baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
+    const scope = { kind: 'pr' as const, mode: 'full' as const, rationale: '完整审查', explicit_text: '',
+      ranges: [{ targets: ['complete pull request'], comparison_start: request.base_sha, comparison_end: request.head_sha }] };
+    const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published', scope,
+      ledger: [{ path: 'auth.ts', status: 'complete', batches: [] }], completed_batches: [] };
+    writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
+    const reset = () => writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify({ scope,
+      ledger: [{ path: 'auth.ts', status: 'pending', batches: [] }] }));
+    reset();
+    const context = { request: { ...request, run_id: '11' } };
+    const restored = prepareReviewWorkspace({ workspace, context, previousPath });
+    assert.deepEqual(restored.batches, []);
+    assert.deepEqual(restored.pending_files, []);
+    assert.deepEqual(JSON.parse(readFileSync(restored.paths.progress, 'utf8')).ledger,
+      [{ path: 'auth.ts', status: 'complete', batches: [] }]);
+    reset();
+    const changed = prepareReviewWorkspace({ workspace, previousPath,
+      context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, readChanges: () => ['auth.ts'] });
+    assert.deepEqual(changed.batches, []);
+    assert.deepEqual(changed.pending_files, ['auth.ts']);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

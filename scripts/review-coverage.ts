@@ -78,7 +78,7 @@ export async function validateCoverageCompletion(coverage: ReviewCoverage, works
   const used = new Set<string>();
   for (const entry of coverage.ledger) {
     if (entry.status === 'out_of_scope' && coverage.scope.mode !== 'full' && entry.batches.length === 0) continue;
-    if (entry.status !== 'complete' || entry.batches.length === 0) throw new Error(`Incomplete coverage: ${entry.path}`);
+    if (entry.status !== 'complete') throw new Error(`Incomplete coverage: ${entry.path}`);
     entry.batches.forEach((batch) => used.add(batch));
   }
   if (coverage.completed_batches.length !== used.size || coverage.completed_batches.some((batch) => !used.has(batch))) throw new Error('Completed batches do not match coverage ledger');

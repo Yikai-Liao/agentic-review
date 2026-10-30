@@ -161,9 +161,7 @@ test('scope and submission need only model decisions, not machine identity or du
     process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
     await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
     await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
-    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete', batches: ['auth'] };
-    await mkdir(path.join(workspace, 'batches'));
-    await writeFile(path.join(workspace, 'batches/auth.md'), '已核对鉴权调用方和失败路径。');
+    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete', batches: [] };
     await writeFile(progressPath, JSON.stringify(saved));
     await tools.get('submit_review').execute('call', { path: resultPath });
     assert.deepEqual(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')), summary);

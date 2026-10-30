@@ -51,7 +51,7 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
       // 新快照可能改变未修改文件的调用方或契约，不能只看文件 diff 自动确认继承。
       if (sameSnapshot && entry.path !== threadPath) {
         if (old.status === 'complete' && !repeatPrScope) {
-          if (!old.batches.length || old.batches.some((id) => !batches.some((batch) => batch.id === id)
+          if (old.batches.some((id) => !batches.some((batch) => batch.id === id)
             || !readFileSync(path.join(workspace, 'batches', `${id}.md`), 'utf8').trim())) throw new Error('Missing inherited batch evidence');
           entry.status = 'complete';
         } else if (old.status === 'out_of_scope' && sameScope && progress.scope?.mode !== 'full') {

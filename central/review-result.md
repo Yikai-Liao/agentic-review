@@ -6,17 +6,19 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`，遵循 [共享工作稿规则](../skills/agentic-review/references/review-state.md)。中央入口使用 `notes.md` 作唯一索引，详细证据放在 `batches/<batch-id>.md`，最终文件为 `review-result.json`；不另建 `review.md` 索引。工作稿作为限期、受权限保护的 Actions artifact 保留。
 
-在索引保存[中央入口](review-rules.md#选择审查层级)要求的层级、选择依据及对应产物；恢复或复核时先核对这些调查前提，层级改变后按新职责重新核定覆盖。
+索引只简记[中央入口](review-rules.md#选择审查层级)选定的层级、必要的来源定位、疑点入口和续读位置。固定请求身份、版本、范围与文件清单由准备阶段的上下文和进度提供，notes 不重复抄写；详细证据只存一处，索引引用 batch，不复述证明。恢复或复核时先核对调查前提，层级改变后按新职责重新核定覆盖。
+
+本入口保留完整调查要求，工作稿采用按需记录：无候选项只登记覆盖完成，不编写逐项无问题证明或未触发专项说明；出现疑点时才在 batch 保存证据、反证、判断及排除理由，未完成调查保留具体缺口。历史问题核定沿用原证据，新增判断在对应 batch 更新。
 
 中央提交要求全部 scope 内覆盖完成；共享规则允许如实记录部分调查，但不能据此绕过中央 ledger 校验或提交成功。未完成项保持 pending，保留具体阻塞和证据，不生成假 complete。
 
 准备阶段已记录默认 scope。调查前对照本轮请求核定；显式请求改变范围时调用 `set_review_scope` 更新 `mode`、`ranges`、`rationale` 和 `explicit_text`，否则直接使用默认值。每个区间包含比较起止 SHA 和足以恢复范围的 targets；保留默认计划中的全部义务，只有显式限定时才缩小范围。最新实际 scope 是下一轮恢复范围的唯一来源。
 
-workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含工具记录的 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；每个文件及其非机械 hunk 的证明写入 `batches/<batch-id>.md`，batch ID 只用字母、数字、下划线和连字符。完成后把对应条目写为 `{"path":"src/example.ts","status":"complete","batches":["B1"]}`。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope` 和空 `batches`，full 范围不允许排除条目。中央 ledger 提供文件级完成校验，hunk、census 与证据充分性仍遵循 `references/review-state.md`。
+workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含工具记录的 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；读完文件及其全部实质变化、完成必要调查后登记为 `complete`。无候选文件使用 `{"path":"src/example.ts","status":"complete","batches":[]}`，无需创建 batch 文件；存在疑点或历史问题证据时，把对应 batch ID 写入 `batches`。batch ID 只用字母、数字、下划线和连字符。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope` 和空 `batches`，full 范围不允许排除条目。中央 ledger 提供文件级完成校验，调查覆盖和证据门槛继续遵循通用方法，书面记录按本节执行。
 
-可信代码持有请求身份、默认计划和清单摘要，自动汇总 batch，并决定发布状态；Agent 只维护审查判断和进度。发布器校验清单未缺失、scope 内条目全部完成且证据文件非空；任一不满足就失败。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级，局部成功不代表完整 audit。
+可信代码持有请求身份、默认计划和清单摘要，自动汇总 batch，并决定发布状态；Agent 只维护审查判断和进度。发布器校验清单未缺失、scope 内条目全部完成，所有已引用的证据文件存在且非空；任一不满足就失败。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级，局部成功不代表完整 audit。
 
-输入中的 `Workspace resume manifest` 给出初始恢复结果与准确路径，当前进度以 `review-progress.json` 为准。准备阶段已复制选中历史工作稿的 `notes.md`、`batches/` 和 `previous-review-result.json`，同一 base/head 的完整证据可保留完成状态；当前 thread 对应文件和代码快照变化保留 `pending`。每个 `pr_comment` 都重开范围内进度，包括上一轮失败的情况；证据保留供本轮重新核验。核对最新讨论和跨文件前提后按需重开或确认继承，局部更新现有索引与 batch，生成本轮最终 JSON。自然语言决定的范围外条目由 Agent 判断；scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
+输入中的 `Workspace resume manifest` 给出初始恢复结果与准确路径，当前进度以 `review-progress.json` 为准。准备阶段已复制选中历史工作稿的 `notes.md`、已有 `batches/` 和 `previous-review-result.json`，同一 base/head 的完成项可恢复状态，包括空 `batches` 的无候选项；当前 thread 对应文件和代码快照变化保留 `pending`。每个 `pr_comment` 都重开范围内进度，包括上一轮失败的情况；证据保留供本轮重新核验。核对最新讨论和跨文件前提后按需重开或确认继承；跨快照时，仅有完成状态而无法恢复原调查前提的项，重新读取必要代码再核定，无需补写旧的无问题证明。局部更新现有索引与相关 batch，生成本轮最终 JSON。自然语言决定的范围外条目由 Agent 判断；scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
 
 ## 2. 历史 thread 状态
 

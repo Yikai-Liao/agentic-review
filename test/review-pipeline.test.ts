@@ -100,14 +100,12 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     await assemble();
     await assert.rejects(publish(), /Incomplete coverage/);
     assert.equal(writes.length, 0);
-    progress.ledger[0] = { path: 'auth.ts', status: 'complete', batches: ['auth'] };
-    await mkdir(path.join(workspace, 'batches'));
-    await writeFile(path.join(workspace, 'batches/auth.md'), '已核对鉴权调用方和失败路径。');
+    progress.ledger[0] = { path: 'auth.ts', status: 'complete', batches: [] };
     await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: '改写请求' } }));
     await assert.rejects(assemble(), /progress fields/);
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
-    assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).completed_batches, ['auth']);
+    assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).completed_batches, []);
     await publish();
     assert.equal(writes.length, 1);
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
@@ -118,6 +116,10 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     assert.equal(published.request.text, env.REVIEW_COMMENT_BODY);
     assert.equal(await readFile(contextPath, 'utf8'), sealedContext);
     // 一条 finding 失败也必须发布后续 finding 和正文，但退出失败且不能推进 checkpoint。
+    progress.ledger[0].batches = ['auth'];
+    await mkdir(path.join(workspace, 'batches'));
+    await writeFile(path.join(workspace, 'batches/auth.md'), '待发布 finding 的证据。');
+    await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [1, 2].map(line => ({
       path: 'auth.ts', line, start_line: null, body: `finding ${line}`,

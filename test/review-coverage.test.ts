@@ -13,13 +13,18 @@ function fixture() {
     scope: { kind: 'pr' as const, mode: 'full' as const, rationale: 'complete PR', explicit_text: '', ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }] } };
 }
 
-test('publication rejects omissions, pending coverage, excluded automatic files and missing batch evidence', async () => {
+test('发布允许无候选完成项省略 batch，仍拒绝漏项、未完成及无效证据引用', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'coverage-'));
   const digest = inventoryDigest(['src/a.ts']);
   try {
+    const noCandidate = { ...fixture(), completed_batches: [],
+      ledger: [{ path: 'src/a.ts', status: 'complete' as const, batches: [] }] };
+    await validateCoverageCompletion(noCandidate, workspace, digest);
     await mkdir(path.join(workspace, 'batches'));
     await writeFile(path.join(workspace, 'batches/B1.md'), 'a.ts 全部 hunk 的证据与结论');
     await validateCoverageCompletion(fixture(), workspace, digest);
+    await validateCoverageCompletion({ ...fixture(), ledger: [fixture().ledger[0],
+      { path: 'src/b.ts', status: 'complete', batches: [] }] }, workspace, inventoryDigest(['src/a.ts', 'src/b.ts']));
     await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [] }, workspace, digest), /inventory/);
     await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [{ path: 'src/a.ts', status: 'pending', batches: [] }] }, workspace, digest), /Incomplete/);
     await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [{ path: 'src/a.ts', status: 'out_of_scope', batches: [] }] }, workspace, digest), /Incomplete/);
