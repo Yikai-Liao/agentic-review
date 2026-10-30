@@ -12,11 +12,13 @@
 
 准备阶段已记录默认 scope。调查前对照本轮请求核定；显式请求改变范围时调用 `set_review_scope` 更新 `mode`、`ranges`、`rationale` 和 `explicit_text`，否则直接使用默认值。每个区间包含比较起止 SHA 和足以恢复范围的 targets；保留默认计划中的全部义务，只有显式限定时才缩小范围。最新实际 scope 是下一轮恢复范围的唯一来源。
 
-workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；读完文件及其全部实质变化、完成必要调查后登记为 `{"path":"src/example.ts","status":"complete"}`。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope`，full 范围不允许排除条目。文件进度是唯一的覆盖状态，不另建工作稿完成清单。
+workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；首次调查和重开项完成必要调查后登记为 `{"path":"src/example.ts","status":"complete"}`，继承完成项保持原状态。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope`，full 范围不允许排除条目。文件进度是唯一的覆盖状态，不另建工作稿完成清单。
 
-可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失、scope 内条目全部完成；任一不满足就失败。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级，局部成功不代表完整 audit。
+可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失、scope 内条目全部完成；任一不满足就失败。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 使用完整 PR 的 `full` scope，完整覆盖由可信历史完成项和本轮调查共同构成。
 
-输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一 base/head 的完成项可恢复状态；当前 thread 对应文件、代码快照变化以及每次 `pr_comment` 请求的范围内文件保留 `pending`。核对最新讨论和跨文件前提后按需重开或确认继承；跨快照无法恢复原调查前提时，重新读取必要代码再核定，无需补写旧的无问题证明。scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
+输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一快照恢复已完成状态；automatic 接入同 base、当前历史中的可信完整 audit 后，未直接变化的完成项也默认延续。直接变化、新增和历史未完成项保留 `pending`；当前 thread 对应文件以及每次 `pr_comment` 请求的范围内文件仍按请求复核。
+
+按 `central/github-context.md` 先调查增量；新变化、讨论或所选职责影响旧调用方、契约和结论前提时，重开对应完成项，更新受影响的判断。其余历史记录直接复用，不逐项重新证明仍然有效。scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
 
 ## 2. 历史 thread 状态
 

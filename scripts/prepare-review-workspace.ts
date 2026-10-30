@@ -21,7 +21,8 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
   if (previous && (previous.request.repository !== context.request.repository
     || previous.request.pull_number !== context.request.pull_number)) throw new Error('Previous workspace belongs to another PR');
 
-  const sameSnapshot = previous?.request.base_sha === context.request.base_sha
+  const sameBase = previous?.request.base_sha === context.request.base_sha;
+  const sameSnapshot = sameBase
     && previous?.request.head_sha === context.request.head_sha;
   const sameScope = previous?.scope?.mode === progress.scope?.mode
     && isDeepStrictEqual(previous?.scope?.ranges, progress.scope?.ranges);
@@ -29,18 +30,20 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
   const changedPaths = previous && !sameSnapshot
     ? readChanges?.(previous.request.head_sha, context.request.head_sha) ?? null
     : previous ? [] : null;
+  const changed = new Set(changedPaths ?? []);
+  // 可信完整 audit 的未改完成项默认延续；Agent 沿新变化和讨论重开间接受影响的项。
+  const continueAudit = context.request.source === 'automatic' && previous?.complete_audit
+    && sameBase && changedPaths !== null;
   if (previous && previousPath) {
     const previousEntries = new Map(previous.ledger.map((entry) => [entry.path, entry]));
     for (const entry of progress.ledger) {
       const old = previousEntries.get(entry.path);
-      if (!old) continue;
-      // 新快照可能改变未修改文件的调用方或契约，不能只看文件 diff 自动确认继承。
-      if (sameSnapshot && entry.path !== threadPath) {
-        if (old.status === 'complete' && !repeatPrScope) {
-          entry.status = 'complete';
-        } else if (old.status === 'out_of_scope' && sameScope && progress.scope?.mode !== 'full') {
-          entry.status = 'out_of_scope';
-        }
+      if (!old || entry.path === threadPath) continue;
+      if (old.status === 'complete' && !repeatPrScope
+        && (sameSnapshot || (continueAudit && !changed.has(entry.path)))) {
+        entry.status = 'complete';
+      } else if (sameSnapshot && old.status === 'out_of_scope' && sameScope && progress.scope?.mode !== 'full') {
+        entry.status = 'out_of_scope';
       }
     }
     const oldNotes = path.join(previousPath, 'notes.md');
@@ -63,7 +66,7 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
     request: context.request,
     inherited_from_run: previous ? `${previous.request.run_id}:${previous.request.run_attempt}` : null,
     same_snapshot: Boolean(sameSnapshot),
-    same_base: previous ? previous.request.base_sha === context.request.base_sha : null,
+    same_base: previous ? sameBase : null,
     changed_paths: changedPaths,
     paths: {
       workspace,
