@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readDiscussion, runGh, type DiscussionBaseline, type Run } from './refresh-review-discussion.ts';
+import { groupReviewThreads, readDiscussion, runGh, type DiscussionBaseline, type Run } from './refresh-review-discussion.ts';
 import { prepareReviewWorkspace } from './prepare-review-workspace.ts';
 import { writeReviewInput, type ReviewMaterial } from './write-review-input.ts';
 
@@ -64,7 +64,8 @@ export async function main(run: Run = runGh) {
   }
 
   // 每个文件、每个实际比较区间是独立材料；大 diff 不挤掉小 patch 或相关讨论。
-  const full = `${context.request.base_sha}...${context.request.head_sha}`;
+  // 请求已固定 merge base；统一成两点区间，避免显式请求重复生成相同 full patch。
+  const full = `${context.request.comparison_start}..${context.request.head_sha}`;
   const checkpoint = context.request.source === 'automatic' ? env.REVIEW_CHECKPOINT_HEAD : undefined;
   const comparisons = new Map<string, { title: string; use: ReviewMaterial['use'] }>([
     [full, { title: '完整 PR', use: !checkpoint && context.request.source === 'automatic' ? 'changes' : 'reference' }],
@@ -91,21 +92,11 @@ export async function main(run: Run = runGh) {
     ? JSON.parse(readFileSync(previousBaselinePath, 'utf8')) : undefined;
   const unchanged = (kind: keyof typeof discussion, id: string | number) =>
     previous?.fingerprints[kind]?.[id] === baseline.fingerprints[kind][id];
-  const threads = new Map(discussion.threads.map(state => [String(state.root_comment_id), state]));
-  // REST 评论与 GraphQL thread 分别读取；即使暂时只有状态，也保留其原始入口。
-  const groups = new Map<string, typeof discussion.inline_comments>([...threads.keys()].map(root => [root, []]));
-  for (const comment of discussion.inline_comments) {
-    const root = String(comment.in_reply_to_id ?? comment.id);
-    const comments = groups.get(root) ?? [];
-    comments.push(comment);
-    groups.set(root, comments);
-  }
   const commentText = (record: typeof discussion.inline_comments[number]) => {
     const { body, ...identity } = record;
     return `## Comment ${record.id}\n\n\`\`\`json\n${JSON.stringify(identity, null, 2)}\n\`\`\`\n\n${body}`;
   };
-  for (const [root, comments] of groups) {
-    const state = threads.get(root);
+  for (const { root_comment_id: root, state, comments } of groupReviewThreads(discussion)) {
     const current = comments.some(comment => !unchanged('inline_comments', comment.id)) || (state && !unchanged('threads', state.id));
     const use = root === context.request.root_comment_id ? 'request' : current ? 'discussion' : 'reference';
     const location = comments.find(comment => String(comment.id) === root)?.path;
@@ -118,6 +109,10 @@ export async function main(run: Run = runGh) {
     }
   }
   writeReviewInput(required('REVIEW_INPUT_PATH'), materials);
+  // 刷新时按 ID 合并启动原文与增量，直接交付完整的变化 thread；不新增消费游标。
+  writeFileSync(`${required('REVIEW_INPUT_PATH')}.discussion.json`, JSON.stringify({
+    inline_comments: discussion.inline_comments, threads: discussion.threads,
+  }), { mode: 0o600 });
   writeFileSync(path.join(workspace, 'discussion-baseline.json'), JSON.stringify(baseline), { mode: 0o600 });
 }
 

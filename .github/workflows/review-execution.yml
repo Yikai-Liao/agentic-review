@@ -516,17 +516,6 @@ jobs:
           # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-prompt.outputs.prompt }}
 
-      # 工作稿可用于复核模型的调查过程；artifact 下载需要中央仓库权限且限期保留。
-      - name: Upload review workspace
-        id: review-workspace
-        if: always() && hashFiles('review-workspace/**') != ''
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: review-draft-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}/review-workspace
-          if-no-files-found: error
-          retention-days: 7
-
       # Agent 已结束；写令牌只交给后续可信发布步骤，不注入 Agent。
       - name: Mint trusted publication token
         id: publication-token
@@ -582,7 +571,9 @@ jobs:
           REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
         run: node publisher/scripts/prepare-review-publication.ts
 
+      # 发布前保存可恢复草稿；Agent 或发布失败仍保留本轮范围和进度。
       - name: Upload requested review workspace
+        id: review-workspace
         if: ${{ !cancelled() && steps.assemble-workspace.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -603,7 +594,7 @@ jobs:
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
           REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
           REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REVIEW_WORKSPACE_URL: ${{ steps.review-workspace.outputs.artifact-url }}
+          REVIEW_WORKSPACE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
           REVIEW_MODEL: openai/${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_DURATION_SECONDS: ${{ steps.pi-review.outputs.duration_seconds }}
           REVIEW_INPUT_TOKENS: ${{ steps.pi-review.outputs.input_tokens }}
@@ -611,9 +602,10 @@ jobs:
           REVIEW_COST: ${{ steps.pi-review.outputs.cost }}
         run: node publisher/scripts/publish-review.ts
 
+      # 成功报告随完成工作区保存；发布失败时单独保存报告供诊断。
       - name: Upload publication report
         id: publication-report
-        if: ${{ !cancelled() && (steps.publish-review.outcome == 'success' || steps.publish-review.outcome == 'failure') }}
+        if: ${{ !cancelled() && steps.publish-review.outcome == 'failure' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-publication-${{ github.run_id }}-${{ github.run_attempt }}
@@ -623,13 +615,24 @@ jobs:
 
       - name: Upload trusted completion workspace
         id: completion-workspace
-        if: ${{ !cancelled() && steps.publish-review.outcome == 'success' && steps.publication-report.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.publish-review.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-completed-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
           overwrite: true
+          retention-days: 7
+
+      # 草稿组装或归档失败时保留原始诊断稿；它不进入下一轮范围恢复。
+      - name: Upload unarchived review draft
+        id: diagnostic-workspace
+        if: ${{ always() && steps.review-workspace.outcome != 'success' && hashFiles('review-workspace/**') != '' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-draft-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/review-workspace
+          if-no-files-found: error
           retention-days: 7
 
       - name: Complete Agentic Review check

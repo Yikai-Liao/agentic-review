@@ -13,6 +13,7 @@ type Discussion = {
   reviews: RecordWithId[];
   threads: RecordWithId[];
 };
+export type DiscussionThreads = Pick<Discussion, 'inline_comments' | 'threads'>;
 export type DiscussionBaseline = {
   repository: string;
   pull: string;
@@ -23,6 +24,22 @@ export type DiscussionBaseline = {
 const exec = promisify(execFile);
 export const runGh: Run = async (command, args) => (await exec(command, args, { encoding: 'utf8', maxBuffer: Infinity })).stdout;
 const fingerprint = (record: RecordWithId) => createHash('sha256').update(JSON.stringify(record)).digest('hex');
+
+export function groupReviewThreads(discussion: DiscussionThreads) {
+  const groups = new Map<string, { root_comment_id: string; state: RecordWithId | null; comments: RecordWithId[] }>();
+  for (const state of discussion.threads) {
+    const root = String(state.root_comment_id);
+    groups.set(root, { root_comment_id: root, state, comments: [] });
+  }
+  // REST 评论和 GraphQL 状态可能暂时不同步；两侧原文入口都保留。
+  for (const comment of discussion.inline_comments) {
+    const root = String(comment.in_reply_to_id ?? comment.id);
+    const group = groups.get(root) ?? { root_comment_id: root, state: null, comments: [] };
+    group.comments.push(comment);
+    groups.set(root, group);
+  }
+  return [...groups.values()];
+}
 
 const selectFields = (record: Record<string, unknown>, fields: readonly string[]) =>
   Object.fromEntries(fields.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]));
@@ -119,8 +136,26 @@ export async function main(run: Run = runGh) {
     return process.env[name]!;
   };
   const baseline: DiscussionBaseline = JSON.parse(readFileSync(path.join(required('REVIEW_WORKSPACE_PATH'), 'discussion-baseline.json'), 'utf8'));
+  const snapshot: DiscussionThreads = JSON.parse(readFileSync(`${required('REVIEW_INPUT_PATH')}.discussion.json`, 'utf8'));
   const { discussion, removed_thread_ids } = await readDiscussion(required('REVIEW_REPOSITORY'), required('REVIEW_PULL_NUMBER'), run, baseline);
-  return JSON.stringify({ since: baseline.since, refreshed_at: new Date().toISOString(), ...discussion, removed_thread_ids }, null, 2);
+  const comments = new Map(snapshot.inline_comments.map(comment => [comment.id, comment]));
+  for (const comment of discussion.inline_comments) comments.set(comment.id, comment);
+  const states = new Map(snapshot.threads.map(state => [state.id, state]));
+  const removed_threads = removed_thread_ids.map(id => {
+    const state = states.get(id);
+    if (!state) throw new Error('Removed thread is missing from startup snapshot');
+    states.delete(id);
+    return { id, root_comment_id: state.root_comment_id };
+  });
+  for (const state of discussion.threads) states.set(state.id, state);
+  const changedRoots = new Set([
+    ...discussion.inline_comments.map(comment => String(comment.in_reply_to_id ?? comment.id)),
+    ...discussion.threads.map(state => String(state.root_comment_id)),
+  ]);
+  const threads = groupReviewThreads({ inline_comments: [...comments.values()], threads: [...states.values()] })
+    .filter(group => changedRoots.has(group.root_comment_id));
+  return JSON.stringify({ since: baseline.since, refreshed_at: new Date().toISOString(),
+    issue_comments: discussion.issue_comments, reviews: discussion.reviews, threads, removed_threads }, null, 2);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
