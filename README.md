@@ -121,11 +121,13 @@ Review 读取输入提供的 base/head `.agentic-review.md` 与 `AGENTS.md`，�
 
 ## 飞书登录和文件读取
 
-使用维护者本人 OAuth 授权的用户身份读取飞书资料。你在浏览器确认一次授权后，可信任务每小时用 refresh token 换取新 token 并保存到 GitHub Environment Secrets；每轮 Actions 向 Lark CLI 注入短期 UAT，无需保存 runner、复制 CLI 登录目录或重复扫码。授权撤销、refresh token 失效或轮换中断导致新 refresh token 丢失时，需要重新授权。
+当前中央 Review 暂停飞书取证与判断：不准备 Lark CLI、不注入短期 UAT，飞书文档、Wiki 和多维表格链接只作来源标识，不会进入本轮判断。未读取飞书本身不形成额外告警或人工确认 finding。
 
-实际读取权限是“应用已开通且用户已同意的 API scope”和“授权的企业用户身份对文档的访问权限”的交集。应用只申请所需读取权限，因此即使你能编辑文档，Review 也只获得这组只读能力。切换企业后的另一个身份不自动属于同一 UAT；跨企业文档需要共享给当前授权身份，并通过实际 API 读取验收。
+飞书能力保留供以后恢复。维护者本人 OAuth 授权后，可信续期任务仍每小时用 refresh token 换取新 token，并保存到 GitHub Environment Secrets；授权撤销、refresh token 失效或轮换中断导致新 token 丢失时，仍需重新授权。恢复读取时，再按 `central/lark-context.md` 准备工具、注入 UAT 并验证实际资料权限。
 
-从 `.env` 开始登录、验证文档及更换 App/用户，按[飞书操作手册](docs/lark-operations.md)执行；生产配置和续期机制见[飞书接入步骤](docs/deploy-central-review.md#4-飞书用户-oauth-与自动续期)。Agent 按 `central/lark-context.md` 读取明确提及的链接及相关引用文档，不主动搜索。
+本地资料验证和恢复后的读取权限均受应用已开通且用户已同意的 API scope，以及授权企业身份的文档权限约束。切换企业后的身份不自动属于同一 UAT，跨企业资料需共享给授权身份并实际验收。
+
+从 `.env` 开始授权、验证资料及更换 App/用户，按[飞书操作手册](docs/lark-operations.md)执行；生产配置和保留的续期机制见[飞书接入步骤](docs/deploy-central-review.md#4-飞书用户-oauth-与自动续期)。
 
 ## 中央仓库配置
 
@@ -142,7 +144,7 @@ Repository secrets：
 - `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
 - `REVIEW_AGENT_API_KEY`：模型 API key。
 
-飞书长期凭证放在 `lark-rotation` Environment，Review 的 UAT 放在 `lark-review` Environment；具体名称与配置命令见部署说明。
+飞书长期凭证放在 `lark-rotation` Environment，保留供以后恢复读取的 UAT 放在 `lark-review` Environment；具体名称与配置命令见部署说明。
 
 App 安装范围与权限以 [部署说明](docs/deploy-central-review.md) 为准；App 权限与各任务签发的 token 权限需要区分。
 

@@ -21,12 +21,23 @@ test('central Review starts without Lark tools, credentials or a rotation depend
   assert.ok(agent);
   assert.equal(agent.env.GH_TOKEN, '${{ steps.read-token.outputs.token }}');
   assert.equal(workflow.jobs.publish.needs, 'review');
+  // 本地操作手册仍从可信执行配置取得归档 pin，暂停 Agent 准备不应破坏恢复入口。
+  assert.match(workflow.env.LARK_CLI_VERSION, /^\d+\.\d+\.\d+$/);
+  assert.match(workflow.env.LARK_CLI_SHA256_LINUX_AMD64, /^[0-9a-f]{64}$/);
 });
 
 test('Lark token rotation remains scheduled and isolated from the Review Agent', () => {
   const source = readFileSync(new URL('../.github/workflows/lark-token-refresh.yml', import.meta.url), 'utf8');
   const workflow = parse(source);
-  assert.equal(workflow.on.schedule.length, 1);
+  const assertHourly = (schedule: Array<{ cron: string }>) => {
+    assert.equal(schedule.length, 1);
+    // 每小时一次，分钟可调整；每天一次和每小时多次都不满足续期约定。
+    assert.match(schedule[0].cron, /^(?:[0-5]?\d) \* \* \* \*$/);
+  };
+  assertHourly(workflow.on.schedule);
+  assertHourly([{ cron: '43 * * * *' }]);
+  assert.throws(() => assertHourly([{ cron: '17 0 * * *' }]));
+  assert.throws(() => assertHourly([{ cron: '*/30 * * * *' }]));
   assert.deepEqual(workflow.on.repository_dispatch.types, ['authorize-lark-user', 'refresh-lark-user']);
   const refresh = workflow.jobs.refresh;
   assert.equal(refresh.environment, 'lark-rotation');
