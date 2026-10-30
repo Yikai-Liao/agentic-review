@@ -9,7 +9,7 @@ type Job = { env?: Record<string, string>; steps: Step[] };
 type Workflow = { env: Record<string, string>; jobs: { review: Job; publish: Job } };
 
 test('the action pin drives both the review step and the published footer', async () => {
-  const source = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const refs = source.match(/shaftoe\/pi-coding-agent-action@v\d+\.\d+\.\d+/g) ?? [];
   assert.equal(refs.length, 1, 'workflow 只能保留一处 Pi action release 引用');
   const pinnedRef = refs[0]!;

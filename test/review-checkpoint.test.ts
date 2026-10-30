@@ -186,7 +186,7 @@ test('continues without a checkpoint when GitHub lookup fails', async () => {
 });
 
 test('uses a checkpoint only after the previous workspace is ready', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const requestDownload = workflow.split('id: previous-request-download')[1]!.split('      - name:')[0]!;
   assert.match(requestDownload, /artifact-ids: \$\{\{ steps\.previous-request\.outputs\.artifact_id \}\}/);
   assert.match(requestDownload, /run-id: \$\{\{ steps\.previous-request\.outputs\.run_id \}\}/);

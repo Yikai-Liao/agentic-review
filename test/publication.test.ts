@@ -254,7 +254,7 @@ test('局部 thread 请求重跑更新旧回复中的失败说明，不重复回
 
 
 test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成功', async () => {
-  const workflow = readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const steps: Record<string, { outcome: string }> = Object.fromEntries([
     'publisher-checkout', 'publisher-node', 'download-progress', 'download-context', 'assemble-workspace',
     'download-result', 'publication-token', 'publish-review', 'publication-report', 'completion-workspace',

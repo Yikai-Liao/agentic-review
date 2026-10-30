@@ -11,7 +11,8 @@
 ```text
 Review App `pull_request`、`issue_comment` 和 `pull_request_review_comment` webhook
   -> Cloudflare Worker
-  -> 中央仓库 agentic-review.yml
+  -> 中央仓库 agentic-review.yml（自动请求合并）
+  -> review-execution.yml（同 PR 审查与发布串行）
   -> shaftoe/pi-coding-agent-action（只读分析）
   -> 可信 agentic-review Skill + 中央 GitHub/结果适配器 + 持久化工作稿
   -> submit_review 封存最终 JSON 文件
@@ -72,3 +73,11 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 ## 输入信任边界
 
 PR 评论和 Review 回复是可信决策输入；明确回复可以在当前 PR 中确认产品决定、风险接受和边界变化，无需早于当前变化或通过额外作者权限检查。目标 PR 的源码、PR 描述、`AGENTS.md`、`.agentic-review.md` 和其显式引用的项目文件都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。`.agentic-review.md` 可授权 Agent 读取具体文件路径；该路径由 Agent 直接读取，不经过 catalog、allowlist、`realpath` 或 checkout 边界校验。这是有意的权限边界：Agent 本就持有 `read`、`bash` 和只读 `GH_TOKEN`，中央安全边界是不执行目标仓库代码、GitHub 凭证只读且只有可信 publisher 可写。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+
+## 自动请求合并与发布顺序
+
+`agentic-review.yml` 只负责接收请求和调用同版本的 `review-execution.yml`。自动请求按仓库 ID 和 PR 编号共享入口并发组，使用 GitHub 默认的单个 pending 槽；连续提交时新候选替换旧候选，已开始的请求继续运行。显式 PR 评论和 thread 请求以 run ID 隔离入口槽，每条请求都保留。
+
+执行层继续使用同 PR 的 `queue: max`、`cancel-in-progress: false`，锁覆盖审查和可信发布的整个 workflow。自动请求与显式请求在这里串行，发布结束后才释放；入口与执行层的组名不同。入口自动任务即使正在等待执行层，也视为一个在途请求，因此最多保留一个在途自动请求和一个最新待处理候选；它不会中断旧审查或发布。快照解析仍核对目标 PR 当前状态与 SHA，过时任务不会进入 Agent。
+
+这使用 GitHub 的[并发控制](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)，无需由 Worker 列举、取消运行或维护另一份队列。显式请求的答复义务、只读 Agent token、独立发布 runner 与 token 均保持原边界。合并后的线上验收应覆盖连续 push、夹杂显式 @、旧轮正在发布和失败重试；本地结构测试不能替代 GitHub 的实际调度验收。

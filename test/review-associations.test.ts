@@ -134,7 +134,7 @@ test('paginates commit-associated pull requests', async () => {
 });
 
 test('prepares the association index before running Pi', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const steps = parse(workflow).jobs.review.steps;
   const associations = steps.findIndex((step: { name: string }) => step.name === 'Prepare review association index');
   const input = steps.findIndex((step: { name: string }) => step.name === 'Prepare review input');
