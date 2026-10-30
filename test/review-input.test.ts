@@ -88,6 +88,21 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
     assert.equal(baseline.repository, 'owner/repo');
     assert.ok(baseline.fingerprints.inline_comments['1']);
+    // 首次显式请求与完整 PR 使用同一 merge-base 区间，只生成一份 patch。
+    const prRequest = { ...initialRequest, source: 'pr_comment', comment_id: '3', root_comment_id: '3' };
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: prRequest,
+      default_plan: { ranges: [{ comparison_start: prRequest.comparison_start, comparison_end: prRequest.head_sha }] } }));
+    let patchReads = 0;
+    await main(async (command, args) => {
+      if (command === 'git' && args.includes('--unified=3')) patchReads++;
+      return run(command, args);
+    });
+    const patches = JSON.parse(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8')).materials
+      .filter((item: { kind: string }) => item.kind === 'changes');
+    assert.equal(patchReads, 1);
+    assert.equal(patches.length, 1);
+    assert.equal(patches[0].use, 'changes');
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: initialRequest }));
     // 历史快照未变化只降低默认预载优先级；新增回复或编辑仍以完整 thread 交付。
     const history = path.join(directory, 'history');
     mkdirSync(history);

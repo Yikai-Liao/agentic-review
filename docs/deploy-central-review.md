@@ -202,7 +202,9 @@ Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/set
 
 发布统一采用 fail soft：公共输入校验失败停止全部写入；校验通过后，正文、每条 finding、请求回复、每个 thread 的状态同步和证据回复各自执行，异常只阻断依赖该操作的后续步骤。查询失败不能当作空列表继续写入。正文与 finding 分开请求，避免一条无效行号使全部结果无法发布；失效的历史 thread 也不影响其他结果。工作稿上传与发布按实际前置依赖编排，上传失败不阻断已经准备好的 GitHub 写入。
 
-`review-publication-<run>-<attempt>` artifact 中的 `publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败同样使 publisher 失败。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
+发布前上传 `review-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 `notes.md`、文件进度、结果及可信范围；Agent 或发布失败时，下一轮仍可恢复其中未完成的范围。发布成功后，`publication-report.json` 随 `review-completed-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>` 一起归档，不再单独上传成功报告。发布失败时，报告单独存入 `review-publication-<run>-<attempt>`；草稿组装或归档失败时另存原始诊断稿，不将其当作可恢复范围。原有工作区命名和历史查找协议保持一致。
+
+`publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败或完成工作区上传失败同样不能让 Check 成功。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
 
 同一运行重跑时，publisher 完整分页读取本 bot 发布的标记，复用已发布的正文、finding 和回复；正文中的执行说明按本次结果更新，resolve/reopen 重新核对远端状态。标记绑定运行、目标 PR、head、操作及内容。写请求报错可能意味着远端已生效，本轮不盲目重试；下次先核对标记。GitHub 写入与网络响应并非原子事务，远端尚不可见时无法保证恰好一次发布。
 
@@ -220,7 +222,7 @@ Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/set
 
 Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型目录公开单价计算的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时通过 `modelOverrides` 调整窗口等设置，继承目录中的输入、输出、缓存和分档价格；该金额不代表网关账单、折扣或税费。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
 
-页脚链接工作稿 Actions artifact，保留期以 workflow 的 `retention-days` 为准；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
+页脚链接当前 Actions 运行的 artifacts 区域，其中包含可恢复草稿、完成工作区或失败诊断报告；保留期以 workflow 的 `retention-days` 为准，访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
 
 如果 Review 发布失败，先检查：
 

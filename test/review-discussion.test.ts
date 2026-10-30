@@ -183,16 +183,42 @@ test('refresh CLI leaves its baseline unchanged on both success and failure', as
   const directory = mkdtempSync(path.join(tmpdir(), 'review-discussion-'));
   const originalEnv = { ...process.env };
   try {
-    Object.assign(process.env, { REVIEW_WORKSPACE_PATH: directory, REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '61' });
+    Object.assign(process.env, { REVIEW_WORKSPACE_PATH: directory, REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '61',
+      REVIEW_INPUT_PATH: path.join(directory, 'input.json') });
     const baselinePath = path.join(directory, 'discussion-baseline.json');
     await assert.rejects(main(fixture().run), /ENOENT/);
-    const baseline = JSON.stringify((await readDiscussion('owner/repo', '61', fixture().run)).baseline);
+    const initial = await readDiscussion('owner/repo', '61', fixture().run);
+    const baseline = JSON.stringify(initial.baseline);
     writeFileSync(baselinePath, baseline);
-    assert.deepEqual(JSON.parse(await main(fixture().run)).inline_comments, []);
-    assert.deepEqual(JSON.parse(await main(fixture().run)).removed_thread_ids, []);
-    assert.deepEqual(JSON.parse(await main(fixture({ threads: [threadPage([])] }).run)).removed_thread_ids, ['thread-2']);
+    const snapshotPath = `${process.env.REVIEW_INPUT_PATH}.discussion.json`;
+    const snapshot = JSON.stringify(initial.discussion);
+    writeFileSync(snapshotPath, snapshot);
+    assert.deepEqual(JSON.parse(await main(fixture().run)).threads, []);
+    assert.deepEqual(JSON.parse(await main(fixture().run)).removed_threads, []);
+    assert.deepEqual(JSON.parse(await main(fixture({ threads: [threadPage([])] }).run)).removed_threads,
+      [{ id: 'thread-2', root_comment_id: 2 }]);
+    const edited = { ...comment(2, '修改后的根评论'), path: 'src/auth.ts' };
+    const reply = { ...comment(4, '维护者确认'), in_reply_to_id: 2 };
+    const changed = fixture({ inline: [[edited, reply]], threads: [threadPage([thread(2, true)])] });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refresh = JSON.parse(await main(changed.run));
+      assert.equal(refresh.threads.length, 1);
+      assert.equal(refresh.threads[0].root_comment_id, '2');
+      assert.equal(refresh.threads[0].state.isResolved, true);
+      assert.deepEqual(refresh.threads[0].comments, [edited, reply]);
+    }
+    // since 查询只返回新回复时，脚本补齐启动快照中的根评论。
+    const replyOnly = JSON.parse(await main(fixture({ inline: [[reply]] }).run));
+    assert.deepEqual(replyOnly.threads[0].comments, [comment(2), reply]);
+    const stateOnly = JSON.parse(await main(fixture({ inline: [[]], threads: [threadPage([thread(2, true)])] }).run));
+    assert.deepEqual(stateOnly.threads[0].comments, [comment(2)]);
+    const removedWithReply = JSON.parse(await main(fixture({ inline: [[reply]], threads: [threadPage([])] }).run));
+    assert.deepEqual(removedWithReply.removed_threads, [{ id: 'thread-2', root_comment_id: 2 }]);
+    assert.equal(removedWithReply.threads[0].state, null);
+    assert.deepEqual(removedWithReply.threads[0].comments, [comment(2), reply]);
     await assert.rejects(main(async () => { throw new Error('network failure'); }), /network failure/);
     assert.equal(readFileSync(baselinePath, 'utf8'), baseline);
+    assert.equal(readFileSync(snapshotPath, 'utf8'), snapshot);
   } finally {
     process.env = originalEnv;
     rmSync(directory, { recursive: true, force: true });
