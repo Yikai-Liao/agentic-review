@@ -20,22 +20,39 @@ function assertAgentCredentials(workflow: any) {
   const agent = review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   assert.ok(agent);
   const environment = { ...workflow.env, ...review.env, ...agent.env };
-  for (const [location, fields] of [['env', environment], ['with', agent.with]] as const) {
-    for (const [name, value] of Object.entries(fields)) {
-      const expressions = String(value).match(/\$\{\{[\s\S]*?\}\}/g) ?? [];
-      for (const expression of expressions) {
-        const normalized = expression.replace(/\s/g, '').replace(/\[['"]([^'"]+)['"]\]/g, '.$1');
-        for (const reference of normalized.matchAll(/steps\.([\w-]+)\.outputs\.token\b/gi)) {
-          const producer = review.steps.find((step: { id?: string }) => step.id === reference[1]);
-          assert.ok(producer?.uses?.startsWith('actions/create-github-app-token@'), 'unapproved Agent token source');
+
+  function assertSafeSource(value: unknown, ancestors = new Set<string>()) {
+    const expressions = String(value).match(/\$\{\{[\s\S]*?\}\}/g) ?? [];
+    for (const expression of expressions) {
+      assert.doesNotMatch(expression, /\bsecrets\s*(?:\.|\[)/i, 'unapproved Agent secret source');
+      const normalized = expression.replace(/\s/g, '').replace(/\[['"]([^'"]+)['"]\]/g, '.$1');
+      for (const reference of normalized.matchAll(/steps\.([\w-]+)\.outputs\.[\w-]+/gi)) {
+        const id = reference[1];
+        assert.ok(!ancestors.has(id), 'cyclic Agent output source');
+        const producer = review.steps.find((step: { id?: string }) => step.id === id);
+        assert.ok(producer, 'unknown Agent output source');
+        if (producer.uses?.startsWith('actions/create-github-app-token@')) {
           const permissions = Object.entries(producer.with).filter(([key]) => key.startsWith('permission-'));
           assert.ok(permissions.length > 0, 'Agent token permissions must be explicit');
           assert.ok(permissions.every(([, permission]) => permission === 'read'), 'Agent token must be read-only');
+          continue;
         }
-        if (!/\bsecrets\s*(?:\.|\[)/i.test(expression)) continue;
-        // 唯一允许直接传入的 Secret 是模型 API key，与变量取名无关。
-        assert.equal(`${location}.${name}`, 'with.token');
-        assert.match(expression.replace(/\s/g, ''), /^\$\{\{secrets(?:\.REVIEW_AGENT_API_KEY|\[['"]REVIEW_AGENT_API_KEY['"]\])\}\}$/i);
+        // 输出可以任意改名；检查生产步骤的输入，不能靠 output 名称判断是否为凭据。
+        const path = new Set([...ancestors, id]);
+        for (const fields of [producer.env, producer.with, { run: producer.run }]) {
+          for (const input of Object.values(fields ?? {})) assertSafeSource(input, path);
+        }
+      }
+    }
+  }
+
+  for (const [location, fields] of [['env', environment], ['with', agent.with]] as const) {
+    for (const [name, value] of Object.entries(fields)) {
+      // 唯一允许直接传入的 Secret 是模型 API key，与变量取名无关。
+      if (location === 'with' && name === 'token') {
+        assert.match(String(value).replace(/\s/g, ''), /^\$\{\{secrets(?:\.REVIEW_AGENT_API_KEY|\[['"]REVIEW_AGENT_API_KEY['"]\])\}\}$/i);
+      } else {
+        assertSafeSource(value);
       }
     }
   }
@@ -77,11 +94,30 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   writeToken.jobs.review.steps.unshift(structuredClone(publicationToken));
   agent.env.EXTRA_TOKEN = '${{ steps.publication-token.outputs.token }}';
   assert.throws(() => assertAgentCredentials(writeToken), /read-only/);
+  const source = '${{ steps.publication-token.outputs.token }}';
+  for (const relay of [
+    { env: { FORWARDED: source }, run: 'echo "publication_token=$FORWARDED" >> "$GITHUB_OUTPUT"' },
+    { uses: 'actions/github-script@v9.0.0', with: { script: `core.setOutput('publication_token', '${source}');` } },
+    { run: `echo "publication_token=${source}" >> "$GITHUB_OUTPUT"` },
+  ]) {
+    const forwarded = structuredClone(writeToken);
+    forwarded.jobs.review.steps.unshift({ id: 'forward-token', ...relay });
+    const forwardedAgent = forwarded.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+    forwardedAgent.env.EXTRA_TOKEN = "${{ steps['forward-token'].outputs['publication_token'] }}";
+    assert.throws(() => assertAgentCredentials(forwarded), /read-only/);
+  }
   const widened = structuredClone(workflow);
   widened.jobs.review.steps.find((step: { id?: string }) => step.id === 'read-token').with['permission-contents'] = 'write';
   assert.throws(() => assertAgentCredentials(widened), /read-only/);
   const harmless = structuredClone(workflow);
-  harmless.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review').env.REVIEW_DIAGNOSTICS = 'enabled';
+  harmless.jobs.review.steps.unshift({
+    id: 'forward-read-token',
+    env: { FORWARDED: '${{ steps.read-token.outputs.token }}' },
+    run: 'echo "value=$FORWARDED" >> "$GITHUB_OUTPUT"',
+  });
+  const harmlessAgent = harmless.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+  harmlessAgent.env.REVIEW_DIAGNOSTICS = 'enabled';
+  harmlessAgent.env.EXTRA_TOKEN = '${{ steps.forward-read-token.outputs.value }}';
   assert.doesNotThrow(() => assertAgentCredentials(harmless));
 });
 
