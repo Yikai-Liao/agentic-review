@@ -85,12 +85,14 @@ test('关联记录规则由可信中央入口按需加载，分类不替代 find
   // 只防止加载/职责契约再次丢失；语义正反例在 C09/C10，不声称模型已通过。
 });
 
-test('中央默认选择五项 code 职责并排除测试经济性，项目规则可以覆盖层级', async () => {
+test('中央保留默认职责清单和层级入口', async () => {
   const prompt = await read('central/review-rules.md');
   assert.match(prompt, /level = code/);
   const focuses = [...prompt.matchAll(/^\d\. ([^：]+)：/gm)].map(match => match[1]);
   assert.deepEqual(focuses, ['行为与意图对齐', '安全边界', '可靠性与恢复', '性能与资源成本', '测试有效性']);
-  assert.match(prompt, /测试审查限于上述有效性分支；测试经济性（零边际检测、冗余比较及删除证明）\s*不在本入口范围内/);
+  const testReview = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)]
+    .map(match => JSON.parse(match[1])).find(config => config.test_review)?.test_review;
+  assert.deepEqual(testReview, { default: ['T1'], explicit_request_only: ['T2'], excluded: ['test_economics'] });
   assert.ok(prompt.includes('仅执行本入口选定的分支'));
   assert.ok(prompt.includes('不自动启动独立的需求、架构或计划审查'));
   assert.ok(prompt.includes('不默认追加可维护性/风格/架构偏好专项或验证充分性审计'));
