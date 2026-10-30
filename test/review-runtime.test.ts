@@ -4,7 +4,14 @@ import { test } from 'node:test';
 import { parse } from 'yaml';
 
 test('central Review starts without Lark tools, credentials or a rotation dependency', () => {
-  const source = readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8');
+  const entryUrl = new URL('../.github/workflows/agentic-review.yml', import.meta.url);
+  const entrySource = readFileSync(entryUrl, 'utf8');
+  const entry = parse(entrySource);
+  // 检查实际执行体；入口只负责调用 reusable workflow 时也不能漏掉凭据注入。
+  const execution = entry.jobs.review.uses;
+  const source = execution
+    ? readFileSync(new URL(`../${execution}`, import.meta.url), 'utf8')
+    : entrySource;
   const workflow = parse(source);
   assert.deepEqual(Object.keys(workflow.jobs).sort(), ['publish', 'review']);
   assert.equal(workflow.jobs.review.needs, undefined);
