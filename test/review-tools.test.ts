@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, rm, writeFile, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -348,6 +348,43 @@ test('工作稿副本写入失败时撤销封存占位，修复后可重试', as
     await rm(saved, { recursive: true });
     assert.equal((await submit.execute('call', result)).details.queued, true);
     assert.equal(await readFile(saved, 'utf8'), await readFile(sealed, 'utf8'));
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-close-failure-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    let submit: any;
+    reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
+
+    // 用真实文件完成写入，只在该句柄关闭时注入故障。
+    const probe = await open(path.join(directory, 'probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const write = prototype.writeFile;
+    const injected = t.mock.method(prototype, 'writeFile', async function (this: FileHandle, ...args: Parameters<FileHandle['writeFile']>) {
+      await write.apply(this, args);
+      const close = this.close.bind(this);
+      this.close = async () => {
+        await close();
+        throw new Error('Injected close failure');
+      };
+    });
+    await assertSubmissionFailed(submit.execute('call', result), /Injected close failure/);
+    await assert.rejects(readFile(sealed), { code: 'ENOENT' });
+    injected.mock.restore();
+    assert.equal((await submit.execute('call', result)).details.queued, true);
+    assert.equal(await readFile(path.join(workspace, 'review-result.json'), 'utf8'), await readFile(sealed, 'utf8'));
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });

@@ -128,14 +128,16 @@ export default function reviewTools(pi: ExtensionAPI) {
         // 先独占创建封存文件，失败的并发调用不能覆盖工作稿副本。
         const sealed = await open(resultPath, 'wx', 0o600);
         try {
-          await writeFile(path.join(workspace, 'review-result.json'), content, { encoding: 'utf8', mode: 0o600 });
-          await sealed.writeFile(content, 'utf8');
+          try {
+            await writeFile(path.join(workspace, 'review-result.json'), content, { encoding: 'utf8', mode: 0o600 });
+            await sealed.writeFile(content, 'utf8');
+          } finally {
+            await sealed.close();
+          }
         } catch (error) {
-          // 写入未完成时撤销本次占位，允许修正后重试。
+          // 写入或关闭失败都撤销本次占位，允许修正后重试。
           await rm(resultPath);
           throw error;
-        } finally {
-          await sealed.close();
         }
         submitted = true;
 
