@@ -44,6 +44,9 @@ function assertAgentCredentials(workflow: any) {
         const producer = review.steps.find((step: { id?: string }) => step.id === id);
         assert.ok(producer, 'unknown Agent output source');
         if (producer.uses?.startsWith('actions/create-github-app-token@')) {
+          assert.equal(producer.with.owner, '${{ steps.target.outputs.owner }}', 'Agent token must remain in the target owner');
+          assert.equal(producer.with['client-id'], '${{ vars.AGENTIC_REVIEW_CLIENT_ID }}', 'Agent token must use the Review App');
+          assert.equal(producer.with['private-key'], '${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}', 'Agent token must use the Review App');
           const permissions = Object.entries(producer.with).filter(([key]) => key.startsWith('permission-'));
           assert.ok(permissions.length > 0, 'Agent token permissions must be explicit');
           assert.ok(permissions.every(([, permission]) => permission === 'read'), 'Agent token must be read-only');
@@ -108,8 +111,10 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   // 写令牌经步骤输出转交、或现有 token 被放宽权限，同样必须失败。
   const writeToken = structuredClone(workflow);
   const agent = writeToken.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
-  const publicationToken = workflow.jobs.publish.steps.find((step: { id?: string }) => step.id === 'publication-token');
-  writeToken.jobs.review.steps.unshift(structuredClone(publicationToken));
+  const publicationToken = structuredClone(workflow.jobs.publish.steps.find((step: { id?: string }) => step.id === 'publication-token'));
+  publicationToken.with.owner = '${{ steps.target.outputs.owner }}';
+  publicationToken.with.repositories = '${{ steps.target.outputs.name }}';
+  writeToken.jobs.review.steps.unshift(publicationToken);
   agent.env.EXTRA_TOKEN = '${{ steps.publication-token.outputs.token }}';
   assert.throws(() => assertAgentCredentials(writeToken), /read-only/);
   const source = '${{ steps.publication-token.outputs.token }}';
@@ -138,6 +143,28 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   harmlessAgent.env.DIAGNOSTIC_LABEL = "${{ 'steps and secrets' }}";
   harmlessAgent.env.EXTRA_TOKEN = '${{ steps.forward-read-token.outputs.value }}';
   assert.doesNotThrow(() => assertAgentCredentials(harmless));
+});
+
+test('read-only Agent tokens stay within the target owner and Review App installation', () => {
+  const { workflow } = readReviewWorkflow();
+  for (const [key, value] of [
+    ['owner', 'other-installed-owner'],
+    ['client-id', '${{ vars.OTHER_APP_CLIENT_ID }}'],
+    ['private-key', '${{ secrets.OTHER_APP_PRIVATE_KEY }}'],
+  ]) {
+    const changed = structuredClone(workflow);
+    const token = structuredClone(changed.jobs.review.steps.find((step: { id?: string }) => step.id === 'read-token'));
+    token.id = 'extra-read-token';
+    token.with[key] = value;
+    changed.jobs.review.steps.unshift(token);
+    const agent = changed.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+    agent.env.EXTRA_TOKEN = '${{ steps.extra-read-token.outputs.token }}';
+    assert.throws(() => assertAgentCredentials(changed), /target owner|Review App/);
+  }
+  const narrowed = structuredClone(workflow);
+  narrowed.jobs.review.steps.find((step: { id?: string }) => step.id === 'read-token')
+    .with.repositories = '${{ steps.target.outputs.name }}';
+  assert.doesNotThrow(() => assertAgentCredentials(narrowed));
 });
 
 test('Review workflow token remains read-only after workflow and job permission changes', () => {
