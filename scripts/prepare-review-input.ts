@@ -35,6 +35,9 @@ export function main(run = (command: string, args: string[]) =>
     workspace, context,
     previousPath: env.REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH || env.REVIEW_PREVIOUS_WORKSPACE_PATH,
     threadPath: context.request.source === 'thread' && typeof thread?.path === 'string' ? thread.path : undefined,
+    readChanges: (previousHead, currentHead) => run('git', ['-C', target, '--no-pager', 'diff',
+      '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', previousHead, currentHead, '--'])
+      .split('\0').filter(Boolean),
   }), null, 2));
   for (const filename of ['.agentic-review.md', 'AGENTS.md']) {
     for (const [label, directory] of [['Base', base], ['Head', target]]) {

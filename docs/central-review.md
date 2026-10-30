@@ -72,3 +72,11 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 ## 输入信任边界
 
 PR 评论和 Review 回复是可信决策输入；明确回复可以在当前 PR 中确认产品决定、风险接受和边界变化，无需早于当前变化或通过额外作者权限检查。目标 PR 的源码、PR 描述、`AGENTS.md`、`.agentic-review.md` 和其显式引用的项目文件都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。`.agentic-review.md` 可授权 Agent 读取具体文件路径；该路径由 Agent 直接读取，不经过 catalog、allowlist、`realpath` 或 checkout 边界校验。这是有意的权限边界：Agent 本就持有 `read`、`bash` 和只读 `GH_TOKEN`，中央安全边界是不执行目标仓库代码、GitHub 凭证只读且只有可信 publisher 可写。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+
+## 工作稿准备与增量恢复清单
+
+准备阶段为首次审查创建 `notes.md`，写入固定请求、版本、可信规则恢复入口和文件进度路径；调查记录保持为空。Agent 继续核定层级、调查并保存证据，不从初始化文件获得任何“已完成”或无问题结论。存在历史索引时仍保留原文。
+
+恢复清单把待核定的完成状态与已知代码变化分开表示：`pending_files` 和 batch 的 `pending_file_count` 是仍需核定的进度；`changed_paths` 是上一工作稿 head 到当前固定 head 的路径差分，batch 的 `directly_changed_files` 只列这些路径与原覆盖文件的交集。它不推断调用方、契约或讨论的间接影响，空数组不能证明可以继承。`same_base` 显式提示基线是否改变；缺少历史或未计算差分使用 `null`，与已确认空增量区分。
+
+路径通过本地 Git 的 NUL 分隔输出读取，重命名保留两端，撤销变化和含换行的文件名也进入清单；读取失败明确停止。新快照仍保留原有 pending 与完整覆盖校验，由 Agent 根据增量、最新讨论和旧证据前提判断继承或重开。这项准备工作不调整审查职责、Prompt、候选门槛或提交协议；真实历史读取量、写稿轮数和端到端收益仍需上线后测量。

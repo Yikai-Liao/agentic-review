@@ -33,7 +33,7 @@ test('resume preserves the index and completed files while reopening the request
     const restored = JSON.parse(readFileSync(manifest.paths.progress, 'utf8'));
     assert.deepEqual(manifest.pending_files, ['auth.ts']);
     assert.equal(restored.ledger.filter((entry: any) => entry.status === 'complete').length, 6);
-    assert.deepEqual(manifest.batches, [{ id: 'B1', path: path.join(workspace, 'batches/B1.md'), reopened: true }]);
+    assert.deepEqual(manifest.batches, [{ id: 'B1', path: path.join(workspace, 'batches/B1.md'), pending_file_count: 1, directly_changed_files: [] }]);
     assert.equal(manifest.inherited_from_run, '10:1');
     assert.equal(readFileSync(manifest.paths.notes!, 'utf8'), '历史索引与 finding 摘要');
     assert.equal(readFileSync(manifest.paths.previous_result!, 'utf8'), '{"body":"上一轮结论"}');
@@ -42,11 +42,28 @@ test('resume preserves the index and completed files while reopening the request
 
     // 新 head 的改动可能影响其他文件的契约：证据保留，完成状态由本轮影响判断重新确认。
     reset();
-    const changed = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, previousPath });
+    const changed = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, previousPath,
+      readChanges: (before, after) => {
+        assert.equal(before, request.head_sha);
+        assert.equal(after, 'c'.repeat(40));
+        return ['auth.ts', 'new-file.ts'];
+      } });
     assert.equal(changed.same_snapshot, false);
     assert.equal(changed.pending_files.length, 7);
-    assert.equal(changed.batches[0].reopened, true);
+    assert.equal(changed.batches[0].pending_file_count, 7);
+    assert.deepEqual(changed.changed_paths, ['auth.ts', 'new-file.ts']);
+    assert.deepEqual(changed.batches[0].directly_changed_files, ['auth.ts']);
+    assert.equal(changed.same_base, true);
     assert.equal(readFileSync(changed.paths.notes!, 'utf8'), '历史索引与 finding 摘要');
+
+    // 差分读取失败必须停止，不能把未知变化表示成空增量或完成继承。
+    reset();
+    assert.throws(() => prepareReviewWorkspace({ workspace,
+      context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, previousPath,
+      readChanges: () => { throw new Error('git unavailable'); },
+    }), /git unavailable/);
+    assert.equal(JSON.parse(readFileSync(path.join(workspace, 'review-progress.json'), 'utf8'))
+      .ledger.every((entry: { status: string }) => entry.status === 'pending'), true);
 
     // 发布后请求重新审查，不能凭相同快照自动视为完成。
     reset();

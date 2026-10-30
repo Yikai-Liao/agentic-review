@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { main } from '../scripts/prepare-review-input.ts';
+import { buildReviewRequest, initialReviewCoverage } from '../scripts/review-request.ts';
 
 test('prepared input captures discussion baseline and project rules without generating diffs', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-input-'));
@@ -52,6 +53,12 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.ok(input.includes('明确决定'));
     assert.ok(input.includes('Workspace resume manifest'));
     assert.ok(input.includes(path.join(directory, 'review-progress.json')));
+    const notes = readFileSync(path.join(directory, 'notes.md'), 'utf8');
+    assert.ok(notes.includes('只看鉴权'));
+    assert.ok(notes.includes('central/review-rules.md'));
+    assert.ok(notes.includes(path.join(directory, 'review-progress.json')));
+    assert.ok(!notes.includes('complete'));
+    assert.ok(!notes.includes('未发现问题'));
     const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
     assert.equal(baseline.repository, 'owner/repo');
     assert.ok(baseline.fingerprints.inline_comments['1']);
@@ -63,6 +70,27 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.throws(() => main(run), SyntaxError);
     rmSync(process.env.REVIEW_ASSOCIATIONS_PATH!);
     assert.throws(() => main(run), /ENOENT/);
+
+    // 恢复时由准备脚本取得固定 head 的 NUL 分隔差分；保留特殊路径和撤销项。
+    const previous = path.join(directory, 'previous');
+    mkdirSync(previous);
+    const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 60,
+      baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
+    writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(initialReviewCoverage(request)));
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { ...request, head_sha: 'c'.repeat(40), run_id: '11' } }));
+    writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
+    process.env.REVIEW_PREVIOUS_WORKSPACE_PATH = previous;
+    let gitReads = 0;
+    main((command, args) => {
+      if (command !== 'git') return run(command, args);
+      gitReads += 1;
+      assert.deepEqual(args, ['-C', head, '--no-pager', 'diff', '--no-ext-diff', '--no-textconv',
+        '--no-renames', '--name-only', '-z', request.head_sha, 'c'.repeat(40), '--']);
+      return 'src/旧文件.ts\0src/含\n换行.ts\0';
+    });
+    assert.equal(gitReads, 1);
+    const manifest = JSON.parse(readFileSync(path.join(directory, 'resume-manifest.json'), 'utf8'));
+    assert.deepEqual(manifest.changed_paths, ['src/旧文件.ts', 'src/含\n换行.ts']);
   } finally {
     process.env = originalEnv;
     rmSync(directory, { recursive: true, force: true });
