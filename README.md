@@ -19,7 +19,7 @@ GitHub pull_request webhook
   -> 可信发布器创建一个完整 Review、更新历史 thread，并链接工作稿 artifact
 ```
 
-中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不维护自研 Pi SDK、multi-agent 或 aggregator。[中央入口](central/review-rules.md) 默认选择 code 层，承担行为与意图对齐、安全边界、可靠性与恢复、性能与资源成本、测试有效性、测试经济性六项职责；下游可选择需求、架构或计划层，具体方法和证明来自 `skills/agentic-review/`。入口、共享规则及中央适配器首次预载，读取项目规则后再加载所选层级和视角，compaction 后从控制面恢复。`central/` 集中管理入口、GitHub 上下文、工作稿及可信发布格式。下游层级选择和项目约定放在 `.agentic-review.md` 或 `AGENTS.md`；关联索引供契约恢复或候选复核时按需读取原始记录，不加载全量历史。
+中央 workflow 使用 [`shaftoe/pi-coding-agent-action`](https://github.com/shaftoe/pi-coding-agent-action)，不维护自研 Pi SDK、multi-agent 或 aggregator。[中央入口](central/review-rules.md) 默认选择 code 层，承担行为与意图对齐、安全边界、可靠性与恢复、性能与资源成本、测试有效性五项职责，测试经济性不参与中央审查；下游可选择需求、架构或计划层，具体方法和证明来自 `skills/agentic-review/`。入口、共享规则及中央适配器首次预载，读取项目规则后再加载所选层级和视角，compaction 后从控制面恢复。`central/` 集中管理入口、GitHub 上下文、工作稿及可信发布格式。下游层级选择和项目约定放在 `.agentic-review.md` 或 `AGENTS.md`；关联索引供契约恢复或候选复核时按需读取原始记录，不加载全量历史。
 
 Review 方法和表达按 [Darwin 迭代流程](evals/README.md)演进：固定用例、新旧版独立生成、三评委匿名成对比较、长度与事实回归后才保留。Git 只维护工具、用例和精简结果；运行产物在 `evals/experiments/` 本地留存并忽略，不进入生产 Review，也不代替缺陷准确率评测。
 
