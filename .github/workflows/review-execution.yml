@@ -39,7 +39,7 @@ permissions:
 
 env:
   # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
-  REVIEW_THINKING_LEVEL: xhigh
+  REVIEW_THINKING_LEVEL: ${{ vars.REVIEW_THINKING_LEVEL }}
   # 保留操作手册使用的官方归档版本与校验值；当前 Review 不准备飞书工具。
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
@@ -86,6 +86,7 @@ jobs:
           TRIGGER_SOURCE: ${{ inputs.trigger_source }}
         shell: bash
         run: |
+          : "${REVIEW_THINKING_LEVEL:?Set the REVIEW_THINKING_LEVEL repository variable}"
           IFS=/ read -r owner name extra <<< "$REPOSITORY"
           [[ "$owner" =~ ^[A-Za-z0-9-]+$ && "$name" =~ ^[A-Za-z0-9._-]+$ && -z "$extra" ]]
           [[ "$REPOSITORY_ID" =~ ^[0-9]+$ && "$PULL_NUMBER" =~ ^[0-9]+$ ]]

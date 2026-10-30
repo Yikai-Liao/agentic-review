@@ -55,6 +55,7 @@ App repository permissions 至少为：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
 - `REVIEW_AGENT_MODEL`：例如 `gpt-5.6-luna-2`；当前 workflow 使用 OpenAI-compatible provider；
+- `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；
 - `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址；
 - `AGENTIC_REVIEW_LARK_APP_ID`：飞书企业自建应用 App ID；
 - `AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID`：Lark Secret Rotator GitHub App Client ID。

@@ -416,10 +416,12 @@ test('production workflow shares the thinking level between Pi and the published
   const agentLevel = agent.with?.thinking_level === '${{ env.REVIEW_THINKING_LEVEL }}'
     ? agentEnv.REVIEW_THINKING_LEVEL : agent.with?.thinking_level;
   assert.equal(publishEnv.REVIEW_THINKING_LEVEL, agentLevel);
-  assert.equal(agentLevel, 'xhigh');
+  assert.equal(agentLevel, '${{ vars.REVIEW_THINKING_LEVEL }}');
   assert.equal(agent.with?.thinking_level, '${{ env.REVIEW_THINKING_LEVEL }}');
-  assert.match(buildFooter({
-    runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/artifact/1',
-    model: 'openai/gpt-test', thinkingLevel: publishEnv.REVIEW_THINKING_LEVEL,
-  }), /\(thinking: xhigh\)/);
+  for (const level of ['low', 'xhigh']) {
+    assert.ok(buildFooter({
+      runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/artifact/1',
+      model: 'openai/gpt-test', thinkingLevel: level,
+    }).includes(`(thinking: ${level})`));
+  }
 });
