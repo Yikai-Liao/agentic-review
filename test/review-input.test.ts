@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { main } from '../scripts/prepare-review-input.ts';
 import { buildReviewRequest, initialReviewCoverage } from '../scripts/review-request.ts';
 
@@ -59,16 +60,22 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.ok(notes.includes('$REVIEW_CONTEXT_PATH'));
     assert.ok(notes.includes('central/review-rules.md'));
     assert.ok(notes.includes(path.join(directory, 'review-progress.json')));
-    const assertEmptyInvestigation = (source: string) => {
-      const sections = source.split(/^## 调查记录\s*$/m);
-      assert.equal(sections.length, 2);
-      assert.equal(sections[1].trim(), '');
+    const assertInitialNotes = (source: string) => {
+      const facts = source.match(/```json\n([\s\S]*?)\n```/);
+      assert.ok(facts);
+      assert.deepEqual(JSON.parse(facts[1]), { request: {}, context_path: '$REVIEW_CONTEXT_PATH',
+        rules_path: fileURLToPath(new URL('../central/review-rules.md', import.meta.url)), progress_path: path.join(directory, 'review-progress.json') });
+      // 引用块是模板说明；其他位置只保留索引标题和空调查区，不预写结论。
+      const scaffold = source.replace(facts[0], '').replace(/^>.*(?:\r?\n|$)/gm, '');
+      assert.match(scaffold, /^# Review 调查索引\s+## 调查记录\s*$/);
     };
-    assertEmptyInvestigation(notes);
-    assert.doesNotThrow(() => assertEmptyInvestigation(notes.replace('## 调查记录',
-      '说明：complete 表示完成状态；调查后才能写“未发现问题”。\n\n## 调查记录')));
+    assertInitialNotes(notes);
+    assert.doesNotThrow(() => assertInitialNotes(notes.replace('## 调查记录',
+      '> complete 表示完成状态；调查后才能写“未发现问题”。\n\n## 调查记录')));
     for (const premature of ['- B1：complete', '结论：未发现问题。']) {
-      assert.throws(() => assertEmptyInvestigation(`${notes}\n${premature}\n`));
+      assert.throws(() => assertInitialNotes(`${notes}\n${premature}\n`));
+      assert.throws(() => assertInitialNotes(`${premature}\n${notes}`));
+      assert.throws(() => assertInitialNotes(notes.replace('## 调查记录', `${premature}\n\n## 调查记录`)));
     }
     const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
     assert.equal(baseline.repository, 'owner/repo');
