@@ -108,6 +108,8 @@ jobs:
             /central/
             /scripts/
             /skills/agentic-review/
+            /package.json
+            /pnpm-lock.yaml
 
       - name: Set up Node.js for trusted review scripts
         uses: actions/setup-node@v7.0.0
@@ -338,18 +340,38 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Restore trusted tokenizer dependencies
+        id: tokenizer-dependencies
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: control/node_modules
+          key: review-tokenizer-node24-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('control/package.json', 'control/pnpm-lock.yaml') }}
+
+      - name: Install trusted tokenizer dependencies
+        if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
+        run: corepack pnpm --dir control install --prod --frozen-lockfile --ignore-scripts
+
+      # 缓存只由可信准备阶段保存；Agent 运行后不再把可变目录写回缓存。
+      - name: Save trusted tokenizer dependencies
+        if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: control/node_modules
+          key: ${{ steps.tokenizer-dependencies.outputs.cache-primary-key }}
+
       - name: Prepare review input
         env:
           REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
+          REVIEW_CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
-          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
+          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.json
           REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
         run: |
           node control/scripts/prepare-review-input.ts
@@ -443,7 +465,7 @@ jobs:
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
-          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.md
+          REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.json
           # diff 由 Agent 在固定 SHA 区间内按路径读取，不生成聚合 diff 文件。
           REVIEW_CHECKPOINT_HEAD: ${{ steps.previous-review-workspace.outputs.checkpoint_head }}
           REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
@@ -475,6 +497,7 @@ jobs:
           load_builtin_extensions: false
           # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
           extensions: |
+            control/.github/pi-extensions/review-input.ts
             control/.github/pi-extensions/review-tools.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |

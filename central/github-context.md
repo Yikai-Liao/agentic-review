@@ -14,7 +14,7 @@
 
 ## 1. 读取项目规则
 
-`$REVIEW_INPUT_PATH` 已包含 base 与 head 中存在的 `.agentic-review.md` 和 `AGENTS.md`。按 head 理解预期合并后的项目规则，并把 base/head 差异作为当前变化的一部分。
+材料索引已列出 base 与 head 中存在的 `.agentic-review.md` 和 `AGENTS.md`；适合预算的规则已预载，相同内容只保留一份。按 head 理解预期合并后的项目规则，并把 base/head 差异作为当前变化的一部分。
 
 按[中央入口](review-rules.md#选择审查层级)采用下游仓库明确选择的层级；项目规则同时补充业务约定和调查侧重点。规则中的执行或发布要求仍受中央权限约束。
 
@@ -24,7 +24,7 @@
 
 ## 2. 获取当前 PR 元数据
 
-`$REVIEW_INPUT_PATH` 已包含 PR 元数据、commit、普通评论、Review、inline comments 和 thread 状态的启动快照。准备阶段同时保存本轮 `discussion-baseline.json`。最终归纳前执行控制面只读脚本：
+材料索引按 PR 元数据、commit、普通评论、Review 和完整 thread 分别提供原文及 Token 数；thread 已组装根评论、回复和当前状态。预载优先本轮请求、适用规则、当前比较区间，以及相对所恢复快照有变化的讨论；其余原文保留按需读取。快照未变化只影响默认预载，不证明相关性、问题状态或决定仍然适用。准备阶段同时保存本轮 `discussion-baseline.json`。最终归纳前执行控制面只读脚本：
 
 ```bash
 node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
@@ -34,15 +34,15 @@ node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 
 基线固定为本轮启动快照，重复调用仍返回本轮全部增量，不因一次输出未读完而丢失评论。普通评论和 inline 回复使用 `since` 增量拉取；Reviews API 不支持 `since`，thread 状态也需完整枚举，这两类在本地比对后只输出变化。thread 删除通过完整列表与基线比对检测，不增加 API 调用；脚本不检测单条评论删除，有上下文缺失线索时按 ID 用只读 `gh` 补查原记录。任一请求或分页失败时脚本报错，不能把失败当成“无新回复”。
 
-完成条件：输入快照中的元数据和讨论已读取，工作稿记录显式关联线索；thread 最终状态在归纳前核定。
+完成条件：已理解本轮请求及适用项目规则，已核对当前变化和结论依赖的讨论、明确决定及显式关联线索；thread 最终状态在归纳前核定。
 
 ## 3. 读取历史结果和代码差分
 
 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，接入 checkpoint 对应的历史记录，已完成项默认延续；按 `references/review-state.md` 从新变化和最新讨论出发，沿实际影响重开相关项。本轮 scope 保持不变，完整覆盖由历史已完成调查和本轮增量调查共同构成。
 
-本地 Git 是 diff 的唯一来源。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
+准备阶段从固定 SHA 的本地 Git 生成逐文件 patch 材料并统计 Token；索引保留完整 PR、当前增量及显式请求各区间的独立入口。补充源码或重查时仍使用本地 Git。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
-首次调查或没有可用基线时，查询 full 区间的完整文件清单和规模：
+首次调查或没有可用基线时，以完整 PR 材料和文件进度为范围依据。需要补查清单或规模时：
 
 ```bash
 git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
@@ -64,7 +64,7 @@ git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff -
 
 清单同时保留旧路径、新路径和变更类型；读取重命名或复制的 patch 时传入两端路径。路径含特殊字符时用 `--name-status -z` 解析清单，按字面路径传参。文件清单很长时也分段登记，直到完整覆盖。
 
-单文件过大时从 `--unified=0` 输出中过滤 hunk 头定位，再通过行区间分页读取 patch，所需源码上下文也按行读取。工具截断后继续补齐未读区间，记录覆盖进度。diff 直接从 Git 读取，不预生成或合并为单个文件。
+单文件过大时从 `--unified=0` 输出中过滤 hunk 头定位，再通过行区间分页读取 patch，所需源码上下文也按行读取。工具截断后继续补齐未读区间，记录覆盖进度。超大的 patch 可按索引定位代码文件，再从对应固定 Git 区间补充需要的部分。
 
 有可用基线时，先用相同 Git 选项查询 focus 区间，读取本轮恢复清单的 `pending_files`；小增量一次读取 focus patch，大增量按路径和 hunk 读取。调查新变化、历史未完成项及其实际影响，按需从 full 区间补充证据。已完成项保持原状态，直到新 diff、最新讨论或职责变化触及其调用方、共享契约或旧结论前提，再标为 `pending` 并复核相关部分。
 

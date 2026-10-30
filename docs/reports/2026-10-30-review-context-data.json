@@ -1,0 +1,1100 @@
+{
+  "date": "2026-10-30",
+  "source": "GitHub Actions REST API 与 review job 日志。所有 duration 均为秒；工具时间为日志区间并集。",
+  "main_sample": [
+    {
+      "id": 41036378036,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41036378036",
+      "created_at": "2026-10-30T09:50:39Z",
+      "control_sha": "214c1e2ca57a22e461bc339cf6d19927235ab4df",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 460,
+      "base_sha": "4a19f4f390ab975c21b9fbe55ed3309aaa3a093c",
+      "head_sha": "3824a563b669db4c80cd8e7883e8609f7c21ac78",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 1,
+        "additions": 0,
+        "deletions": 3
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 98,
+        "queue": 3,
+        "prepare": 18,
+        "pi": 48,
+        "post": 29,
+        "publisher_runner_wait": 2
+      },
+      "turns": 9,
+      "tool_calls": 18,
+      "tools_wall_seconds": 1.2753520011901855,
+      "previous_workspace": false
+    },
+    {
+      "id": 41035910008,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41035910008",
+      "created_at": "2026-10-30T09:46:49Z",
+      "control_sha": "214c1e2ca57a22e461bc339cf6d19927235ab4df",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 95,
+      "base_sha": "214c1e2ca57a22e461bc339cf6d19927235ab4df",
+      "head_sha": "ce47c003cd96cda43f6efcd5a5d3d0e325042ff4",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 1,
+        "additions": 1,
+        "deletions": 1
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 148,
+        "queue": 4,
+        "prepare": 15,
+        "pi": 98,
+        "post": 31,
+        "publisher_runner_wait": 2
+      },
+      "turns": 10,
+      "tool_calls": 28,
+      "tools_wall_seconds": 1.677069902420044,
+      "previous_workspace": false
+    },
+    {
+      "id": 41034297434,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41034297434",
+      "created_at": "2026-10-30T09:33:28Z",
+      "control_sha": "e16af2ca4a708871c88760efa6d1a012d645e89c",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 94,
+      "base_sha": "e16af2ca4a708871c88760efa6d1a012d645e89c",
+      "head_sha": "5b8da7d94f51212aa408d348ab12e65db2cdcc48",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 10,
+        "additions": 309,
+        "deletions": 48
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 166,
+        "queue": 3,
+        "prepare": 13,
+        "pi": 120,
+        "post": 30,
+        "publisher_runner_wait": 3
+      },
+      "turns": 15,
+      "tool_calls": 29,
+      "tools_wall_seconds": 1.7296836376190186,
+      "previous_workspace": false
+    },
+    {
+      "id": 41034257281,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41034257281",
+      "created_at": "2026-10-30T09:33:07Z",
+      "control_sha": "e16af2ca4a708871c88760efa6d1a012d645e89c",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 459,
+      "base_sha": "225fda9636e6d37fb4ee18865a69eaca0398e6b7",
+      "head_sha": "343f449a336ed85b4e9f5416cbeb549b3281cf6b",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 10,
+        "additions": 260,
+        "deletions": 213
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 213,
+        "queue": 4,
+        "prepare": 19,
+        "pi": 166,
+        "post": 24,
+        "publisher_runner_wait": 1
+      },
+      "turns": 20,
+      "tool_calls": 50,
+      "tools_wall_seconds": 2.6466259956359863,
+      "previous_workspace": false
+    },
+    {
+      "id": 41034102259,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41034102259",
+      "created_at": "2026-10-30T09:31:50Z",
+      "control_sha": "e16af2ca4a708871c88760efa6d1a012d645e89c",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 458,
+      "base_sha": "225fda9636e6d37fb4ee18865a69eaca0398e6b7",
+      "head_sha": "695ec8b9eebf9cb7390b70f729e3fe85c28764ca",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 6,
+        "additions": 104,
+        "deletions": 95
+      },
+      "incremental_diff": {
+        "checkpoint": "3694c0cbccb6f588e9dc011d39a7e98887f65656",
+        "files": 4,
+        "additions": 45,
+        "deletions": 38
+      },
+      "seconds": {
+        "total": 182,
+        "queue": 4,
+        "prepare": 20,
+        "pi": 129,
+        "post": 29,
+        "publisher_runner_wait": 2
+      },
+      "turns": 14,
+      "tool_calls": 41,
+      "tools_wall_seconds": 1.9207205772399902,
+      "previous_workspace": true
+    },
+    {
+      "id": 41033261318,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41033261318",
+      "created_at": "2026-10-30T09:25:00Z",
+      "control_sha": "e16af2ca4a708871c88760efa6d1a012d645e89c",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 458,
+      "base_sha": "225fda9636e6d37fb4ee18865a69eaca0398e6b7",
+      "head_sha": "3694c0cbccb6f588e9dc011d39a7e98887f65656",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 2,
+        "additions": 59,
+        "deletions": 57
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 234,
+        "queue": 4,
+        "prepare": 18,
+        "pi": 185,
+        "post": 27,
+        "publisher_runner_wait": 2
+      },
+      "turns": 23,
+      "tool_calls": 48,
+      "tools_wall_seconds": 1.9270801544189453,
+      "previous_workspace": false
+    },
+    {
+      "id": 41033016761,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41033016761",
+      "created_at": "2026-10-30T09:23:01Z",
+      "control_sha": "e16af2ca4a708871c88760efa6d1a012d645e89c",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 456,
+      "base_sha": "d1baeb99c50d5459224f062ee610156d46272170",
+      "head_sha": "97513de69c89a5e9ef5dffb929b094dc3fe95f87",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 10,
+        "additions": 260,
+        "deletions": 213
+      },
+      "incremental_diff": {
+        "checkpoint": "f17a59721b36ad3c9c1a22e45cd56dd1942b5bba",
+        "files": 6,
+        "additions": 137,
+        "deletions": 36
+      },
+      "seconds": {
+        "total": 231,
+        "queue": 4,
+        "prepare": 21,
+        "pi": 176,
+        "post": 30,
+        "publisher_runner_wait": 2
+      },
+      "turns": 31,
+      "tool_calls": 47,
+      "tools_wall_seconds": 1.538010835647583,
+      "previous_workspace": true
+    },
+    {
+      "id": 41031344686,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41031344686",
+      "created_at": "2026-10-30T09:09:17Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/orchestra-backend",
+      "pull_number": 885,
+      "base_sha": "77fe639fda9ed840612993ede9bd1003883db984",
+      "head_sha": "6b1d7d5263b1021bc3c1e1655c29e0971c140bc9",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 8,
+        "additions": 192,
+        "deletions": 1
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 159,
+        "queue": 5,
+        "prepare": 18,
+        "pi": 103,
+        "post": 33,
+        "publisher_runner_wait": 2
+      },
+      "turns": 10,
+      "tool_calls": 27,
+      "tools_wall_seconds": 0.879253625869751,
+      "previous_workspace": false
+    },
+    {
+      "id": 41031055679,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41031055679",
+      "created_at": "2026-10-30T09:06:56Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 93,
+      "base_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "head_sha": "7aba1f13c4a5c28a76e29de6da95c46576c0c845",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 9,
+        "additions": 192,
+        "deletions": 29
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 187,
+        "queue": 7,
+        "prepare": 16,
+        "pi": 126,
+        "post": 38,
+        "publisher_runner_wait": 2
+      },
+      "turns": 15,
+      "tool_calls": 41,
+      "tools_wall_seconds": 1.3889586925506592,
+      "previous_workspace": false
+    },
+    {
+      "id": 41030340908,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41030340908",
+      "created_at": "2026-10-30T09:00:58Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 456,
+      "base_sha": "d1baeb99c50d5459224f062ee610156d46272170",
+      "head_sha": "f17a59721b36ad3c9c1a22e45cd56dd1942b5bba",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 12,
+        "additions": 233,
+        "deletions": 287
+      },
+      "incremental_diff": {
+        "checkpoint": "88751f620c66f1a423b164f752dd9c1a50fe231f",
+        "files": 6,
+        "additions": 73,
+        "deletions": 20
+      },
+      "seconds": {
+        "total": 252,
+        "queue": 3,
+        "prepare": 20,
+        "pi": 195,
+        "post": 34,
+        "publisher_runner_wait": 1
+      },
+      "turns": 21,
+      "tool_calls": 48,
+      "tools_wall_seconds": 2.366755247116089,
+      "previous_workspace": true
+    },
+    {
+      "id": 41029452660,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41029452660",
+      "created_at": "2026-10-30T08:53:06Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 456,
+      "base_sha": "d1baeb99c50d5459224f062ee610156d46272170",
+      "head_sha": "88751f620c66f1a423b164f752dd9c1a50fe231f",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 11,
+        "additions": 199,
+        "deletions": 306
+      },
+      "incremental_diff": {
+        "checkpoint": "88f3586817179a945544fe586c562e613ee076e4",
+        "files": 1,
+        "additions": 0,
+        "deletions": 3
+      },
+      "seconds": {
+        "total": 329,
+        "queue": 175,
+        "prepare": 20,
+        "pi": 106,
+        "post": 28,
+        "publisher_runner_wait": 2
+      },
+      "turns": 18,
+      "tool_calls": 31,
+      "tools_wall_seconds": 1.793628454208374,
+      "previous_workspace": true
+    },
+    {
+      "id": 41028302206,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41028302206",
+      "created_at": "2026-10-30T08:42:50Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 456,
+      "base_sha": "d1baeb99c50d5459224f062ee610156d46272170",
+      "head_sha": "88f3586817179a945544fe586c562e613ee076e4",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 10,
+        "additions": 199,
+        "deletions": 303
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 784,
+        "queue": 4,
+        "prepare": 17,
+        "pi": 342,
+        "post": 421,
+        "publisher_runner_wait": 387
+      },
+      "turns": 21,
+      "tool_calls": 56,
+      "tools_wall_seconds": 2.8000071048736572,
+      "previous_workspace": false
+    },
+    {
+      "id": 41027773942,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41027773942",
+      "created_at": "2026-10-30T08:38:10Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/orchestra-backend",
+      "pull_number": 884,
+      "base_sha": "40f135724cda28dfcc76c7a3611f5cb03c7bf1c6",
+      "head_sha": "77fe639fda9ed840612993ede9bd1003883db984",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 14,
+        "additions": 164,
+        "deletions": 63
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 164,
+        "queue": 3,
+        "prepare": 17,
+        "pi": 121,
+        "post": 23,
+        "publisher_runner_wait": 2
+      },
+      "turns": 14,
+      "tool_calls": 30,
+      "tools_wall_seconds": 3.285360336303711,
+      "previous_workspace": false
+    },
+    {
+      "id": 41026882363,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41026882363",
+      "created_at": "2026-10-30T08:30:21Z",
+      "control_sha": "808e339a83e0ed0cecd2f37e4f754202725b2c81",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 455,
+      "base_sha": "d1baeb99c50d5459224f062ee610156d46272170",
+      "head_sha": "e66cbbab5e1405042591e4e43a0bed1f62081c97",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 35,
+        "deletions": 44
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 294,
+        "queue": 5,
+        "prepare": 17,
+        "pi": 244,
+        "post": 28,
+        "publisher_runner_wait": 2
+      },
+      "turns": 26,
+      "tool_calls": 66,
+      "tools_wall_seconds": 4.3413591384887695,
+      "previous_workspace": false
+    },
+    {
+      "id": 41025867603,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41025867603",
+      "created_at": "2026-10-30T08:21:15Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 92,
+      "base_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "head_sha": "d8844494b073dfcb94908200077e9a2d8233dd4a",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 6,
+        "additions": 131,
+        "deletions": 93
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 196,
+        "queue": 3,
+        "prepare": 18,
+        "pi": 151,
+        "post": 24,
+        "publisher_runner_wait": 2
+      },
+      "turns": 14,
+      "tool_calls": 29,
+      "tools_wall_seconds": 2.098965883255005,
+      "previous_workspace": false
+    },
+    {
+      "id": 41024220879,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41024220879",
+      "created_at": "2026-10-30T08:06:22Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/orchestra-backend",
+      "pull_number": 883,
+      "base_sha": "ba2b7c12333c3c9f74069f3d1da2a8d935d8cb5b",
+      "head_sha": "e86da13ac80d6536166b5b9ff079d613a23904f8",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 2,
+        "additions": 7,
+        "deletions": 22
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 183,
+        "queue": 3,
+        "prepare": 16,
+        "pi": 129,
+        "post": 35,
+        "publisher_runner_wait": 3
+      },
+      "turns": 17,
+      "tool_calls": 43,
+      "tools_wall_seconds": 2.367007255554199,
+      "previous_workspace": false
+    },
+    {
+      "id": 41023953612,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41023953612",
+      "created_at": "2026-10-30T08:03:56Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 91,
+      "base_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "head_sha": "8af24fae785d9b1ba5fbd001899e9beb4138c761",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 11,
+        "additions": 298,
+        "deletions": 141
+      },
+      "incremental_diff": {
+        "checkpoint": "7b4324beff99b656725f51f310b1d814d59ef26c",
+        "files": 2,
+        "additions": 45,
+        "deletions": 6
+      },
+      "seconds": {
+        "total": 210,
+        "queue": 4,
+        "prepare": 20,
+        "pi": 157,
+        "post": 29,
+        "publisher_runner_wait": 2
+      },
+      "turns": 21,
+      "tool_calls": 35,
+      "tools_wall_seconds": 2.9916751384735107,
+      "previous_workspace": true
+    },
+    {
+      "id": 41023791751,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41023791751",
+      "created_at": "2026-10-30T08:02:26Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/orchestra-backend",
+      "pull_number": 882,
+      "base_sha": "84d53f5a2e32b1425f1f3a7cf7a7ea06b409cfd6",
+      "head_sha": "de1fcb7c0ebce95fa004d9a82fc67355628b3a48",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 314,
+        "deletions": 1
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 237,
+        "queue": 4,
+        "prepare": 17,
+        "pi": 186,
+        "post": 30,
+        "publisher_runner_wait": 2
+      },
+      "turns": 14,
+      "tool_calls": 25,
+      "tools_wall_seconds": 1.6645476818084717,
+      "previous_workspace": false
+    },
+    {
+      "id": 41022789334,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41022789334",
+      "created_at": "2026-10-30T07:52:50Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 91,
+      "base_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "head_sha": "7b4324beff99b656725f51f310b1d814d59ef26c",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 11,
+        "additions": 258,
+        "deletions": 140
+      },
+      "incremental_diff": {
+        "checkpoint": "8ea95dfafc72b1ef1d6a924a63a0ef7ce4f67f9c",
+        "files": 2,
+        "additions": 68,
+        "deletions": 3
+      },
+      "seconds": {
+        "total": 306,
+        "queue": 4,
+        "prepare": 18,
+        "pi": 257,
+        "post": 27,
+        "publisher_runner_wait": 2
+      },
+      "turns": 19,
+      "tool_calls": 42,
+      "tools_wall_seconds": 4.239732503890991,
+      "previous_workspace": true
+    },
+    {
+      "id": 41022007880,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41022007880",
+      "created_at": "2026-10-30T07:45:10Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/orchestra-backend",
+      "pull_number": 881,
+      "base_sha": "84d53f5a2e32b1425f1f3a7cf7a7ea06b409cfd6",
+      "head_sha": "7272008d345be53752f14dd66d845d5f4b47e0fd",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 2,
+        "additions": 58,
+        "deletions": 0
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 191,
+        "queue": 3,
+        "prepare": 22,
+        "pi": 136,
+        "post": 30,
+        "publisher_runner_wait": 2
+      },
+      "turns": 22,
+      "tool_calls": 43,
+      "tools_wall_seconds": 4.14345121383667,
+      "previous_workspace": false
+    },
+    {
+      "id": 41021892009,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41021892009",
+      "created_at": "2026-10-30T07:44:03Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 91,
+      "base_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "head_sha": "8ea95dfafc72b1ef1d6a924a63a0ef7ce4f67f9c",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 11,
+        "additions": 192,
+        "deletions": 139
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 230,
+        "queue": 4,
+        "prepare": 17,
+        "pi": 184,
+        "post": 25,
+        "publisher_runner_wait": 2
+      },
+      "turns": 19,
+      "tool_calls": 38,
+      "tools_wall_seconds": 2.669414758682251,
+      "previous_workspace": false
+    },
+    {
+      "id": 41019168083,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41019168083",
+      "created_at": "2026-10-30T07:17:21Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/infra-config",
+      "pull_number": 300,
+      "base_sha": "707a93181b22ce1ddfef9bf4cc1d8da0d1b71eb4",
+      "head_sha": "5ce8e2b50f38f850db07b4a34d22ade36f6877c2",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 17,
+        "additions": 290,
+        "deletions": 36
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 206,
+        "queue": 4,
+        "prepare": 19,
+        "pi": 155,
+        "post": 28,
+        "publisher_runner_wait": 2
+      },
+      "turns": 18,
+      "tool_calls": 36,
+      "tools_wall_seconds": 3.2109460830688477,
+      "previous_workspace": false
+    },
+    {
+      "id": 41018939835,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41018939835",
+      "created_at": "2026-10-30T07:15:10Z",
+      "control_sha": "9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5",
+      "repository": "Qiyin-Tech/orchestra-backend",
+      "pull_number": 880,
+      "base_sha": "76550dd370333fa1038e1b4517ff74cdca5e8e08",
+      "head_sha": "6495cbadf57fc942bfeca867732e6a1e3d9be975",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 14,
+        "additions": 164,
+        "deletions": 63
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 160,
+        "queue": 3,
+        "prepare": 19,
+        "pi": 109,
+        "post": 29,
+        "publisher_runner_wait": 2
+      },
+      "turns": 18,
+      "tool_calls": 48,
+      "tools_wall_seconds": 1.9434642791748047,
+      "previous_workspace": false
+    },
+    {
+      "id": 41017981128,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41017981128",
+      "created_at": "2026-10-30T07:05:55Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 90,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "ccbb9399a7544f8cbd686420b29c0253e36cf7fc",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 16,
+        "additions": 122,
+        "deletions": 138
+      },
+      "incremental_diff": {
+        "checkpoint": "bb8f0daad84a0548cff8ec95f4f200e1ef4bd751",
+        "files": 16,
+        "additions": 85,
+        "deletions": 202
+      },
+      "seconds": {
+        "total": 326,
+        "queue": 4,
+        "prepare": 15,
+        "pi": 276,
+        "post": 31,
+        "publisher_runner_wait": 3
+      },
+      "turns": 19,
+      "tool_calls": 51,
+      "tools_wall_seconds": 2.1180388927459717,
+      "previous_workspace": true
+    },
+    {
+      "id": 41017882327,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41017882327",
+      "created_at": "2026-10-30T07:04:59Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 453,
+      "base_sha": "4862d2d50180142d41b6fc5a9b9cd6fe19dc294d",
+      "head_sha": "0e36014bcca1d18dc94768a152ffa21a9454817a",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 13,
+        "additions": 147,
+        "deletions": 56
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 177,
+        "queue": 4,
+        "prepare": 16,
+        "pi": 127,
+        "post": 30,
+        "publisher_runner_wait": 2
+      },
+      "turns": 17,
+      "tool_calls": 54,
+      "tools_wall_seconds": 1.9617657661437988,
+      "previous_workspace": false
+    },
+    {
+      "id": 41017663643,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41017663643",
+      "created_at": "2026-10-30T07:02:50Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 452,
+      "base_sha": "4862d2d50180142d41b6fc5a9b9cd6fe19dc294d",
+      "head_sha": "e66cbbab5e1405042591e4e43a0bed1f62081c97",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 1,
+        "additions": 20,
+        "deletions": 10
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 220,
+        "queue": 3,
+        "prepare": 21,
+        "pi": 163,
+        "post": 33,
+        "publisher_runner_wait": 2
+      },
+      "turns": 24,
+      "tool_calls": 47,
+      "tools_wall_seconds": 3.263845205307007,
+      "previous_workspace": false
+    },
+    {
+      "id": 41016885007,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41016885007",
+      "created_at": "2026-10-30T06:54:55Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 89,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "3095bc4518d72fe573e32b22945d01e2e95dc3fe",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 26,
+        "deletions": 11
+      },
+      "incremental_diff": {
+        "checkpoint": "e6ed470d19015c1a3c22ecee2d6153c1213714e5",
+        "files": 2,
+        "additions": 20,
+        "deletions": 5
+      },
+      "seconds": {
+        "total": 247,
+        "queue": 4,
+        "prepare": 19,
+        "pi": 190,
+        "post": 34,
+        "publisher_runner_wait": 3
+      },
+      "turns": 19,
+      "tool_calls": 37,
+      "tools_wall_seconds": 4.171340227127075,
+      "previous_workspace": true
+    },
+    {
+      "id": 41016771397,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41016771397",
+      "created_at": "2026-10-30T06:53:45Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/orchestra-frontend",
+      "pull_number": 451,
+      "base_sha": "c5e945bc37c1e93cd75399f2645ecbdb05090706",
+      "head_sha": "18b8c6c09608cdc34a006bc5d825a77c0d514c62",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 15,
+        "deletions": 34
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 250,
+        "queue": 4,
+        "prepare": 18,
+        "pi": 203,
+        "post": 25,
+        "publisher_runner_wait": 2
+      },
+      "turns": 31,
+      "tool_calls": 67,
+      "tools_wall_seconds": 2.3223929405212402,
+      "previous_workspace": false
+    },
+    {
+      "id": 41015853955,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41015853955",
+      "created_at": "2026-10-30T06:44:31Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 90,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "bb8f0daad84a0548cff8ec95f4f200e1ef4bd751",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 15,
+        "additions": 141,
+        "deletions": 40
+      },
+      "incremental_diff": {
+        "checkpoint": "c5f7d5f251a2c1b211dea27d3a0843e097e57f6c",
+        "files": 12,
+        "additions": 84,
+        "deletions": 25
+      },
+      "seconds": {
+        "total": 243,
+        "queue": 4,
+        "prepare": 18,
+        "pi": 194,
+        "post": 27,
+        "publisher_runner_wait": 2
+      },
+      "turns": 17,
+      "tool_calls": 37,
+      "tools_wall_seconds": 2.448017120361328,
+      "previous_workspace": true
+    },
+    {
+      "id": 41015791381,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41015791381",
+      "created_at": "2026-10-30T06:43:53Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 89,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "e6ed470d19015c1a3c22ecee2d6153c1213714e5",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 10,
+        "deletions": 10
+      },
+      "incremental_diff": {
+        "checkpoint": "43e0b8175b5bce0025fff5bd5ed15e61a3667c13",
+        "files": 1,
+        "additions": 15,
+        "deletions": 0
+      },
+      "seconds": {
+        "total": 292,
+        "queue": 4,
+        "prepare": 18,
+        "pi": 241,
+        "post": 29,
+        "publisher_runner_wait": 2
+      },
+      "turns": 16,
+      "tool_calls": 29,
+      "tools_wall_seconds": 2.527388572692871,
+      "previous_workspace": true
+    },
+    {
+      "id": 41015065954,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41015065954",
+      "created_at": "2026-10-30T06:36:27Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 89,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "43e0b8175b5bce0025fff5bd5ed15e61a3667c13",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 9,
+        "deletions": 24
+      },
+      "incremental_diff": {
+        "checkpoint": "b255006594837c27774ce6373b99f3d99631a398",
+        "files": 1,
+        "additions": 0,
+        "deletions": 20
+      },
+      "seconds": {
+        "total": 335,
+        "queue": 4,
+        "prepare": 20,
+        "pi": 278,
+        "post": 33,
+        "publisher_runner_wait": 2
+      },
+      "turns": 28,
+      "tool_calls": 51,
+      "tools_wall_seconds": 2.6114606857299805,
+      "previous_workspace": true
+    },
+    {
+      "id": 41014505083,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41014505083",
+      "created_at": "2026-10-30T06:30:43Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 90,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "c5f7d5f251a2c1b211dea27d3a0843e097e57f6c",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 11,
+        "additions": 61,
+        "deletions": 19
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 279,
+        "queue": 4,
+        "prepare": 15,
+        "pi": 227,
+        "post": 33,
+        "publisher_runner_wait": 2
+      },
+      "turns": 18,
+      "tool_calls": 43,
+      "tools_wall_seconds": 2.1515328884124756,
+      "previous_workspace": false
+    },
+    {
+      "id": 41014349011,
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41014349011",
+      "created_at": "2026-10-30T06:29:10Z",
+      "control_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "repository": "Qiyin-Tech/agentic-review",
+      "pull_number": 89,
+      "base_sha": "73f91519fb417bd78368714cd69fe738fdf55484",
+      "head_sha": "b255006594837c27774ce6373b99f3d99631a398",
+      "model": "Model:            openai/gpt-6-luna",
+      "thinking_level": "high",
+      "full_diff": {
+        "files": 5,
+        "additions": 15,
+        "deletions": 10
+      },
+      "incremental_diff": null,
+      "seconds": {
+        "total": 255,
+        "queue": 4,
+        "prepare": 19,
+        "pi": 199,
+        "post": 33,
+        "publisher_runner_wait": 3
+      },
+      "turns": 19,
+      "tool_calls": 32,
+      "tools_wall_seconds": 2.814647912979126,
+      "previous_workspace": false
+    }
+  ],
+  "newer_completed_runs": [
+    {
+      "id": 41038517311,
+      "control_sha": "7ca17badec86c520e62ac9f0d41233cfd459ef75",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41038517311",
+      "created_at": "2026-10-30T10:08:17Z",
+      "jobs": [
+        "review / review"
+      ],
+      "seconds": {
+        "total": 119,
+        "pre": 20,
+        "pi": 84,
+        "post": 15
+      }
+    },
+    {
+      "id": 41037063148,
+      "control_sha": "c57590a84cfa43e8892b6b8816d6212cbfc04228",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41037063148",
+      "created_at": "2026-10-30T09:56:27Z",
+      "jobs": [
+        "review / review",
+        "review / publish"
+      ],
+      "seconds": {
+        "total": 117,
+        "pre": 20,
+        "pi": 64,
+        "post": 33
+      }
+    },
+    {
+      "id": 41036789655,
+      "control_sha": "c57590a84cfa43e8892b6b8816d6212cbfc04228",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41036789655",
+      "created_at": "2026-10-30T09:54:10Z",
+      "jobs": [
+        "review / review",
+        "review / publish"
+      ],
+      "seconds": {
+        "total": 153,
+        "pre": 17,
+        "pi": 102,
+        "post": 34
+      }
+    }
+  ]
+}
