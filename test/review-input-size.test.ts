@@ -99,7 +99,7 @@ test('运行时只注入材料上下文，不增加读取工具或游标；输�
 
 test('Tokenizer 依赖按可信 lockfile 缓存，并在 Agent 启动前完成保存', () => {
   const workflow = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
-  const steps = workflow.jobs.review.steps as Array<{ name: string; uses?: string; with?: Record<string, string>; run?: string }>;
+  const steps = workflow.jobs.review.steps as Array<{ name: string; uses?: string; with?: Record<string, string>; run?: string; 'working-directory'?: string }>;
   const restore = steps.findIndex(step => step.name === 'Restore trusted tokenizer dependencies');
   const install = steps.findIndex(step => step.name === 'Install trusted tokenizer dependencies');
   const save = steps.findIndex(step => step.name === 'Save trusted tokenizer dependencies');
@@ -108,6 +108,8 @@ test('Tokenizer 依赖按可信 lockfile 缓存，并在 Agent 启动前完成�
   assert.ok(restore < install && install < save && save < prepare && prepare < agent);
   assert.equal(steps[restore].with?.path, 'control/node_modules');
   assert.ok(steps[restore].with?.key.includes('control/pnpm-lock.yaml'));
-  assert.match(steps[install].run!, /--dir control install --prod --frozen-lockfile --ignore-scripts/);
+  // Corepack 必须在可信 package.json 所在目录启动，不能由 pnpm 的 --dir 代替。
+  assert.equal(steps[install]['working-directory'], 'control');
+  assert.match(steps[install].run!, /^corepack pnpm install --prod --frozen-lockfile --ignore-scripts$/);
   assert.equal(steps.filter(step => step.uses?.startsWith('actions/cache/save@')).length, 1);
 });

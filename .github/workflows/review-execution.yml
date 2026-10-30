@@ -349,7 +349,9 @@ jobs:
 
       - name: Install trusted tokenizer dependencies
         if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
-        run: corepack pnpm --dir control install --prod --frozen-lockfile --ignore-scripts
+        # Corepack 按当前目录选择 packageManager；pnpm 的 --dir 参数对它不生效。
+        working-directory: control
+        run: corepack pnpm install --prod --frozen-lockfile --ignore-scripts
 
       # 缓存只由可信准备阶段保存；Agent 运行后不再把可变目录写回缓存。
       - name: Save trusted tokenizer dependencies
