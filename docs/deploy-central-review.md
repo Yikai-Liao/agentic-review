@@ -54,7 +54,7 @@ App repository permissions 至少为：
 中央仓库 Actions variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_MODEL`：例如 `gpt-5.6-luna-2`；当前 workflow 使用 OpenAI-compatible provider；
+- `REVIEW_AGENT_MODEL`：使用 Pi 模型目录中的 OpenAI model ID，例如 `gpt-6-luna`；当前 workflow 使用 OpenAI-compatible provider；
 - `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；
 - `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址；
 - `AGENTIC_REVIEW_LARK_APP_ID`：飞书企业自建应用 App ID；
@@ -215,7 +215,9 @@ Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/set
 
 中央 workflow 在 workflow 级使用 `repository_id` 与 `pull_number` 组成 concurrency group，Review 与 publish 共享同一槽位；不同 PR 可以并行。配置为 `queue: max` 和 `cancel-in-progress: false`：同一 PR 最多一个运行中的任务，最多 100 个 pending 任务，队列满后 GitHub 会取消新增任务。FIFO 依据任务开始等待的时间，不保证 webhook 发出时间的绝对顺序。详见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
-Review footer 链接工作稿 Actions artifact，保留期以 workflow 的 `retention-days` 为准；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
+Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型目录公开单价计算的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时通过 `modelOverrides` 调整窗口等设置，继承目录中的输入、输出、缓存和分档价格；该金额不代表网关账单、折扣或税费。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
+
+页脚链接工作稿 Actions artifact，保留期以 workflow 的 `retention-days` 为准；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
 
 如果 Review 发布失败，先检查：
 

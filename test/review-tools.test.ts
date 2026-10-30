@@ -414,7 +414,7 @@ test('parser rejects duplicate thread updates and invalid comment locations', ()
   );
 });
 
-test('footer preserves action metadata', () => {
+test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
   assert.equal(
     buildFooter({
       runUrl: 'https://github.test/run',
@@ -424,10 +424,9 @@ test('footer preserves action metadata', () => {
       durationSeconds: 175,
       inputTokens: 700_000,
       outputTokens: 15_300,
-      cost: 0,
-      actionRef: 'shaftoe/pi-coding-agent-action@v2.27.0',
+      cost: 0.00424,
     }),
-    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Action v2.27.0',
+    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Cost (est.): $0.0042',
   );
 });
 
