@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,7 +55,8 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.ok(input.includes('Workspace resume manifest'));
     assert.ok(input.includes(path.join(directory, 'review-progress.json')));
     const notes = readFileSync(path.join(directory, 'notes.md'), 'utf8');
-    assert.ok(notes.includes('只看鉴权'));
+    assert.ok(!notes.includes('只看鉴权'));
+    assert.ok(notes.includes('$REVIEW_CONTEXT_PATH'));
     assert.ok(notes.includes('central/review-rules.md'));
     assert.ok(notes.includes(path.join(directory, 'review-progress.json')));
     assert.ok(!notes.includes('complete'));
@@ -71,26 +73,53 @@ test('prepared input captures discussion baseline and project rules without gene
     rmSync(process.env.REVIEW_ASSOCIATIONS_PATH!);
     assert.throws(() => main(run), /ENOENT/);
 
-    // 恢复时由准备脚本取得固定 head 的 NUL 分隔差分；保留特殊路径和撤销项。
+    // 大讨论先变成短索引；完整记录仍在原文文件中，不能无界内联给 Agent。
+    writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
+    const largeDecision = '明确决定：保持原范围。🙂'.repeat(6000);
+    main((command, args) => args.includes('view') || args.includes('graphql')
+      ? run(command, args)
+      : JSON.stringify([[{ id: 1, body: largeDecision }]]));
+    assert.ok(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8').includes('超过入口'));
+    const completeInput = readFileSync(`${process.env.REVIEW_INPUT_PATH!}.full.md`, 'utf8');
+    assert.ok(completeInput.includes(largeDecision));
+    assert.ok(completeInput.includes('## Head AGENTS.md'));
+    assert.ok(completeInput.includes('Workspace resume manifest'));
+
+    // 用真实 Git 验证枚举结果，不固定等价实现的参数与输出形状。
+    const git = (...args: string[]) => execFileSync('git', ['-C', head, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
+    git('init', '-q');
+    git('config', 'user.name', 'Test');
+    git('config', 'user.email', 'test@example.com');
+    git('add', '.'); git('commit', '-qm', 'base');
+    const baseSha = git('rev-parse', 'HEAD');
+    writeFileSync(path.join(head, '旧文件.ts'), '旧内容');
+    git('add', '.'); git('commit', '-qm', 'old head');
+    const oldHead = git('rev-parse', 'HEAD');
+    rmSync(path.join(head, '旧文件.ts'));
+    writeFileSync(path.join(head, '含\n换行.ts'), '新内容');
+    git('add', '.'); git('commit', '-qm', 'new head');
+    const newHead = git('rev-parse', 'HEAD');
     const previous = path.join(directory, 'previous');
     mkdirSync(previous);
     const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 60,
-      baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
+      baseSha, headSha: oldHead, runId: '10' });
     writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(initialReviewCoverage(request)));
-    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { ...request, head_sha: 'c'.repeat(40), run_id: '11' } }));
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { ...request, head_sha: newHead, run_id: '11' } }));
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
     process.env.REVIEW_PREVIOUS_WORKSPACE_PATH = previous;
-    let gitReads = 0;
-    main((command, args) => {
-      if (command !== 'git') return run(command, args);
-      gitReads += 1;
-      assert.deepEqual(args, ['-C', head, '--no-pager', 'diff', '--no-ext-diff', '--no-textconv',
-        '--no-renames', '--name-only', '-z', request.head_sha, 'c'.repeat(40), '--']);
-      return 'src/旧文件.ts\0src/含\n换行.ts\0';
-    });
-    assert.equal(gitReads, 1);
-    const manifest = JSON.parse(readFileSync(path.join(directory, 'resume-manifest.json'), 'utf8'));
-    assert.deepEqual(manifest.changed_paths, ['src/旧文件.ts', 'src/含\n换行.ts']);
+    const withGit = (command: string, args: string[]) => command === 'git'
+      ? execFileSync(command, args, { encoding: 'utf8', stdio: 'pipe' }) : run(command, args);
+    main(withGit);
+    const manifestPath = path.join(directory, 'resume-manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    assert.deepEqual(manifest.changed_paths.sort(), ['旧文件.ts', '含\n换行.ts'].sort());
+
+    // 历史 head 不在当前 clone 中时，摘要保持未知，完整输入和进度仍可准备。
+    writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(initialReviewCoverage({ ...request, head_sha: 'f'.repeat(40) })));
+    main(withGit);
+    assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).changed_paths, null);
+    assert.ok(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8').includes('测试 PR'));
+
   } finally {
     process.env = originalEnv;
     rmSync(directory, { recursive: true, force: true });

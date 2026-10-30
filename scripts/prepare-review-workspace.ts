@@ -11,7 +11,7 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
   context: ReviewContext;
   previousPath?: string;
   threadPath?: string;
-  readChanges?: (previousHead: string, currentHead: string) => string[];
+  readChanges?: (previousHead: string, currentHead: string) => string[] | null;
 }) {
   const progressPath = path.join(workspace, 'review-progress.json');
   const progress: ReviewProgress = JSON.parse(readFileSync(progressPath, 'utf8'));
@@ -75,7 +75,8 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
   if (!existsSync(notesPath)) {
     // 固定事实由准备阶段记录；Agent 只需补充层级、调查证据和判断。
     const entry = fileURLToPath(new URL('../central/review-rules.md', import.meta.url));
-    writeFileSync(notesPath, `# Review 调查索引\n\n## 固定请求与版本\n\n\`\`\`json\n${JSON.stringify(context.request, null, 2)}\n\`\`\`\n\n规则恢复入口：\`${entry}\`。\n本轮范围与文件进度：\`${progressPath}\`。\n\n## 调查记录\n`, { mode: 0o600 });
+    const { text, ...identity } = context.request;
+    writeFileSync(notesPath, `# Review 调查索引\n\n## 固定请求与版本\n\n\`\`\`json\n${JSON.stringify(identity, null, 2)}\n\`\`\`\n\n请求原文与默认计划：\`$REVIEW_CONTEXT_PATH\`。\n规则恢复入口：\`${entry}\`。\n本轮范围与文件进度：\`${progressPath}\`。\n\n## 调查记录\n`, { mode: 0o600 });
   }
   writeFileSync(progressPath, `${JSON.stringify(progress)}\n`, { mode: 0o600 });
   const manifest = {
