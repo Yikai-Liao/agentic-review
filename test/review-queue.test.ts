@@ -31,11 +31,13 @@ function assertGrouping(admission: string, serialized: string) {
     const admitted = groupFor(admission, '11', '7', source, 106);
     assert.notEqual(admitted, groupFor(admission, '12', '7', source, 106));
     assert.notEqual(admitted, groupFor(admission, '11', '8', source, 106));
+    assert.notEqual(groupFor(admission, '12', '34', source, 106), groupFor(admission, '123', '4', source, 106));
     assert.equal(executionGroup, groupFor(serialized, '11', '7', source, 106));
     assert.notEqual(executionGroup, admitted);
   }
   assert.notEqual(executionGroup, groupFor(serialized, '12', '7', 'automatic', 101));
   assert.notEqual(executionGroup, groupFor(serialized, '11', '8', 'automatic', 101));
+  assert.notEqual(groupFor(serialized, '12', '34', 'automatic', 101), groupFor(serialized, '123', '4', 'automatic', 101));
 }
 
 test('automatic admission replaces only pending automatic requests, preserving explicit requests', () => {
@@ -53,12 +55,14 @@ test('automatic admission replaces only pending automatic requests, preserving e
   for (const broken of [
     `entry-\${{ inputs.pull_number }}-${request}`,
     `entry-\${{ inputs.repository_id }}-${request}`,
+    `entry-\${{ inputs.repository_id }}\${{ inputs.pull_number }}-${request}`,
     "entry-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ github.run_id }}",
     "entry-${{ inputs.repository_id }}-${{ inputs.pull_number }}",
   ]) assert.throws(() => assertGrouping(broken, execution.concurrency.group));
   for (const broken of [
     'execution-${{ inputs.pull_number }}',
     'execution-${{ inputs.repository_id }}',
+    'execution-${{ inputs.repository_id }}${{ inputs.pull_number }}',
     'execution-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ github.run_id }}',
   ]) assert.throws(() => assertGrouping(admission.group, broken));
   assert.equal(entry.on.workflow_dispatch.inputs.trigger_source.default, 'automatic');
