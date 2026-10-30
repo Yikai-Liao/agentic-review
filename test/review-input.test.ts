@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { main } from '../scripts/prepare-review-input.ts';
 import { buildReviewRequest, initialReviewCoverage } from '../scripts/review-request.ts';
 
-test('prepared input captures discussion baseline and project rules without generating diffs', () => {
+test('prepared input captures discussion baseline and project rules without generating diffs', async () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-input-'));
   const originalEnv = { ...process.env };
   try {
@@ -34,14 +34,14 @@ test('prepared input captures discussion baseline and project rules without gene
     writeFileSync(path.join(head, 'AGENTS.md'), '项目约束：开发计划按 plan 层审查。');
     writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { text: '只看鉴权' } }));
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({ ledger: [] }));
-    const run = (command: string, args: string[]) => {
+    const run = async (command: string, args: string[]) => {
       assert.equal(command, 'gh');
       if (args.includes('graphql')) return JSON.stringify([{ data: { repository: { pullRequest: {
         reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
       } } } }]);
       return args.includes('view') ? '{"title":"测试 PR"}' : '[[{"id":1,"body":"明确决定"}]]';
     };
-    main(run);
+    await main(run);
     const input = readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8');
     assert.ok(input.includes('测试 PR'));
     assert.ok(input.includes('## Review request'));
@@ -81,19 +81,19 @@ test('prepared input captures discussion baseline and project rules without gene
     const baseline = JSON.parse(readFileSync(path.join(directory, 'discussion-baseline.json'), 'utf8'));
     assert.equal(baseline.repository, 'owner/repo');
     assert.ok(baseline.fingerprints.inline_comments['1']);
-    assert.throws(() => main(() => { throw new Error('GitHub unavailable'); }), /GitHub unavailable/);
+    await assert.rejects(main(async () => { throw new Error('GitHub unavailable'); }), /GitHub unavailable/);
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify({ pull_requests: [], issues: [] }));
-    main(run);
+    await main(run);
     assert.ok(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8').includes('"pull_requests": []'));
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, 'invalid json');
-    assert.throws(() => main(run), SyntaxError);
+    await assert.rejects(main(run), SyntaxError);
     rmSync(process.env.REVIEW_ASSOCIATIONS_PATH!);
-    assert.throws(() => main(run), /ENOENT/);
+    await assert.rejects(main(run), /ENOENT/);
 
     // 大讨论先变成短索引；完整记录仍在原文文件中，不能无界内联给 Agent。
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
     const largeDecision = '明确决定：保持原范围。🙂'.repeat(6000);
-    main((command, args) => args.includes('view') || args.includes('graphql')
+    await main(async (command, args) => args.includes('view') || args.includes('graphql')
       ? run(command, args)
       : JSON.stringify([[{ id: 1, body: largeDecision }]]));
     const inputIndex = readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8');
@@ -129,9 +129,7 @@ test('prepared input captures discussion baseline and project rules without gene
     writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { ...request, head_sha: newHead, run_id: '11' } }));
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
     process.env.REVIEW_PREVIOUS_WORKSPACE_PATH = previous;
-    const withGit = (command: string, args: string[]) => command === 'git'
-      ? execFileSync(command, args, { encoding: 'utf8', stdio: 'pipe' }) : run(command, args);
-    main(withGit);
+    await main(run);
     const manifestPath = path.join(directory, 'resume-manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     assert.deepEqual(manifest.changed_paths.sort(), ['旧文件.ts', '含\n换行.ts'].sort());
@@ -149,7 +147,7 @@ test('prepared input captures discussion baseline and project rules without gene
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({
       ledger: [{ path: '含\n换行.ts', status: 'pending' }],
     }));
-    main(withGit);
+    await main(run);
     const unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
     assert.equal(unknown.changed_paths, null);
     assert.deepEqual(unknown.pending_files, ['含\n换行.ts']);
