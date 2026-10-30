@@ -17,7 +17,6 @@ test('automatic admission replaces only pending automatic requests, preserving e
 
 test('the reusable execution serializes the entire review and trusted publication for each PR', () => {
   assert.equal(entry.jobs.review.uses, './.github/workflows/review-execution.yml');
-  assert.equal(entry.jobs.review.secrets, 'inherit');
   assert.deepEqual(Object.keys(entry.jobs), ['review']);
   assert.equal(execution.concurrency.group, 'agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}');
   assert.equal(execution.concurrency.queue, 'max');
@@ -28,12 +27,40 @@ test('the reusable execution serializes the entire review and trusted publicatio
   assert.deepEqual(entry.permissions, execution.permissions);
 });
 
+test('the caller provides the execution secrets through inheritance or an explicit mapping', () => {
+  const required = ['AGENTIC_REVIEW_APP_PRIVATE_KEY', 'REVIEW_AGENT_API_KEY'];
+  const assertSecrets = (secrets: any) => {
+    if (secrets === 'inherit') return;
+    for (const name of required) assert.equal(secrets?.[name], '${{ secrets.' + name + ' }}');
+  };
+  assertSecrets(entry.jobs.review.secrets);
+  const mapped = Object.fromEntries(required.map(name => [name, '${{ secrets.' + name + ' }}']));
+  assert.doesNotThrow(() => assertSecrets(mapped));
+  for (const name of required) {
+    const missing = { ...mapped };
+    delete missing[name];
+    assert.throws(() => assertSecrets(missing));
+  }
+});
+
 test('the entry forwards every request field without changing the explicit comment identity', () => {
   const inputs = entry.on.workflow_dispatch.inputs;
-  assert.deepEqual(Object.keys(execution.on.workflow_call.inputs), Object.keys(inputs));
-  assert.deepEqual(Object.keys(entry.jobs.review.with), Object.keys(inputs));
-  for (const [name, definition] of Object.entries(inputs)) {
-    assert.deepEqual(execution.on.workflow_call.inputs[name], definition);
-    assert.equal(entry.jobs.review.with[name], '${{ inputs.' + name + ' }}');
-  }
+  const assertInputs = (definitions: Record<string, unknown>, forwarded: Record<string, unknown>) => {
+    assert.deepEqual(new Set(Object.keys(definitions)), new Set(Object.keys(inputs)));
+    assert.deepEqual(new Set(Object.keys(forwarded)), new Set(Object.keys(inputs)));
+    for (const [name, definition] of Object.entries(inputs)) {
+      assert.deepEqual(definitions[name], definition);
+      assert.equal(forwarded[name], '${{ inputs.' + name + ' }}');
+    }
+  };
+  assertInputs(execution.on.workflow_call.inputs, entry.jobs.review.with);
+  assert.doesNotThrow(() => assertInputs(
+    Object.fromEntries(Object.entries(execution.on.workflow_call.inputs).reverse()),
+    Object.fromEntries(Object.entries(entry.jobs.review.with).reverse()),
+  ));
+  const missing = { ...execution.on.workflow_call.inputs };
+  delete missing.comment_id;
+  assert.throws(() => assertInputs(missing, entry.jobs.review.with));
+  assert.throws(() => assertInputs(execution.on.workflow_call.inputs,
+    { ...entry.jobs.review.with, comment_id: '${{ inputs.comment_root_id }}' }));
 });
