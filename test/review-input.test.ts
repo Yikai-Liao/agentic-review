@@ -60,19 +60,20 @@ test('prepared input captures discussion baseline and project rules without gene
     assert.ok(notes.includes('$REVIEW_CONTEXT_PATH'));
     assert.ok(notes.includes('central/review-rules.md'));
     assert.ok(notes.includes(path.join(directory, 'review-progress.json')));
-    const assertInitialNotes = (source: string) => {
+    const assertInitialNotes = (source: string, instruction = '') => {
       const facts = source.match(/```json\n([\s\S]*?)\n```/);
       assert.ok(facts);
       assert.deepEqual(JSON.parse(facts[1]), { request: {}, context_path: '$REVIEW_CONTEXT_PATH',
         rules_path: fileURLToPath(new URL('../central/review-rules.md', import.meta.url)), progress_path: path.join(directory, 'review-progress.json') });
-      // 引用块是模板说明；其他位置只保留索引标题和空调查区，不预写结论。
-      const scaffold = source.replace(facts[0], '').replace(/^>.*(?:\r?\n|$)/gm, '');
+      // 只排除本用例明确提供的说明，不能把任意 Markdown 引用中的完成结论一并抹掉。
+      const scaffold = source.replace(facts[0], '').replace(instruction, '');
       assert.match(scaffold, /^# Review 调查索引\s+## 调查记录\s*$/);
     };
     assertInitialNotes(notes);
+    const instruction = '> complete 表示完成状态；调查后才能写“未发现问题”。';
     assert.doesNotThrow(() => assertInitialNotes(notes.replace('## 调查记录',
-      '> complete 表示完成状态；调查后才能写“未发现问题”。\n\n## 调查记录')));
-    for (const premature of ['- B1：complete', '结论：未发现问题。']) {
+      `${instruction}\n\n## 调查记录`), instruction));
+    for (const premature of ['- B1：complete', '结论：未发现问题。', '> - B1：complete', '> 结论：未发现问题。']) {
       assert.throws(() => assertInitialNotes(`${notes}\n${premature}\n`));
       assert.throws(() => assertInitialNotes(`${premature}\n${notes}`));
       assert.throws(() => assertInitialNotes(notes.replace('## 调查记录', `${premature}\n\n## 调查记录`)));
