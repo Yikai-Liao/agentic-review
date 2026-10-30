@@ -17,6 +17,12 @@ function readReviewWorkflow() {
 
 function assertAgentCredentials(workflow: any) {
   const review = workflow.jobs.review;
+  // Action 可直接取得 github.token；job 权限覆盖 workflow，不能依赖仓库默认值。
+  // https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idpermissions
+  const permissions = review.permissions ?? workflow.permissions;
+  assert.ok(permissions === 'read-all' || (permissions && typeof permissions === 'object'
+    && Object.values(permissions).every(permission => permission === 'read' || permission === 'none')),
+  'Review GITHUB_TOKEN must be explicitly read-only');
   const agent = review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   assert.ok(agent);
   const environment = { ...workflow.env, ...review.env, ...agent.env };
@@ -119,6 +125,29 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   harmlessAgent.env.REVIEW_DIAGNOSTICS = 'enabled';
   harmlessAgent.env.EXTRA_TOKEN = '${{ steps.forward-read-token.outputs.value }}';
   assert.doesNotThrow(() => assertAgentCredentials(harmless));
+});
+
+test('Review workflow token remains read-only after workflow and job permission changes', () => {
+  const { workflow } = readReviewWorkflow();
+  for (const level of ['workflow', 'job']) {
+    for (const permissions of ['write-all', { contents: 'write' }]) {
+      const changed = structuredClone(workflow);
+      const target = level === 'workflow' ? changed : changed.jobs.review;
+      target.permissions = permissions;
+      const agent = changed.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+      agent.env.EXTRA_TOKEN = '${{ github.token }}';
+      assert.throws(() => assertAgentCredentials(changed), /read-only/);
+    }
+  }
+  const scoped = structuredClone(workflow);
+  scoped.permissions = 'write-all';
+  scoped.jobs.review.permissions = { actions: 'read', contents: 'read' };
+  assert.doesNotThrow(() => assertAgentCredentials(scoped));
+  scoped.jobs.review.permissions = 'read-all';
+  assert.doesNotThrow(() => assertAgentCredentials(scoped));
+  delete scoped.jobs.review.permissions;
+  delete scoped.permissions;
+  assert.throws(() => assertAgentCredentials(scoped), /explicitly read-only/);
 });
 
 test('Lark token rotation remains scheduled and isolated from the Review Agent', () => {
