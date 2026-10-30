@@ -45,7 +45,7 @@ env:
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
 
 concurrency:
-  # 同一 PR 的自动事件与 @ 请求共享队列；发布 job 完成后才释放并发槽。
+  # 同一 PR 的自动事件与 @ 请求共享队列；审查与发布全部结束后才释放并发槽。
   group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
   queue: max
   cancel-in-progress: false
@@ -54,24 +54,6 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    outputs:
-      owner: ${{ steps.target.outputs.owner }}
-      name: ${{ steps.target.outputs.name }}
-      base_sha: ${{ steps.snapshot.outputs.base_sha }}
-      head_sha: ${{ steps.snapshot.outputs.head_sha }}
-      check_id: ${{ steps.review-check.outputs.check_id }}
-      pi_outcome: ${{ steps.pi-review.outcome }}
-      duration_seconds: ${{ steps.pi-review.outputs.duration_seconds }}
-      input_tokens: ${{ steps.pi-review.outputs.input_tokens }}
-      output_tokens: ${{ steps.pi-review.outputs.output_tokens }}
-      cost: ${{ steps.pi-review.outputs.cost }}
-      workspace_url: ${{ steps.review-workspace.outputs.artifact-url }}
-      workspace_artifact_id: ${{ steps.review-workspace.outputs.artifact-id }}
-      context_artifact_id: ${{ steps.review-context.outputs.artifact-id }}
-      result_artifact_id: ${{ steps.review-result.outputs.artifact-id }}
-      run_attempt: ${{ github.run_attempt }}
-      inventory_digest: ${{ steps.request-scope.outputs.inventory_digest }}
-      comparison_start: ${{ steps.request-scope.outputs.comparison_start }}
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -341,7 +323,7 @@ jobs:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: node control/scripts/review-request.ts
 
-      # 在 Agent 启动前封存请求；发布 job 按此 artifact ID 独立下载，不信任工作区中的副本。
+      # 在 Agent 启动前封存请求；发布步骤按此 artifact ID 下载，不信任工作区中的副本。
       - name: Seal review context
         id: review-context
         uses: actions/upload-artifact@v7.0.1
@@ -512,31 +494,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # 只把无凭证最终结果传给新的 runner；结果始终按不可信输入处理。
-      - name: Upload review result
-        id: review-result
-        if: steps.pi-review.outcome == 'success'
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: review-result-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/review-result.json
-          if-no-files-found: error
-          retention-days: 7
-
-  publish:
-    needs: review
-    if: always() && needs.review.outputs.check_id != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
+      # Agent 已结束；写令牌只交给后续可信发布步骤，不注入 Agent。
       - name: Mint trusted publication token
         id: publication-token
+        if: ${{ always() && steps.review-check.outputs.check_id != '' }}
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.AGENTIC_REVIEW_CLIENT_ID }}
           private-key: ${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}
-          owner: ${{ needs.review.outputs.owner }}
-          repositories: ${{ needs.review.outputs.name }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
           # GitHub GraphQL 的 resolveReviewThread/unresolveReviewThread 实际要求 contents: write。
           permission-contents: write
           permission-pull-requests: write
@@ -544,93 +511,72 @@ jobs:
 
       - name: Checkout trusted publisher
         id: publisher-checkout
-        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
+        if: ${{ !cancelled() && steps.review-context.outcome == 'success' }}
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.sha }}
+          path: publisher
           persist-credentials: false
-
-      - name: Download review progress
-        id: download-progress
-        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
-        uses: actions/download-artifact@v8.0.1
-        with:
-          artifact-ids: ${{ needs.review.outputs.workspace_artifact_id }}
-          path: ${{ runner.temp }}/review-workspace
+          sparse-checkout: scripts
 
       - name: Download sealed review context
         id: download-context
-        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
+        if: ${{ !cancelled() && steps.review-context.outcome == 'success' }}
         uses: actions/download-artifact@v8.0.1
         with:
-          artifact-ids: ${{ needs.review.outputs.context_artifact_id }}
-          path: ${{ runner.temp }}/review-context
-
-      - name: Set up Node.js for trusted publisher
-        id: publisher-node
-        if: ${{ !cancelled() && needs.review.outputs.context_artifact_id != '' }}
-        uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 24
+          artifact-ids: ${{ steps.review-context.outputs.artifact-id }}
+          path: ${{ runner.temp }}/sealed-review-context
 
       # 即使 Agent 失败，也保存由可信请求与有效进度组装的历史范围。
       - name: Assemble review workspace
         id: assemble-workspace
-        if: ${{ !cancelled() && steps.publisher-checkout.outcome == 'success' && steps.publisher-node.outcome == 'success' && steps.download-progress.outcome == 'success' && steps.download-context.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.publisher-checkout.outcome == 'success' && steps.download-context.outcome == 'success' }}
         env:
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
-          BASE_SHA: ${{ needs.review.outputs.base_sha }}
-          HEAD_SHA: ${{ needs.review.outputs.head_sha }}
-          REVIEW_INVENTORY_DIGEST: ${{ needs.review.outputs.inventory_digest }}
-          REVIEW_COMPARISON_START: ${{ needs.review.outputs.comparison_start }}
+          BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
+          REVIEW_INVENTORY_DIGEST: ${{ steps.request-scope.outputs.inventory_digest }}
+          REVIEW_COMPARISON_START: ${{ steps.request-scope.outputs.comparison_start }}
           REVIEW_RUN_ID: ${{ github.run_id }}
-          REVIEW_RUN_ATTEMPT: ${{ needs.review.outputs.run_attempt }}
+          REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
           REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
           REVIEW_COMMENT_ID: ${{ inputs.comment_id }}
           REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
           REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
-          REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
-          REVIEW_PROGRESS_PATH: ${{ runner.temp }}/review-workspace/review-progress.json
-          REVIEW_COVERAGE_PATH: ${{ runner.temp }}/review-workspace/review-coverage.json
-        run: node scripts/prepare-review-publication.ts
+          REVIEW_CONTEXT_PATH: ${{ runner.temp }}/sealed-review-context/review-context.json
+          REVIEW_PROGRESS_PATH: ${{ github.workspace }}/review-workspace/review-progress.json
+          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
+        run: node publisher/scripts/prepare-review-publication.ts
 
       - name: Upload requested review workspace
         if: ${{ !cancelled() && steps.assemble-workspace.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: review-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}
-          path: ${{ runner.temp }}/review-workspace
+          name: review-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
           overwrite: true
           retention-days: 7
 
-      # 新 runner 中才注入 write token；发布器检查结果、覆盖与 root comment，发布到可信请求的 head。
-      - name: Download review result
-        id: download-result
-        if: ${{ !cancelled() && needs.review.outputs.pi_outcome == 'success' }}
-        uses: actions/download-artifact@v8.0.1
-        with:
-          artifact-ids: ${{ needs.review.outputs.result_artifact_id }}
-          path: ${{ runner.temp }}/review-result
-
+      # 本地结果仍按不可信输入校验；发布到封存请求绑定的 head。
       - name: Publish review
         id: publish-review
-        if: ${{ !cancelled() && steps.assemble-workspace.outcome == 'success' && steps.download-result.outcome == 'success' && steps.publication-token.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.assemble-workspace.outcome == 'success' && steps.pi-review.outcome == 'success' && steps.publication-token.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
-          REVIEW_INVENTORY_DIGEST: ${{ needs.review.outputs.inventory_digest }}
+          REVIEW_INVENTORY_DIGEST: ${{ steps.request-scope.outputs.inventory_digest }}
           REVIEW_BOT_LOGIN: ${{ steps.publication-token.outputs.app-slug }}[bot]
-          REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result/review-result.json
-          REVIEW_COVERAGE_PATH: ${{ runner.temp }}/review-workspace/review-coverage.json
+          REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
+          REVIEW_COVERAGE_PATH: ${{ github.workspace }}/review-workspace/review-coverage.json
           REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          REVIEW_WORKSPACE_URL: ${{ needs.review.outputs.workspace_url }}
+          REVIEW_WORKSPACE_URL: ${{ steps.review-workspace.outputs.artifact-url }}
           REVIEW_MODEL: openai/${{ vars.REVIEW_AGENT_MODEL }}
-          REVIEW_DURATION_SECONDS: ${{ needs.review.outputs.duration_seconds }}
-          REVIEW_INPUT_TOKENS: ${{ needs.review.outputs.input_tokens }}
-          REVIEW_OUTPUT_TOKENS: ${{ needs.review.outputs.output_tokens }}
-          REVIEW_COST: ${{ needs.review.outputs.cost }}
-        run: node scripts/publish-review.ts
+          REVIEW_DURATION_SECONDS: ${{ steps.pi-review.outputs.duration_seconds }}
+          REVIEW_INPUT_TOKENS: ${{ steps.pi-review.outputs.input_tokens }}
+          REVIEW_OUTPUT_TOKENS: ${{ steps.pi-review.outputs.output_tokens }}
+          REVIEW_COST: ${{ steps.pi-review.outputs.cost }}
+        run: node publisher/scripts/publish-review.ts
 
       - name: Upload publication report
         id: publication-report
@@ -638,7 +584,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-publication-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/review-workspace/publication-report.json
+          path: ${{ github.workspace }}/review-workspace/publication-report.json
           if-no-files-found: error
           retention-days: 7
 
@@ -647,30 +593,30 @@ jobs:
         if: ${{ !cancelled() && steps.publish-review.outcome == 'success' && steps.publication-report.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: review-completed-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ needs.review.outputs.run_attempt }}
-          path: ${{ runner.temp }}/review-workspace
+          name: review-completed-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/review-workspace
           if-no-files-found: error
           overwrite: true
           retention-days: 7
 
       - name: Complete Agentic Review check
         id: complete-check
-        if: always()
+        if: ${{ always() && steps.review-check.outputs.check_id != '' }}
         uses: actions/github-script@v9.0.0
         env:
           REPOSITORY: ${{ inputs.repository }}
-          CHECK_ID: ${{ needs.review.outputs.check_id }}
-          PI_REVIEW_OUTCOME: ${{ needs.review.outputs.pi_outcome }}
+          CHECK_ID: ${{ steps.review-check.outputs.check_id }}
+          PI_REVIEW_OUTCOME: ${{ steps.pi-review.outcome }}
           PUBLISH_REVIEW_OUTCOME: ${{ steps.publish-review.outcome }}
           COMPLETION_WORKSPACE_OUTCOME: ${{ steps.completion-workspace.outcome }}
-          PUBLISH_JOB_STATUS: ${{ job.status }}
+          REVIEW_JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
-            const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled' || process.env.PUBLISH_JOB_STATUS === 'cancelled'
+            const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled' || process.env.REVIEW_JOB_STATUS === 'cancelled'
               ? 'cancelled'
-              : process.env.PUBLISH_JOB_STATUS === 'success' && process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success'
+              : process.env.REVIEW_JOB_STATUS === 'success' && process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success'
                 ? 'success'
                 : 'failure';
             await github.rest.checks.update({

@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { inventoryDigest, readReviewProgress } from './review-coverage.ts';
 import { buildReviewRequest, persistReviewCoverage } from './review-request.ts';
 
-// 在隔离发布 job 中把预先封存的上下文与 Agent 进度组装为历史记录。
+// Agent 结束后，把预先封存的上下文与 Agent 进度组装为历史记录。
 // 不要求完成覆盖：失败或中断的审查也必须留下可恢复范围。
 export async function main() {
   const required = (name: string) => {

@@ -85,17 +85,49 @@ function assertAgentCredentials(workflow: any) {
 
 test('central Review starts without Lark tools, credentials or a rotation dependency', () => {
   const { source, workflow } = readReviewWorkflow();
-  assert.deepEqual(Object.keys(workflow.jobs).sort(), ['publish', 'review']);
+  assert.deepEqual(Object.keys(workflow.jobs).sort(), ['review']);
   assert.equal(workflow.jobs.review.needs, undefined);
   assert.equal(workflow.jobs.review.environment, undefined);
   assert.doesNotMatch(source, /LARKSUITE_|AGENTIC_REVIEW_LARK_|lark-cli/);
   const agent = workflow.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   assert.ok(agent);
   assertAgentCredentials(workflow);
-  assert.equal(workflow.jobs.publish.needs, 'review');
   // 本地操作手册仍从可信执行配置取得归档 pin，暂停 Agent 准备不应破坏恢复入口。
   assert.match(workflow.env.LARK_CLI_VERSION, /^\d+\.\d+\.\d+$/);
   assert.match(workflow.env.LARK_CLI_SHA256_LINUX_AMD64, /^[0-9a-f]{64}$/);
+});
+
+
+test('发布在 Agent 结束后签发独立 token，恢复可信脚本和封存上下文并复用本地结果', () => {
+  const { workflow } = readReviewWorkflow();
+  const steps = workflow.jobs.review.steps;
+  const index = (id: string) => steps.findIndex((step: { id?: string }) => step.id === id);
+  const step = (id: string) => steps[index(id)];
+  assert.ok(index('pi-review') < index('publication-token'));
+  assert.ok(index('publication-token') < index('publish-review'));
+  assert.ok(index('publisher-checkout') < index('assemble-workspace'));
+  assert.ok(index('download-context') < index('assemble-workspace'));
+  const checkout = step('publisher-checkout');
+  assert.equal(checkout.with.ref, '${{ github.sha }}');
+  assert.equal(checkout.with['persist-credentials'], false);
+  assert.equal(checkout.with.path, 'publisher');
+  assert.equal(step('download-context').with['artifact-ids'], '${{ steps.review-context.outputs.artifact-id }}');
+  assert.notEqual(step('download-context').with.path, '${{ runner.temp }}/review-context');
+  assert.equal(step('assemble-workspace').run, 'node publisher/scripts/prepare-review-publication.ts');
+  assert.equal(step('assemble-workspace').env.REVIEW_PROGRESS_PATH, '${{ github.workspace }}/review-workspace/review-progress.json');
+  assert.equal(step('publish-review').run, 'node publisher/scripts/publish-review.ts');
+  assert.equal(step('publish-review').env.REVIEW_RESULT_PATH, step('pi-review').env.REVIEW_RESULT_PATH);
+  assert.equal(step('publish-review').env.GH_TOKEN, '${{ steps.publication-token.outputs.token }}');
+  const token = step('publication-token').with;
+  assert.equal(token.owner, '${{ steps.target.outputs.owner }}');
+  assert.equal(token.repositories, '${{ steps.target.outputs.name }}');
+  assert.deepEqual(Object.fromEntries(Object.entries(token).filter(([key]) => key.startsWith('permission-'))), {
+    'permission-contents': 'write', 'permission-pull-requests': 'write', 'permission-checks': 'write',
+  });
+  assert.equal(steps.filter((item: { uses?: string }) => item.uses?.startsWith('actions/setup-node@')).length, 1);
+  for (const removed of ['review-result', 'download-result', 'download-progress', 'publisher-node']) {
+    assert.equal(index(removed), -1);
+  }
 });
 
 test('Agent credential checks reject renamed secrets in inherited env and action inputs', () => {
@@ -121,10 +153,6 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   // 写令牌经步骤输出转交、或现有 token 被放宽权限，同样必须失败。
   const writeToken = structuredClone(workflow);
   const agent = writeToken.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
-  const publicationToken = structuredClone(workflow.jobs.publish.steps.find((step: { id?: string }) => step.id === 'publication-token'));
-  publicationToken.with.owner = '${{ steps.target.outputs.owner }}';
-  publicationToken.with.repositories = '${{ steps.target.outputs.name }}';
-  writeToken.jobs.review.steps.unshift(publicationToken);
   agent.env.EXTRA_TOKEN = '${{ steps.publication-token.outputs.token }}';
   assert.throws(() => assertAgentCredentials(writeToken), /read-only/);
   const source = '${{ steps.publication-token.outputs.token }}';
