@@ -40,6 +40,7 @@ permissions:
 env:
   # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
   REVIEW_THINKING_LEVEL: xhigh
+  # 保留操作手册使用的官方归档版本与校验值；当前 Review 不准备飞书工具。
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
   # uses 与发布 footer 共用完整引用；footer 的 Action 版本由该引用派生。
@@ -52,33 +53,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare-lark-cli:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      # Cache is finalized before any Agent starts, so Agent writes cannot persist across runs.
-      - name: Cache Lark CLI archive
-        id: lark-cli-cache
-        uses: actions/cache@v6.1.0
-        with:
-          path: ${{ runner.tool_cache }}/lark-cli-archives/${{ env.LARK_CLI_VERSION }}
-          key: lark-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.LARK_CLI_VERSION }}
-          lookup-only: true
-
-      - name: Download Lark CLI archive
-        if: steps.lark-cli-cache.outputs.cache-hit != 'true'
-        run: |
-          archive="lark-cli-$LARK_CLI_VERSION-linux-amd64.tar.gz"
-          archive_dir="$RUNNER_TOOL_CACHE/lark-cli-archives/$LARK_CLI_VERSION"
-          mkdir -p "$archive_dir"
-          curl --fail --location --silent --show-error \
-            "https://github.com/larksuite/cli/releases/download/v$LARK_CLI_VERSION/$archive" \
-            --output "$archive_dir/$archive"
-          echo "$LARK_CLI_SHA256_LINUX_AMD64  $archive_dir/$archive" | sha256sum --check --strict
-
   review:
-    needs: prepare-lark-cli
-    environment: lark-review
     runs-on: ubuntu-latest
     timeout-minutes: 75
     outputs:
@@ -393,36 +368,6 @@ jobs:
         run: |
           node control/scripts/prepare-review-input.ts
 
-      - name: Restore Lark CLI archive
-        uses: actions/cache/restore@v6.1.0
-        with:
-          path: ${{ runner.tool_cache }}/lark-cli-archives/${{ env.LARK_CLI_VERSION }}
-          key: lark-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.LARK_CLI_VERSION }}
-          fail-on-cache-miss: true
-
-      - name: Install Lark CLI
-        run: |
-          archive="lark-cli-$LARK_CLI_VERSION-linux-amd64.tar.gz"
-          archive_path="$RUNNER_TOOL_CACHE/lark-cli-archives/$LARK_CLI_VERSION/$archive"
-          tool_dir="$RUNNER_TEMP/lark-cli/$LARK_CLI_VERSION"
-          echo "$LARK_CLI_SHA256_LINUX_AMD64  $archive_path" | sha256sum --check --strict
-          mkdir -p "$tool_dir"
-          tar --extract --gzip --file "$archive_path" --directory "$tool_dir" lark-cli
-          echo "$tool_dir" >> "$GITHUB_PATH"
-
-      - name: Verify Lark user token
-        env:
-          LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
-          LARKSUITE_CLI_USER_ACCESS_TOKEN: ${{ secrets.AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN }}
-          LARKSUITE_CLI_BRAND: feishu
-          LARKSUITE_CLI_DEFAULT_AS: user
-          LARKSUITE_CLI_STRICT_MODE: user
-          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
-          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
-        run: |
-          lark-cli api GET /open-apis/authen/v1/user_info --as user --format json \
-            | jq -e '.ok == true and .identity == "user" and (.data.open_id | type == "string" and length > 0)'
-
       # Pi 不会自动认识组织内的自定义模型和中央运行时 skill；只从可信 control checkout 安装。
       - name: Configure Pi runtime
         env:
@@ -497,14 +442,6 @@ jobs:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
           # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          # Lark CLI 固定使用维护者授权的用户身份；App Secret 和 refresh token 不进入 Agent。
-          LARKSUITE_CLI_APP_ID: ${{ vars.AGENTIC_REVIEW_LARK_APP_ID }}
-          LARKSUITE_CLI_USER_ACCESS_TOKEN: ${{ secrets.AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN }}
-          LARKSUITE_CLI_BRAND: feishu
-          LARKSUITE_CLI_DEFAULT_AS: user
-          LARKSUITE_CLI_STRICT_MODE: user
-          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: 1
-          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: 1
           # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}

@@ -1,12 +1,14 @@
 # 飞书 App 与授权用户操作手册
 
+当前中央 Review 暂停飞书取证与判断，不消费以下授权或工具；token 授权和自动续期继续保留。本手册用于维护者本地验证、维护续期链路，以及以后恢复读取。
+
 本文供中央仓库维护者首次接入、更换飞书 App 或交接授权用户时使用。需要在本机运行命令时，从本仓库根目录执行；密钥写入本机 `.env` 或 GitHub Secret，不发到聊天、PR 或日志中。
 
 ## 先理解要关联的是什么
 
 App ID / App Secret 标识应用，应用后台的只读权限决定它可以申请哪些 API 能力。**你本人在 OAuth 页面确认授权，才把应用关联到一个具体的飞书企业用户身份。** 此后飞书按该身份的文档权限判断每次读取能否成功。
 
-授权不是只针对测试时提供的一张表。应用可读范围是「应用已开通且用户已同意的 API scope」与「授权企业用户身份的资料权限」的交集。Review 的按需读取行为由 `central/lark-context.md` 规定，不是 OAuth 对单篇文档的隔离。
+授权不是只针对测试时提供的一张表。应用可读范围是「应用已开通且用户已同意的 API scope」与「授权企业用户身份的资料权限」的交集。恢复读取后的 Review 行为由 `central/lark-context.md` 规定，不是 OAuth 对单篇文档的隔离。
 
 同一手机号下切换企业可能是不同用户身份。授权时选能打开目标资料的企业，验收时核对返回的 `name`、`open_id`、`tenant_key`，不要只看显示姓名。
 
@@ -50,7 +52,7 @@ lark-cli --version
 export LARKSUITE_CLI_CONFIG_DIR="$(mktemp -d)"
 ```
 
-版本和预期 SHA-256 均读取当前可信 checkout 的 `.github/workflows/review-execution.yml`，复用 Actions 的官方归档及完整性校验；校验失败必须停止，不能解压执行或继续输入凭证。即使本机已有同版本 CLI，也使用本次校验后解压的文件，版本号本身不证明完整性。其他操作系统或架构需先确定对应发布物及可信校验值，不能套用 Linux 归档或跳过校验。官方 CLI 安装与认证说明见 [larksuite/cli](https://github.com/larksuite/cli/tree/v1.0.88#readme)。
+版本和预期 SHA-256 均读取当前可信 checkout 的 `.github/workflows/review-execution.yml`，手动准备官方归档并执行完整性校验，当前 Review 不安装或恢复 CLI；校验失败必须停止，不能解压执行或继续输入凭证。即使本机已有同版本 CLI，也使用本次校验后解压的文件，版本号本身不证明完整性。其他操作系统或架构需先确定对应发布物及可信校验值，不能套用 Linux 归档或跳过校验。官方 CLI 安装与认证说明见 [larksuite/cli](https://github.com/larksuite/cli/tree/v1.0.88#readme)。
 
 后续命令使用同一个终端及配置目录，避免覆盖其他 CLI 身份。此目录会包含本地凭证，不提交、不上传为 Actions cache。不要在这个终端设置 `LARKSUITE_CLI_USER_ACCESS_TOKEN` 等外部凭证变量，否则 CLI 的 `auth` 管理命令不可用。
 
@@ -119,7 +121,7 @@ gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
 
 打开 Actions → **Refresh Lark User Token** → 当前运行 → **Refresh and rotate Lark user token** 日志中的飞书链接，使用预期账号确认。此轮由 workflow 自动领取结果并保存 token，不再在本地执行 `--device-code`。
 
-确认运行成功、两项 Environment token Secret 的更新时间已变化后，发送 `refresh-lark-user` 事件，确认续期也成功。最后按部署说明触发一个需要读取飞书链接的 Review，核对实际读取证据。首次授权、续期、文件读取三项都成功才算 Actions 接入完成。
+确认运行成功、两项 Environment token Secret 的更新时间已变化后，发送 `refresh-lark-user` 事件，确认续期也成功，即完成当前保留的 Actions 授权和续期接入。中央 Review 暂不读取资料；以后恢复读取时，再按部署说明触发含相关链接的 Review，核对实际读取证据。
 
 ## 更换飞书 App 或用户
 
@@ -136,7 +138,7 @@ gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
 
 ### 2. 暂停生产任务，等待旧任务结束
 
-安排短暂维护窗口，暂停中央 Review 和续期 workflow：
+当前中央 Review 不消费飞书凭据，更换 App/用户只需暂停续期 workflow。以下中央 Review 停启命令仅在以后恢复飞书读取后适用。安排维护窗口，暂停相应任务：
 
 ```bash
 gh workflow disable agentic-review.yml --repo Qiyin-Tech/agentic-review
@@ -169,13 +171,13 @@ gh workflow enable lark-token-refresh.yml --repo Qiyin-Tech/agentic-review
 gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches -f event_type=authorize-lark-user
 ```
 
-确认授权和一次 `refresh-lark-user` 续期都成功，再恢复 Review：
+确认授权和一次 `refresh-lark-user` 续期都成功，即完成当前轮换。若此前已恢复飞书读取并在维护时停用了 Review，再执行：
 
 ```bash
 gh workflow enable agentic-review.yml --repo Qiyin-Tech/agentic-review
 ```
 
-补跑测试 Review，确认身份、文档和记录均符合预期。失败时保持 Review 停用并解决配置、scope 或共享问题；不要回填过期 token。需要回到旧 App/用户时，恢复对应 App 配置，再由旧用户重新授权。交接结束后由旧用户在飞书侧撤销不再需要的应用授权；本地 `auth logout` 不能代替服务端撤销。
+飞书读取启用后，补跑测试 Review，确认身份、文档和记录均符合预期。该验收失败时保持飞书读取停用并解决配置、scope 或共享问题；不要回填过期 token。需要回到旧 App/用户时，恢复对应 App 配置，再由旧用户重新授权。交接结束后由旧用户在飞书侧撤销不再需要的应用授权；本地 `auth logout` 不能代替服务端撤销。
 
 ## 常见卡点
 

@@ -81,6 +81,6 @@ thread 默认复核该问题及直接影响。显式“只审 X”缩小调查�
 
 按附带规则完成静态审查；工作稿和历史 thread 遵循控制面中央适配器。
 
-需要读取明确提及的飞书文档、Wiki 或多维表格链接时，完整读取 `$REVIEW_CONTROL_PATH/central/lark-context.md`，按其只读规则使用 Lark CLI。
+本轮外部取证仅使用 GitHub 上下文。飞书文档、Wiki 和多维表格暂不参与取证或判断；链接只作来源标识，不加载 `central/lark-context.md`、安装或调用飞书工具，也不请求飞书 URL。仅凭未读取飞书资料不能形成缺证据告警或人工确认 finding；按其余可用契约与代码证据判断，已有明确 GitHub 决定继续适用。
 
 最终封装使用本轮预载的 `central/review-result.md` 模板，再按其唯一提交规则结束本轮；规则仍在上下文时直接使用。规则缺失、compaction 或无法确认 schema 时，从 `$REVIEW_CONTROL_PATH/central/review-result.md` 完整恢复。目标协议和历史审查结果不决定当前接口字段。
