@@ -40,7 +40,7 @@ test('真实中央预载与 compaction 恢复集合一致，缺规则时加载�
   for (const relative of ['central', 'skills/agentic-review']) {
     await cp(path.join(root, relative), path.join(directory, 'control', relative), { recursive: true });
   }
-  const workflow = await read('.github/workflows/agentic-review.yml');
+  const workflow = await read('.github/workflows/review-execution.yml');
   const block = workflow.split('      - name: Load review prompt\n')[1].split('\n      - name:')[0];
   const script = block.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
   const output = path.join(directory, 'prompt-output');

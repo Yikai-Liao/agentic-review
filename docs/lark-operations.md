@@ -38,8 +38,8 @@ APP_SECRET=你的应用密钥
 ```bash
 set -euo pipefail
 chmod 600 .env
-lark_cli_version="$(awk '$1 == "LARK_CLI_VERSION:" { print $2 }' .github/workflows/agentic-review.yml)"
-lark_cli_sha256="$(awk '$1 == "LARK_CLI_SHA256_LINUX_AMD64:" { print $2 }' .github/workflows/agentic-review.yml)"
+lark_cli_version="$(awk '$1 == "LARK_CLI_VERSION:" { print $2 }' .github/workflows/review-execution.yml)"
+lark_cli_sha256="$(awk '$1 == "LARK_CLI_SHA256_LINUX_AMD64:" { print $2 }' .github/workflows/review-execution.yml)"
 lark_cli_dir="$(mktemp -d)"
 lark_cli_archive="lark-cli-$lark_cli_version-linux-amd64.tar.gz"
 curl --fail --location --silent --show-error \
@@ -52,7 +52,7 @@ lark-cli --version
 export LARKSUITE_CLI_CONFIG_DIR="$(mktemp -d)"
 ```
 
-版本和预期 SHA-256 均读取当前可信 checkout 的 `.github/workflows/agentic-review.yml`，手动准备官方归档并执行完整性校验，当前 Review 不安装或恢复 CLI；校验失败必须停止，不能解压执行或继续输入凭证。即使本机已有同版本 CLI，也使用本次校验后解压的文件，版本号本身不证明完整性。其他操作系统或架构需先确定对应发布物及可信校验值，不能套用 Linux 归档或跳过校验。官方 CLI 安装与认证说明见 [larksuite/cli](https://github.com/larksuite/cli/tree/v1.0.88#readme)。
+版本和预期 SHA-256 均读取当前可信 checkout 的 `.github/workflows/review-execution.yml`，手动准备官方归档并执行完整性校验，当前 Review 不安装或恢复 CLI；校验失败必须停止，不能解压执行或继续输入凭证。即使本机已有同版本 CLI，也使用本次校验后解压的文件，版本号本身不证明完整性。其他操作系统或架构需先确定对应发布物及可信校验值，不能套用 Linux 归档或跳过校验。官方 CLI 安装与认证说明见 [larksuite/cli](https://github.com/larksuite/cli/tree/v1.0.88#readme)。
 
 后续命令使用同一个终端及配置目录，避免覆盖其他 CLI 身份。此目录会包含本地凭证，不提交、不上传为 Actions cache。不要在这个终端设置 `LARKSUITE_CLI_USER_ACCESS_TOKEN` 等外部凭证变量，否则 CLI 的 `auth` 管理命令不可用。
 

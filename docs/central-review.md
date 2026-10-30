@@ -11,7 +11,8 @@
 ```text
 Review App `pull_request`、`issue_comment` 和 `pull_request_review_comment` webhook
   -> Cloudflare Worker
-  -> 中央仓库 agentic-review.yml
+  -> 中央仓库 agentic-review.yml（自动请求合并）
+  -> review-execution.yml（同 PR 审查与发布串行）
   -> shaftoe/pi-coding-agent-action（只读分析）
   -> 可信 agentic-review Skill + 中央 GitHub/结果适配器 + 持久化工作稿
   -> submit_review 封存最终 JSON 文件
@@ -22,7 +23,7 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 接受的自动事件是 draft 和普通 PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`、`converted_to_draft`。新建的 PR 普通评论由 `issue_comment.created` 触发，inline thread 回复由 `pull_request_review_comment.created` 触发；Worker 只保留 PR 上、正文含有效 bot mention 的人类评论。评论编辑不重新触发，引用块、代码块和 inline code 中的 mention 不触发，重复 delivery 按 delivery ID 去重。`workflow_dispatch` 的自动请求携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open 快照；自动事件排队后快照变化会显式失败。draft PR 同样会创建和更新 Check 及发布 Review，但 draft 状态本身仍由 GitHub 阻止合并。评论请求没有 SHA，workflow 实际开始时读取当前 base/head 并固定本轮快照。
 
-同一 PR 的所有请求进入同一个 workflow 级 concurrency group，Review 和 publish 共享槽位；不同 PR 可以并行。使用 `queue: max`、`cancel-in-progress: false`，每个 group 最多 100 个 pending，超出后 GitHub 取消新增任务。FIFO 按任务开始等待的时间计算，而不是 webhook 发出时间，因此它提供有界等待队列，不承诺事件的绝对顺序。实现依据见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
+同一 PR 的自动请求先在入口合并待处理候选，显式评论请求分别保留；进入执行层后，Review 和 publish 共享串行槽位，不同 PR 可以并行。两个并发层的具体行为见[自动请求合并与发布顺序](#自动请求合并与发布顺序)。
 
 每轮固定 merge base 到当前 head 的完整审查区间，Agent 从本地 Git 获取文件清单和规模。小 diff 直接一次读完，用一个 batch 完成审查；大 diff 按路径和 hunk 分批读取。workflow 不生成聚合 diff 文件。若当前 PR 历史中存在由同一 Review App 完成且 `conclusion == success` 的 `Agentic Review / audit` Check Run，并且其 base SHA 与当前快照相同、对应 head 仍在当前提交历史中、此后没有 merge commit，且对应工作稿已成功接入，则以该 head 到当前 head 的净变化作为阅读重点；取消、失败和未完成的 Check 不形成 checkpoint。rebase、Update branch、其他非线性历史、base 变化或 GraphQL Check Runs 查询失败时执行完整审查；查询失败会写入 workflow warning。增量区间没有净变化时仍处理最新讨论和历史未完成项。增量 diff 不缩小审查范围，也不能替代完整区间 patch 的 finding 证据和行号。
 
@@ -72,3 +73,13 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 ## 输入信任边界
 
 PR 评论和 Review 回复是可信决策输入；明确回复可以在当前 PR 中确认产品决定、风险接受和边界变化，无需早于当前变化或通过额外作者权限检查。目标 PR 的源码、PR 描述、`AGENTS.md`、`.agentic-review.md` 和其显式引用的项目文件都可能包含 prompt injection。Target checkout 保持在 `review-target/`，不参与 Pi 的项目 Skill 自动发现，也不向 Agent 枚举 `.agents/skills` 或 `.pi/skills`。`.agentic-review.md` 可授权 Agent 读取具体文件路径；该路径由 Agent 直接读取，不经过 catalog、allowlist、`realpath` 或 checkout 边界校验。这是有意的权限边界：Agent 本就持有 `read`、`bash` 和只读 `GH_TOKEN`，中央安全边界是不执行目标仓库代码、GitHub 凭证只读且只有可信 publisher 可写。Review 总结和 finding 使用中文；没有符合门槛的问题也必须发布 summary-only Review。
+
+## 自动请求合并与发布顺序
+
+`agentic-review.yml` 只负责接收请求和调用同版本的 `review-execution.yml`。自动请求按仓库 ID 和 PR 编号共享入口并发组，使用 GitHub 默认的单个 pending 槽；连续提交时新候选替换旧候选，已开始的请求继续运行。显式 PR 评论和 thread 请求以 run ID 隔离入口槽，每条请求都保留。
+
+执行层继续使用同 PR 的 `queue: max`、`cancel-in-progress: false`，锁覆盖审查和可信发布的整个 workflow。自动请求与显式请求在这里串行，发布结束后才释放；入口与执行层的组名不同。入口自动任务即使正在等待执行层，也视为一个在途请求，因此最多保留一个在途自动请求和一个最新待处理候选；它不会中断旧审查或发布。快照解析仍核对目标 PR 当前状态与 SHA，过时任务不会进入 Agent。
+
+执行层每个 group 最多 100 个 pending，超出后 GitHub 取消新增任务。FIFO 按开始等待该并发组的时间计算，而不是 webhook 发出时间；不承诺事件的绝对顺序。该上限不表示入口会保留全部自动请求。
+
+这使用 GitHub 的[并发控制](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)，无需由 Worker 列举、取消运行或维护另一份队列。显式请求的答复义务、只读 Agent token、独立发布 runner 与 token 均保持原边界。合并后的线上验收应覆盖连续 push、夹杂显式 @、旧轮正在发布和失败重试；本地结构测试不能替代 GitHub 的实际调度验收。

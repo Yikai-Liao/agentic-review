@@ -406,7 +406,7 @@ test('footer preserves action metadata', () => {
 
 test('production workflow shares the thinking level between Pi and the published footer', async () => {
   type Job = { env?: Record<string, string>; steps: Array<{ id?: string; env?: Record<string, string>; with?: Record<string, unknown> }> };
-  const workflow = parse(await readFile(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8')) as {
+  const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8')) as {
     env: Record<string, string>; jobs: { review: Job; publish: Job };
   };
   const agent = workflow.jobs.review.steps.find(step => step.id === 'pi-review')!;
