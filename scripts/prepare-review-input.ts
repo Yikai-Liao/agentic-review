@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readDiscussion } from './refresh-review-discussion.ts';
 import { prepareReviewWorkspace } from './prepare-review-workspace.ts';
+import { writeReviewInput } from './write-review-input.ts';
 
 export function main(run = (command: string, args: string[]) =>
   execFileSync(command, args, { encoding: 'utf8', maxBuffer: Infinity })) {
@@ -35,6 +36,17 @@ export function main(run = (command: string, args: string[]) =>
     workspace, context,
     previousPath: env.REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH || env.REVIEW_PREVIOUS_WORKSPACE_PATH,
     threadPath: context.request.source === 'thread' && typeof thread?.path === 'string' ? thread.path : undefined,
+    readChanges: (previousHead, currentHead) => {
+      try {
+        run('git', ['-C', target, 'rev-parse', '--verify', '--quiet', `${previousHead}^{commit}`]);
+      } catch (error) {
+        // force-push 可移除历史 head；摘要不可得不改变完整 PR 的审查义务。
+        if ((error as { status?: number }).status === 1) return null;
+        throw error;
+      }
+      return run('git', ['-C', target, '--no-pager', 'diff', '--no-ext-diff', '--no-textconv',
+        '--no-renames', '--name-only', '-z', previousHead, currentHead, '--']).split('\0').filter(Boolean);
+    },
   }), null, 2));
   for (const filename of ['.agentic-review.md', 'AGENTS.md']) {
     for (const [label, directory] of [['Base', base], ['Head', target]]) {
@@ -42,7 +54,7 @@ export function main(run = (command: string, args: string[]) =>
       if (existsSync(source)) section(`${label} ${filename}`, readFileSync(source, 'utf8'));
     }
   }
-  writeFileSync(required('REVIEW_INPUT_PATH'), `${sections.join('\n\n')}\n`);
+  writeReviewInput(required('REVIEW_INPUT_PATH'), `${sections.join('\n\n')}\n`);
   writeFileSync(path.join(workspace, 'discussion-baseline.json'), JSON.stringify(baseline), { mode: 0o600 });
 }
 

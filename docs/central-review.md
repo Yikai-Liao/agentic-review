@@ -70,6 +70,16 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 
 `central/review-rules.md` 是 workflow 的唯一入口；可信 `agentic-review` 注册为 Pi Skill。首次 Prompt 附加 `SKILL.md`、共享 `references/{protocol,findings,review-state,evidence-access}.md` 和 `central/{github-context,review-result}.md`，不预载固定层级。读取本轮请求和项目规则后，完整加载所选层级及其触发的视角，选择及来源保存到 `notes.md`；compaction 后恢复共同规则和已选层级。正文及 inline 模板由中央结果适配器提供，非代码层使用通用结论性质，不套用 P/T。PR 元数据、评论和项目规则在 Agent 启动前拼接到 `$REVIEW_INPUT_PATH`，diff 不进入该文件或首次 Prompt。随 PR 增长的 patch 通过 Git 按需读取，大文件分页，已完成证据和覆盖进度写入工作稿。`central/github-context.md` 定义固定 SHA 的 diff 读取方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义中央工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
+## 工作稿准备与增量恢复清单
+
+准备阶段为首次审查创建 `notes.md`，写入固定请求身份、版本、可信规则恢复入口和文件进度路径；原始请求与默认计划通过 `$REVIEW_CONTEXT_PATH` 引用，避免复制长请求；初始化索引由固定事实 JSON 块和空调查区组成；模板说明使用引用块，与审查记录分开。Agent 继续核定层级、调查并保存证据，不从初始化文件获得任何“已完成”或无问题结论。存在历史索引时仍保留原文。
+
+恢复清单把待核定的完成状态与已知代码变化分开表示：`pending_files` 和 batch 的 `pending_file_count` 是仍需核定的进度；`changed_paths` 是上一工作稿 head 到当前固定 head 的路径差分，batch 的 `directly_changed_files` 只列这些路径与原覆盖文件的交集。它不推断调用方、契约或讨论的间接影响，空数组不能证明可以继承。`same_base` 显式提示基线是否改变；缺少历史或未计算差分使用 `null`，与已确认空增量区分。
+
+路径通过本地 Git 的 NUL 分隔输出读取，重命名保留两端，撤销变化和含换行的文件名也进入清单。force-push 后历史 head 不在本地时，摘要保持 `null`，完整 PR 的审查义务不变；其他 Git 读取失败明确停止。新快照仍保留原有 pending 与完整覆盖校验，由 Agent 根据增量、最新讨论和旧证据前提判断继承或重开。这项准备工作不调整审查职责、Prompt、候选门槛或提交协议；真实历史读取量、写稿轮数和端到端收益仍需上线后测量。
+
+输入文件写出前先检查体积：不超过 32 KiB 且不超过 1000 行时直接展开；超出时原文另存为输入文件旁的私有临时文件，入口只给路径和体积。Agent 使用现有 `read` 或 `bash` 分段读取，长单行也按片段读取，不一次拼接或并行载入全文。准备阶段不预切页，不新增 Agent 工具，原文逐字节保留；首审笔记也不复制可能很长的请求原文。此处预算只控制入口直接展开的载荷，不是精确 token 计数，也不等于使用模型的整个上下文窗口。
+
 ## 历史问题默认展示本轮变化
 
 默认总评导航只列本轮新 finding 和 `thread_updates` 中实际变化的历史问题。本轮关闭的问题报告一次；已经关闭且未变化，或仍未解决但没有状态变化的历史问题，都不在后续总评逐条或按数量重报，核对结论继续留在工作稿。尚有未解决问题时仍使用 `❌` 标题，不把没有新问题写成全部已解决。
