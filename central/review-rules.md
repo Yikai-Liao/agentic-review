@@ -35,12 +35,24 @@
    也不把复杂度形状或微优化偏好当成问题证据。
 
 5. 测试有效性：变化涉及测试、parameter row、assertion、snapshot、fixture、mock
-   或 helper 时，按其对 actual/oracle/verdict 的作用调查错误是否被接受（T1）。
-   生产变化使既有测试的错误判定重新可达时也调查 T1。
-   使用 references/levels/code/test-contracts.md 的测试失真分支。
+   或 helper，或者生产变化使既有测试的错误判定重新可达时，按下方配置选择
+   references/levels/code/test-contracts.md 中的调查分支。
 
-默认测试审查仅执行 T1 失真分支；T2 过约束仅在本轮请求明确委托时调查。
-测试经济性（零边际检测、冗余比较及删除证明）不在本入口范围内。
+中央测试分支的执行范围以下列配置为准：`default` 默认调查，
+`explicit_request_only` 仅在本轮请求明确委托时调查，`excluded` 不参与中央审查。
+`T1` 是测试失真，`T2` 是测试过约束；`test_economics` 是测试经济性，
+包括零边际检测、冗余比较及删除证明。
+
+```json
+{
+  "test_review": {
+    "default": ["T1"],
+    "explicit_request_only": ["T2"],
+    "excluded": ["test_economics"]
+  }
+}
+```
+
 读取通用代码或测试方法时，仅执行本入口选定的分支。
 
 以上列出本入口选择的范围；具体分支、证明、反证、去重和 P/T 标签定义

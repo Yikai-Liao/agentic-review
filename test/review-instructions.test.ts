@@ -90,6 +90,9 @@ test('中央保留默认职责清单和层级入口', async () => {
   assert.match(prompt, /level = code/);
   const focuses = [...prompt.matchAll(/^\d\. ([^：]+)：/gm)].map(match => match[1]);
   assert.deepEqual(focuses, ['行为与意图对齐', '安全边界', '可靠性与恢复', '性能与资源成本', '测试有效性']);
+  const testReview = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)]
+    .map(match => JSON.parse(match[1])).find(config => config.test_review)?.test_review;
+  assert.deepEqual(testReview, { default: ['T1'], explicit_request_only: ['T2'], excluded: ['test_economics'] });
   assert.ok(prompt.includes('仅执行本入口选定的分支'));
   assert.ok(prompt.includes('不自动启动独立的需求、架构或计划审查'));
   assert.ok(prompt.includes('不默认追加可维护性/风格/架构偏好专项或验证充分性审计'));
