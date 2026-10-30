@@ -26,12 +26,13 @@ function assertAgentCredentials(workflow: any) {
   const agent = review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   assert.ok(agent);
   const environment = { ...workflow.env, ...review.env, ...agent.env };
+  const normalizeReference = (value: unknown) => String(value)
+    .replace(/\[['"]([^'"]+)['"]\]/g, '.$1').replace(/\s/g, '');
 
   function assertSafeSource(value: unknown, ancestors = new Set<string>()) {
     const expressions = String(value).match(/\$\{\{[\s\S]*?\}\}/g) ?? [];
     for (const expression of expressions) {
-      const normalized = expression.replace(/\[['"]([^'"]+)['"]\]/g, '.$1')
-        .replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, "''").replace(/\s/g, '');
+      const normalized = normalizeReference(expression).replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, "''");
       assert.doesNotMatch(normalized, /(?<![\w.])secrets\b/i, 'unapproved Agent secret source');
       const outputReference = /(?<![\w.])steps\.([\w-]+)\.outputs\.[\w-]+/gi;
       // 整体或动态步骤上下文可能包含写令牌；只接受可追踪的输出和无凭据的状态字段。
@@ -44,9 +45,9 @@ function assertAgentCredentials(workflow: any) {
         const producer = review.steps.find((step: { id?: string }) => step.id === id);
         assert.ok(producer, 'unknown Agent output source');
         if (producer.uses?.startsWith('actions/create-github-app-token@')) {
-          assert.equal(producer.with.owner, '${{ steps.target.outputs.owner }}', 'Agent token must remain in the target owner');
-          assert.equal(producer.with['client-id'], '${{ vars.AGENTIC_REVIEW_CLIENT_ID }}', 'Agent token must use the Review App');
-          assert.equal(producer.with['private-key'], '${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}', 'Agent token must use the Review App');
+          assert.equal(normalizeReference(producer.with.owner), '${{steps.target.outputs.owner}}', 'Agent token must remain in the target owner');
+          assert.equal(normalizeReference(producer.with['client-id']), '${{vars.AGENTIC_REVIEW_CLIENT_ID}}', 'Agent token must use the Review App');
+          assert.equal(normalizeReference(producer.with['private-key']), '${{secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY}}', 'Agent token must use the Review App');
           const permissions = Object.entries(producer.with).filter(([key]) => key.startsWith('permission-'));
           assert.ok(permissions.length > 0, 'Agent token permissions must be explicit');
           assert.ok(permissions.every(([, permission]) => permission === 'read'), 'Agent token must be read-only');
@@ -71,8 +72,8 @@ function assertAgentCredentials(workflow: any) {
       }
     }
   }
-  assert.equal(environment.GH_TOKEN, '${{ steps.read-token.outputs.token }}');
-  assert.equal(agent.with.github_token, '${{ steps.read-token.outputs.token }}');
+  assert.equal(normalizeReference(environment.GH_TOKEN), '${{steps.read-token.outputs.token}}');
+  assert.equal(normalizeReference(agent.with.github_token), '${{steps.read-token.outputs.token}}');
 }
 
 test('central Review starts without Lark tools, credentials or a rotation dependency', () => {
@@ -165,6 +166,15 @@ test('read-only Agent tokens stay within the target owner and Review App install
   narrowed.jobs.review.steps.find((step: { id?: string }) => step.id === 'read-token')
     .with.repositories = '${{ steps.target.outputs.name }}';
   assert.doesNotThrow(() => assertAgentCredentials(narrowed));
+  const indexed = structuredClone(narrowed);
+  const indexedToken = indexed.jobs.review.steps.find((step: { id?: string }) => step.id === 'read-token');
+  indexedToken.with.owner = "${{ steps['target'].outputs['owner'] }}";
+  indexedToken.with['client-id'] = "${{ vars['AGENTIC_REVIEW_CLIENT_ID'] }}";
+  indexedToken.with['private-key'] = "${{ secrets['AGENTIC_REVIEW_APP_PRIVATE_KEY'] }}";
+  const indexedAgent = indexed.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+  indexedAgent.env.GH_TOKEN = "${{ steps['read-token'].outputs['token'] }}";
+  indexedAgent.with.github_token = "${{ steps['read-token'].outputs['token'] }}";
+  assert.doesNotThrow(() => assertAgentCredentials(indexed));
 });
 
 test('Review workflow token remains read-only after workflow and job permission changes', () => {
