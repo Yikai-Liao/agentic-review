@@ -68,19 +68,21 @@ App repository permissions 至少为：
 
 ## 4. 飞书用户 OAuth 与自动续期
 
+当前中央 Review 暂停飞书取证与判断：Review job 不安装 Lark CLI、不读取 `lark-review` Environment、不注入飞书凭据，也不等待 token 验证。授权、每小时 token 续期和以下接入说明保留，便于以后恢复；下游飞书链接当前只作来源标识，不触发查询或因未读取而新增告警。
+
 首次接入、不清楚 `.env` 后如何关联个人文档，或需要更换 App/用户时，先按[飞书 App 与授权用户操作手册](lark-operations.md)执行。本文集中说明生产配置和续期机制。
 
 ### 登录状态保存在哪里
 
-Actions runner 每轮都是新机器。持久化的是 OAuth token，CLI 每轮通过环境变量使用 UAT；不缓存 CLI 登录目录，不在 Review 中执行 `auth login`。一个授权企业用户身份对应一条续期链路：
+Actions runner 每轮都是新机器。持久化的是 OAuth token；恢复读取后，CLI 每轮通过环境变量使用 UAT；不缓存 CLI 登录目录，不在 Review 中执行 `auth login`。一个授权企业用户身份对应一条续期链路：
 
 ```text
 你在浏览器授权飞书应用（所需只读 scope + offline_access）
   → 可信续期 job 得到 UAT 和 refresh token
   → lark-rotation Environment 保存 refresh token
   → lark-review Environment 保存 UAT
-  → Review job 启动时读取 UAT，注入 LARKSUITE_CLI_USER_ACCESS_TOKEN
-  → 官方 lark-cli --as user 读取指定资料
+  → 当前保留并续期 UAT；中央 Review 暂不消费
+  → 恢复读取后：Review job 注入 UAT，官方 lark-cli --as user 读取资料
 ```
 
 定时任务独占 refresh token 并先保存下一代 refresh token，再发布 UAT。App Secret 和写 Environment Secret 的 GitHub token 只在续期 job 中使用，Review 的 `GH_TOKEN` 仍然只读。
@@ -117,7 +119,7 @@ gh secret set AGENTIC_REVIEW_LARK_ROTATOR_PRIVATE_KEY --repo Qiyin-Tech/agentic-
 | Environment | Secret | 使用者 |
 |---|---|---|
 | `lark-rotation` | `AGENTIC_REVIEW_LARK_REFRESH_TOKEN` | 串行续期 job |
-| `lark-review` | `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN` | Review job |
+| `lark-review` | `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN` | 保留供恢复读取后的 Review job 使用 |
 
 [GitHub 在 workflow 排队时读取 Repository Secret，在 job 启动时读取 Environment Secret](https://docs.github.com/en/actions/reference/security/secrets#when-github-actions-reads-secrets)。因此动态 token 必须使用上述 Environment Secret，续期锁设在 job 层，避免排队任务拿到已消费的旧 refresh token，也避免排队的 Review 固定旧 UAT。不要另存同名 Repository Secret。
 
@@ -137,7 +139,7 @@ gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
 - `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN`；
 - `AGENTIC_REVIEW_LARK_REFRESH_TOKEN`。
 
-授权时选择需要用于读取的企业身份；成功后确认 workflow 为成功状态、两个 Environment 中都已创建 token secret。首次授权前启动 Review 会明确因缺少凭证失败。
+授权时选择需要用于读取的企业身份；成功后确认 workflow 为成功状态、两个 Environment 中都已创建 token secret。当前 Review 不消费飞书凭据，首次授权前也可正常审查；恢复读取时须重新验证身份与工具准备。
 
 之后 workflow 每小时串行刷新一次。OAuth 请求只消费一次 refresh token；Secret 写入才对同一值最多重试五次，不重新兑换 token。定时调度不保证准点执行，token 的有效期以 OAuth 响应和运行日志为准；这是一条自动续期链路，不是永不过期的登录。
 
@@ -150,13 +152,13 @@ gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
 
 授权撤销、refresh token 失效、或新 refresh token 在保存成功前因写入失败/runner 终止而丢失时，重新发送 `authorize-lark-user` 并确认授权。Secret 重试不能保证跨飞书和 GitHub 的事务原子性；新 refresh token 丢失后无法由旧值恢复。不要复制旧 token 或把失败改成成功，也不要并行在本地消费这条续期链路。
 
-### 验证主企业与三个子企业
+### 恢复读取时验证主企业与三个子企业
 
 可读范围是**应用已开通的用户 scope ∩ 用户已同意的 scope ∩ 当前企业用户身份的文档/表格权限**。用户 OAuth 不要求逐篇“添加文档应用”；文档所有者需要把资料共享给授权的那个用户身份。
 
 同一手机号切换企业不代表同一个 OAuth 身份，不能保证一个 UAT 覆盖主企业和三个子企业。分别选择代表性 Docx、Wiki 和 Base，先在授权时选择的企业身份下确认共享，再实际通过 API 读取；跨租户共享策略和接口支持仍可能限制访问。需要切换身份才能看到的资料，须先解决共享或另行设计多身份接入，本 PR 不承诺跨企业自动通读。
 
-Review job 的 `Verify Lark user token` 通过 `lark-cli api GET /open-apis/authen/v1/user_info --as user` 验证当前 UAT，并校验成功响应。它只证明登录有效，不证明文档权限；外部 token 模式下 CLI 禁用 `auth` 管理命令，不能用 `auth check` 或 `auth status` 验收。
+恢复读取时，需要在 Agent 启动前准备并校验固定版本的官方 Lark CLI，再通过 `lark-cli api GET /open-apis/authen/v1/user_info --as user` 验证当前 UAT，并校验成功响应。它只证明登录有效，不证明文档权限；外部 token 模式下 CLI 禁用 `auth` 管理命令，不能用 `auth check` 或 `auth status` 验收。
 
 用需要读取测试链接的 PR 验收：工作稿应包含 `docs +fetch` 的相关正文、Wiki 解析后的读取结果，以及 Base 的表、字段和目标记录原值。登录检查成功或 Review 总体成功都不能替代这些实际读取证据。权限错误按层处理：缺 scope 时在应用后台开通、发布并重新用户授权；文档 ACL 不足时向授权身份共享；Base 记录缺失时检查该用户角色的行列权限。
 
@@ -164,7 +166,7 @@ Review job 的 `Verify Lark user token` 通过 `lark-cli api GET /open-apis/auth
 
 ### 下游规则
 
-飞书读取遵循 `central/lark-context.md`，无需预先合并来源白名单。下游可在 `.agentic-review.md` 补充长期适用的链接、业务触发条件和表格状态语义，例如：
+以下规则供恢复读取后使用，当前中央入口的暂停范围优先。飞书读取遵循 `central/lark-context.md`，无需预先合并来源白名单。下游可在 `.agentic-review.md` 补充长期适用的链接、业务触发条件和表格状态语义，例如：
 
 ```markdown
 ## 飞书 Known issues
