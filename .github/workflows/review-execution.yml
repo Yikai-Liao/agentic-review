@@ -467,7 +467,7 @@ jobs:
           # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.previous-review-workspace.outputs.path }}
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.previous-request-workspace.outputs.path }}
-          # Agent 只在隔离工作区写草稿；自定义工具将最终 JSON 封存到固定结果路径。
+          # Agent 只在隔离工作区写草稿；自定义工具接收结果对象，自动保存工作稿副本并封存到固定结果路径。
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
         with:

@@ -1,7 +1,7 @@
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { parseReviewResult } from '../../scripts/review-result.ts';
+import { parseReviewResult, type ReviewResult } from '../../scripts/review-result.ts';
 import { readReviewProgress, validateCoverageCompletion } from '../../scripts/review-coverage.ts';
 import { persistReviewProgress, validateReviewScope, type ReviewScopeDecision } from '../../scripts/review-request.ts';
 
@@ -66,20 +66,47 @@ export default function reviewTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: 'submit_review',
     label: '提交 Review',
-    description: '校验并封存私有 Review 工作区内的最终 JSON；校验失败时按中央协议修正后重试，成功后交给可信发布器。',
+    description: '直接接收审查结果，校验后保存工作稿副本并封存，交给可信发布器。失败时按具体错误修正参数后重试；queued: true 即本轮完成。',
     parameters: {
       type: 'object',
       properties: {
-        path: {
-          type: 'string',
-          minLength: 1,
-          description: 'REVIEW_WORKSPACE_PATH 内最终 JSON 文件的路径。',
+        body: { type: 'string', minLength: 1, description: '按中央正文模板生成的完整 Markdown 总评。' },
+        comments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', minLength: 1 },
+              line: { type: 'integer', minimum: 1 },
+              start_line: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
+              body: { type: 'string', minLength: 1 },
+            },
+            required: ['path', 'line', 'start_line', 'body'],
+            additionalProperties: false,
+          },
         },
+        thread_updates: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              root_comment_id: { type: 'integer', minimum: 1 },
+              status: { type: 'string', enum: ['resolved', 'severity_increased', 'reintroduced'] },
+              evidence: { type: 'string', minLength: 10 },
+            },
+            required: ['root_comment_id', 'status', 'evidence'],
+            additionalProperties: false,
+          },
+        },
+        request_reply: { anyOf: [
+          { type: 'object', properties: { body: { type: 'string', minLength: 1 } }, required: ['body'], additionalProperties: false },
+          { type: 'null' },
+        ] },
       },
-      required: ['path'],
+      required: ['body', 'comments', 'thread_updates', 'request_reply'],
       additionalProperties: false,
     } as any,
-    async execute(_toolCallId, { path: inputPath }: { path: string }) {
+    async execute(_toolCallId, input: ReviewResult) {
       try {
         if (submitted) throw new Error('the review was already submitted');
 
@@ -89,16 +116,7 @@ export default function reviewTools(pi: ExtensionAPI) {
           throw new Error('Review paths are unavailable');
         }
 
-        const workspacePath = await realpath(workspace);
-        const reviewPath = await realpath(path.resolve(inputPath));
-        const relative = path.relative(workspacePath, reviewPath);
-        if (relative.startsWith('..') || path.isAbsolute(relative)) {
-          throw new Error('Review file must be inside REVIEW_WORKSPACE_PATH');
-        }
-
-        const info = await stat(reviewPath);
-        if (!info.isFile() || info.size > 1_000_000) throw new Error('Review file must be a regular file no larger than 1 MB');
-        const content = await readFile(reviewPath, 'utf8');
+        const content = `${JSON.stringify(input)}\n`;
         const parsed = parseReviewResult(content);
         const progressPath = process.env.REVIEW_PROGRESS_PATH;
         const contextPath = process.env.REVIEW_CONTEXT_PATH;
@@ -107,12 +125,13 @@ export default function reviewTools(pi: ExtensionAPI) {
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
         await validateCoverageCompletion(coverage, process.env.REVIEW_INVENTORY_DIGEST ?? '');
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
+        await writeFile(path.join(workspace, 'review-result.json'), content, { encoding: 'utf8', mode: 0o600 });
         await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
         submitted = true;
 
         return {
           content: [{ type: 'text', text: 'Review queued for trusted publication.' }],
-          details: { queued: true, source: reviewPath },
+          details: { queued: true },
         };
       } catch (error) {
         // JSON 语法错误可能携带输入片段；反馈结构错误，不回显文件内容。

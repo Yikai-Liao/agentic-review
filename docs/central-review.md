@@ -15,7 +15,7 @@ Review App `pull_request`、`issue_comment` 和 `pull_request_review_comment` we
   -> review-execution.yml（同 PR 审查与发布串行）
   -> shaftoe/pi-coding-agent-action（只读分析）
   -> 可信 agentic-review Skill + 中央 GitHub/结果适配器 + 持久化工作稿
-  -> submit_review 封存最终 JSON 文件
+  -> submit_review 接收结果对象，保存并封存最终 JSON
   -> 隔离的可信 publisher 创建 Review、更新 thread 并链接工作稿 artifact
 ```
 
@@ -49,7 +49,7 @@ Review App private key（只在中央 Actions secret）
        -> 隔离的可信 publish job：Review、完成 Check、thread 回复和 resolve/reopen
 ```
 
-Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 的可读集合固定为目标 owner 中安装了 Review App 的仓库，并且只授予读权限；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取，这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Token B 只供 Agent 启动前的可信 workflow step 使用；单个 installation token 不能读取其他 owner 的私有仓库。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`submit_review` 检查 JSON 语法并封存该工作区内的最终结果。
+Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 的可读集合固定为目标 owner 中安装了 Review App 的仓库，并且只授予读权限；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 关联索引或审查输入中的明确稳定 Issue/PR 引用可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取，这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Token B 只供 Agent 启动前的可信 workflow step 使用；单个 installation token 不能读取其他 owner 的私有仓库。Agent 同时读取 merge base 和 PR head，按 head 理解预期合并后的语义。`loaded_tools` 不加载任何内置 GitHub 写工具；`write`/`edit` 只用于隔离 Review 工作区，`submit_review` 校验结果对象，自动保存工作稿副本并封存最终结果。
 
 Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给不执行候选代码的隔离 publish job。
 
@@ -62,9 +62,9 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 中央 workflow 只加载：
 
 - Pi 内置工具：`read`、`grep`、`find`、`ls`、`bash`，以及规则限定在 `$REVIEW_WORKSPACE_PATH` 使用的 `write`、`edit`；
-- 本地提交工具：`submit_review`，只接收工作区内最终 JSON 文件路径。
+- 本地提交工具：`submit_review`，直接接收正文、新 finding、历史 thread 更新和请求答复组成的结果对象；工具负责序列化、校验和持久化，Agent 不再先写文件、回读验格式。
 
-最终归纳前，Agent 按中央规则执行控制面 `scripts/refresh-review-discussion.ts`，读取相对启动快照新增或编辑的评论和变化的 thread 状态，并在工作稿记录刷新时点及改变的判断。脚本使用只读 `gh`，普通评论和 inline 回复按 `since` 拉取，Review 正文及 thread 状态完整查询后仅输出变化；重复刷新始终对照固定启动基线，失败直接报错。删除评论不在增量协议内，有线索时按 ID 补查。这里有意采用 Skill 流程约束，不设置刷新工具或封存门禁；封存工具只校验结果文件，不证明 Agent 执行了刷新或采纳了最新决定，刷新至发布之间也仍可能有新回复。此取舍不改变只读 Agent / 独立可信 publisher 的权限边界。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码；封装前恢复控制面格式，成功封存后立即结束 Agent 回合。
+最终归纳前，Agent 按中央规则执行控制面 `scripts/refresh-review-discussion.ts`，读取相对启动快照新增或编辑的评论和变化的 thread 状态，刷新时点保留在脚本输出中；有新判断时补入工作稿，已有记录充分时直接生成提交参数。脚本使用只读 `gh`，普通评论和 inline 回复按 `since` 拉取，Review 正文及 thread 状态完整查询后仅输出变化；重复刷新始终对照固定启动基线，失败直接报错。删除评论不在增量协议内，有线索时按 ID 补查。这里有意采用 Skill 流程约束，不设置刷新工具或封存门禁；封存工具只校验结果对象和覆盖状态，不证明 Agent 执行了刷新或采纳了最新决定，刷新至发布之间也仍可能有新回复。此取舍不改变只读 Agent / 独立可信 publisher 的权限边界。运行协议来自控制面，目标 PR 中的新协议仅作为待审查代码；封装前恢复控制面格式，成功封存后立即结束 Agent 回合。
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
