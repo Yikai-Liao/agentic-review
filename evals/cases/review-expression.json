@@ -8,8 +8,8 @@
   {
     "id": "B",
     "kind": "summary",
-    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\nPR 摘要：导出订单时增加自动重试，并减少重复通知。\n\n审查事实：\n\n- 完整 PR 静态审查完成，未运行测试。\n- 新 finding P1：服务端已成功创建导出任务，但客户端等待响应超时后会自动重试。重试未复用原请求的去重标识，会创建第二个导出任务并再次扣减导出配额。已确认该触发路径及重复扣减，未证明数据损坏。定位 src/export/retry.ts:42，导航入口 https://github.com/example/orders/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/src/export/retry.ts#L42 。\n- 新 finding P2：批量导出含无权限订单时，返回所有订单均导出失败，但有权限的订单实际上已成功导出；用户看到的结果不正确。定位 src/export/result.ts:70，导航入口 https://github.com/example/orders/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/src/export/result.ts#L70 。\n- 历史问题“重复完成通知”仅部分修复：正常完成时只发送一次，失败后恢复成功仍发送两次。没有严重度升级，原问题仍未解决。原入口 https://github.com/example/orders/pull/8#discussion_r90 。\n- 未新增人工确认项。详细证明与修复建议会作为独立 finding 发布；历史问题保留原 thread。",
-    "expected": "P1/P2 导航完整，优先重复任务与配额问题；保留历史部分修复剩余触发；不得声称数据损坏。"
+    "input": "来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\nPR 摘要：导出订单时增加自动重试，并减少重复通知。\n\n审查事实：\n\n- 完整 PR 静态审查完成，未运行测试。\n- 新 finding P1：服务端已成功创建导出任务，但客户端等待响应超时后会自动重试。重试未复用原请求的去重标识，会创建第二个导出任务并再次扣减导出配额。已确认该触发路径及重复扣减，未证明数据损坏。定位 src/export/retry.ts:42，导航入口 https://github.com/example/orders/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/src/export/retry.ts#L42 。\n- 新 finding P2：批量导出含无权限订单时，返回所有订单均导出失败，但有权限的订单实际上已成功导出；用户看到的结果不正确。定位 src/export/result.ts:70，导航入口 https://github.com/example/orders/blob/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/src/export/result.ts#L70 。\n- 历史问题“重复完成通知”仅部分修复：正常完成时只发送一次，失败后恢复成功仍发送两次。没有严重度升级，原问题仍未解决。原入口 https://github.com/example/orders/pull/8#discussion_r90 。\n- 未新增人工确认项。详细证明与修复建议会作为独立 finding 发布；历史问题保留原 thread。\n\n本轮 thread_updates=[]，历史问题状态未变化，没有显式 thread 请求。",
+    "expected": "P1/P2 导航完整，优先重复任务与配额问题；历史部分修复仍在工作稿核对，正文不重复该未变化项；不得声称数据损坏或全部问题已解决。"
   },
   {
     "id": "C",
@@ -56,8 +56,8 @@
   {
     "id": "F",
     "kind": "summary",
-    "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\nPR 简介：订单导出新增大批量排队提示，并修正失败后的配额退还。\n\n固定事实：完整 PR 静态审查，未执行测试。配额扣减与退还现在关联同一导出任务，失败重试只退还一次；没有发现新问题。\n\n历史记录 1，https://github.com/example/orders/pull/12#discussion_r201 ：“失败重试重复退还配额”，本轮核对修复仍成立，已修复，状态 resolved。原触发是失败回调被重试两次，之前会退还两次；当前相同任务只退还一次。\n\n历史记录 2，https://github.com/example/orders/pull/12#discussion_r202 ：“大批量导出需等待排队”，维护者在最新回复明确接受“超过 1 万条订单的导出进入队列”，当前提示与实现均在这个范围内；状态 resolved，关闭原因是接受等待边界，不是消除排队。1 万条及以下不适用这项决定。无其他待处理问题，没有线上验证结果。",
-    "expected": "无新问题；两条历史导航分别说明修复重复退还与接受排队，保留超过1万条的接受范围；不把接受写成已修复。"
+    "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\nPR 简介：订单导出新增大批量排队提示，并修正失败后的配额退还。\n\n固定事实：完整 PR 静态审查，未执行测试。配额扣减与退还现在关联同一导出任务，失败重试只退还一次；没有发现新问题。\n\n历史记录 1，https://github.com/example/orders/pull/12#discussion_r201 ：“失败重试重复退还配额”，本轮核对修复仍成立，已修复，状态 resolved。原触发是失败回调被重试两次，之前会退还两次；当前相同任务只退还一次。\n\n历史记录 2，https://github.com/example/orders/pull/12#discussion_r202 ：“大批量导出需等待排队”，维护者在最新回复明确接受“超过 1 万条订单的导出进入队列”，当前提示与实现均在这个范围内；状态 resolved，关闭原因是接受等待边界，不是消除排队。1 万条及以下不适用这项决定。无其他待处理问题，没有线上验证结果。\n\n两条历史问题均在本轮首次由 unresolved 变为 resolved，本轮 thread_updates 包含这两项关闭；没有其他历史状态变化。",
+    "expected": "无新问题；本轮首次关闭的两条历史导航分别说明修复重复退还与接受排队，保留超过1万条的接受范围；不把接受写成已修复。"
   },
   {
     "id": "T5",
