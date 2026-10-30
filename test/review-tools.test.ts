@@ -101,12 +101,10 @@ async function configureProgress(directory: string, source: 'automatic' | 'pr_co
   process.env.REVIEW_PROGRESS_PATH = path.join(directory, 'workspace', 'review-progress.json');
   process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
   await writeFile(process.env.REVIEW_CONTEXT_PATH, JSON.stringify({ request }));
-  await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'complete', batches: ['auth'] }], scope: {
+  await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'complete' }], scope: {
     mode: 'full', rationale: '完整审查', explicit_text: '',
     ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }],
   } }));
-  await mkdir(path.join(directory, 'workspace/batches'));
-  await writeFile(path.join(directory, 'workspace/batches/auth.md'), '鉴权 finding 和历史问题更新的调查依据。');
 }
 
 test('submit_review seals one JSON file from the review workspace', async () => {
@@ -134,7 +132,7 @@ test('submit_review seals one JSON file from the review workspace', async () => 
   }
 });
 
-test('scope and submission need only model decisions, not machine identity or duplicated batch lists', async () => {
+test('范围与提交只需要模型判断和文件进度，不搬运请求身份', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-scope-'));
   const originalEnv = { ...process.env };
   try {
@@ -143,7 +141,7 @@ test('scope and submission need only model decisions, not machine identity or du
     await configureProgress(directory, 'pr_comment');
     const progressPath = process.env.REVIEW_PROGRESS_PATH!;
     const originalContext = await readFile(process.env.REVIEW_CONTEXT_PATH!, 'utf8');
-    await writeFile(progressPath, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending', batches: [] }] }));
+    await writeFile(progressPath, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending' }] }));
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     const tools = new Map<string, any>();
@@ -159,16 +157,12 @@ test('scope and submission need only model decisions, not machine identity or du
     const saved = JSON.parse(await readFile(progressPath, 'utf8'));
     assert.deepEqual(Object.keys(saved).sort(), ['ledger', 'scope']);
     assert.deepEqual(Object.keys(saved.scope).sort(), ['explicit_text', 'mode', 'ranges', 'rationale']);
-    assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending', batches: [] }]);
+    assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending' }]);
     process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
     await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
     await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
-    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete', batches: [] };
+    saved.ledger[0] = { path: 'src/auth.ts', status: 'complete' };
     await writeFile(progressPath, JSON.stringify(saved));
-    await writeFile(resultPath, JSON.stringify({ ...summary, comments: result.comments }));
-    await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /Missing finding batch evidence/);
-    await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
-    await writeFile(resultPath, JSON.stringify(summary));
     await tools.get('submit_review').execute('call', { path: resultPath });
     assert.deepEqual(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')), summary);
     assert.equal(await readFile(process.env.REVIEW_CONTEXT_PATH!, 'utf8'), originalContext);

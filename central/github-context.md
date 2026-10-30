@@ -10,7 +10,7 @@
 - `pr_comment`：按 `default_plan.ranges` 中每个区间及其 targets 调查；重开上次范围时重新取证。该集合已包含失败轮次的未完成范围和本轮新增变化，分别读取各区间 patch，不能用首尾净 diff 抵消中间变化。
 - `thread`：读取根评论、完整 thread、当前位置及 outdated/resolved 状态，默认复核当前问题和直接影响；原文要求全 PR 时扩大，不继承 PR 级请求范围。
 
-准备阶段按最近 PR 级请求恢复实际范围；完整 audit checkpoint 提供增量比较基线。输入中的恢复清单已指出选用的证据来源并将索引、batch 和进度迁移到本轮工作区，优先使用本轮副本。`$REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH` 与 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 分别保留两类只读原件，缺少必要历史信息时按需补读。按 [结果协议](review-result.md) 核定本轮 scope 和覆盖状态。
+准备阶段按最近 PR 级请求恢复实际范围；完整 audit checkpoint 提供增量比较基线。输入中的恢复清单已指出选用的证据来源并将工作稿、结果参考和文件进度迁移到本轮工作区，优先使用本轮副本。`$REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH` 与 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 分别保留两类只读原件，缺少必要历史信息时按需补读。按 [结果协议](review-result.md) 核定本轮 scope 和覆盖状态。
 
 ## 1. 读取项目规则
 
@@ -52,7 +52,7 @@ git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
   --find-renames --find-copies --numstat "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
 ```
 
-小 diff 能在工具输出和剩余上下文内完整容纳时，直接一次读取 full patch，用一个 batch 完成审查，无须拆分调用。规模还需考虑长行和上下文展开，不能仅以变更行数判断。大 diff 按当前 batch 的路径读取，例如：
+小 diff 能在工具输出和剩余上下文内完整容纳时，直接一次读取 full patch 并完成调查，无须拆分调用或创建额外记录。规模还需考虑长行和上下文展开，不能仅以变更行数判断。大 diff 按相关路径读取，例如：
 
 ```bash
 git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff --no-textconv \

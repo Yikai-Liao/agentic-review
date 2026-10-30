@@ -55,7 +55,7 @@ export default function reviewTools(pi: ExtensionAPI) {
       validateReviewScope(scope, coverage.request);
       if (scope.mode !== coverage.scope?.mode || !isDeepStrictEqual(scope.ranges, coverage.scope?.ranges)) {
         for (const entry of coverage.ledger) {
-          if (entry.status === 'out_of_scope') { entry.status = 'pending'; entry.batches = []; }
+          if (entry.status === 'out_of_scope') entry.status = 'pending';
         }
       }
       await persistReviewProgress(progressPath, { scope: input, ledger: coverage.ledger });
@@ -105,7 +105,7 @@ export default function reviewTools(pi: ExtensionAPI) {
         if (!contextPath || !progressPath) throw new Error('Review context or progress path is unavailable');
         const coverage = await readReviewProgress(contextPath, progressPath);
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
-        await validateCoverageCompletion(coverage, workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '', parsed);
+        await validateCoverageCompletion(coverage, process.env.REVIEW_INVENTORY_DIGEST ?? '');
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
         await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
         submitted = true;
