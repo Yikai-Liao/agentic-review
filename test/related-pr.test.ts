@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { main } from '../scripts/read-related-pr.ts';
 
-test('关联 PR 完整保留跨页行内确认及其问题和 thread 状态', () => {
-  const run = (command: string, args: string[]) => {
+test('关联 PR 完整保留跨页行内确认及其问题和 thread 状态', async () => {
+  const run = async (command: string, args: string[]) => {
     assert.equal(command, 'gh');
     if (args.includes('view')) return JSON.stringify({ number: 379, title: '按节点状态控制操作', state: 'MERGED' });
     assert.ok(args.includes('--paginate'));
@@ -22,7 +22,7 @@ test('关联 PR 完整保留跨页行内确认及其问题和 thread 状态', ()
     ]);
     return JSON.stringify([[{ id: 3, body: route.includes('/reviews?') ? '历史总评' : '普通评论' }]]);
   };
-  const result = JSON.parse(main('owner/repo', '379', run));
+  const result = JSON.parse(await main('owner/repo', '379', run));
   assert.equal(result.repository, 'owner/repo');
   assert.equal(result.number, 379);
   assert.equal(result.metadata.state, 'MERGED');
@@ -36,9 +36,9 @@ test('关联 PR 完整保留跨页行内确认及其问题和 thread 状态', ()
   assert.equal(result.threads[0].isOutdated, true);
 });
 
-test('关联 PR 查询失败或目标无效时不能返回空讨论', () => {
-  const unavailable = () => { throw new Error('HTTP 403'); };
-  assert.throws(() => main('owner/repo', '379', unavailable), /HTTP 403/);
-  assert.throws(() => main('owner/repo', 'invalid', unavailable), /Invalid PR target/);
-  assert.throws(() => main('owner/repo/extra', '379', unavailable), /Invalid PR target/);
+test('关联 PR 查询失败或目标无效时不能返回空讨论', async () => {
+  const unavailable = async () => { throw new Error('HTTP 403'); };
+  await assert.rejects(main('owner/repo', '379', unavailable), /HTTP 403/);
+  await assert.rejects(main('owner/repo', 'invalid', unavailable), /Invalid PR target/);
+  await assert.rejects(main('owner/repo/extra', '379', unavailable), /Invalid PR target/);
 });

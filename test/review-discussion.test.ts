@@ -17,7 +17,7 @@ function fixture({ issue = [[comment(1)]], inline = [[comment(2)]], reviews = [[
     issue?: unknown; inline?: unknown; reviews?: unknown; threads?: unknown;
   } = {}) {
   const calls: string[][] = [];
-  return { calls, run: (command: string, args: string[]) => {
+  return { calls, run: async (command: string, args: string[]) => {
     assert.equal(command, 'gh');
     assert.ok(args.includes('--paginate'));
     assert.ok(args.includes('--slurp'));
@@ -28,9 +28,9 @@ function fixture({ issue = [[comment(1)]], inline = [[comment(2)]], reviews = [[
   } };
 }
 
-test('startup snapshot and fixed-baseline delta include all comment kinds and thread-only changes', () => {
-  const initial = readDiscussion('owner/repo', '61', fixture().run);
-  const unchanged = readDiscussion('owner/repo', '61', fixture().run, initial.baseline);
+test('startup snapshot and fixed-baseline delta include all comment kinds and thread-only changes', async () => {
+  const initial = await readDiscussion('owner/repo', '61', fixture().run);
+  const unchanged = await readDiscussion('owner/repo', '61', fixture().run, initial.baseline);
   assert.deepEqual(unchanged.discussion, { issue_comments: [], inline_comments: [], reviews: [], threads: [] });
   const changed = fixture({
     issue: [[comment(1, '编辑后的明确决定')], [comment(4, '新增决定')]],
@@ -40,7 +40,7 @@ test('startup snapshot and fixed-baseline delta include all comment kinds and th
     threads: [threadPage([thread(2, true)], true), threadPage([thread(7)])],
   });
   const before = JSON.stringify(initial.baseline);
-  const delta = readDiscussion('owner/repo', '61', changed.run, initial.baseline).discussion;
+  const delta = (await readDiscussion('owner/repo', '61', changed.run, initial.baseline)).discussion;
   assert.deepEqual(delta.issue_comments.map(x => x.id), [1, 4]);
   assert.deepEqual(delta.inline_comments.map(x => x.id), [5]);
   assert.equal(delta.inline_comments[0].in_reply_to_id, 2);
@@ -53,21 +53,45 @@ test('startup snapshot and fixed-baseline delta include all comment kinds and th
   assert.ok(routes[1].includes('&since='));
   assert.ok(!routes[2].includes('since='));
   assert.equal(JSON.stringify(initial.baseline), before);
-  assert.deepEqual(readDiscussion('owner/repo', '61', changed.run, initial.baseline).discussion, delta);
+  assert.deepEqual((await readDiscussion('owner/repo', '61', changed.run, initial.baseline)).discussion, delta);
 });
 
-test('timestamp boundary overlaps and newly visible records are not filtered by creation time', () => {
+test('独立讨论查询并发开始，全部完成后才返回快照', async () => {
+  const source = fixture();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let started = 0;
+  let completed = false;
+  const pending = readDiscussion('owner/repo', '61', async (command, args) => {
+    started++;
+    await gate;
+    return source.run(command, args);
+  }).then(result => { completed = true; return result; });
+  try {
+    assert.equal(started, 4);
+    assert.equal(completed, false);
+  } finally {
+    release();
+  }
+  const { discussion } = await pending;
+  assert.deepEqual(discussion.issue_comments.map(record => record.id), [1]);
+  assert.deepEqual(discussion.inline_comments.map(record => record.id), [2]);
+  assert.deepEqual(discussion.reviews.map(record => record.id), [3]);
+  assert.deepEqual(discussion.threads.map(record => record.root_comment_id), [2]);
+});
+
+test('timestamp boundary overlaps and newly visible records are not filtered by creation time', async () => {
   const before = Date.now();
-  const { baseline } = readDiscussion('owner/repo', '61', fixture().run);
+  const { baseline } = await readDiscussion('owner/repo', '61', fixture().run);
   assert.ok(Date.parse(baseline.since) <= before - 1000);
   assert.ok(Date.parse(baseline.since) > before - 2000);
-  const { discussion } = readDiscussion('owner/repo', '61', fixture({
+  const { discussion } = await readDiscussion('owner/repo', '61', fixture({
     inline: [[comment(2), { ...comment(10), created_at: '2026-09-01T00:00:00Z' }]],
   }).run, baseline);
   assert.deepEqual(discussion.inline_comments.map(x => x.id), [10]);
 });
 
-test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬运字段', () => {
+test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬运字段', async () => {
   const evidence = {
     id: 21, body: '已确认保留此范围。\n\n```ts\nconst enabled = false;\n```',
     html_url: 'https://github.test/owner/repo/pull/61#discussion_r21',
@@ -90,13 +114,13 @@ test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬
   };
   const review = { id: 8, body: '当前方案已确认，未运行测试。', state: 'COMMENTED',
     submitted_at: '2026-10-28T02:00:00Z', commit_id: 'b'.repeat(40), user: null };
-  const initial = readDiscussion('owner/repo', '61', fixture({
+  const initial = await readDiscussion('owner/repo', '61', fixture({
     inline: [[raw]], reviews: [[{ ...review, _links: { html: 'review-url' } }]],
   }).run);
   assert.deepEqual(initial.discussion.inline_comments, [evidence]);
   assert.deepEqual(initial.discussion.reviews, [review]);
 
-  const metadataOnly = readDiscussion('owner/repo', '61', fixture({
+  const metadataOnly = await readDiscussion('owner/repo', '61', fixture({
     inline: [[{ ...raw, user: { ...raw.user, avatar_url: 'new-avatar-url' } }]],
     reviews: [[review]],
   }).run, initial.baseline);
@@ -105,17 +129,17 @@ test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬
 
   // 正文编辑、定位变更与 Review 状态变化仍能从固定启动基线检出。
   for (const change of [{ body: '撤回之前的确认。' }, { line: 12 }, { commit_id: 'c'.repeat(40) }]) {
-    const changed = readDiscussion('owner/repo', '61', fixture({ inline: [[{ ...raw, ...change }]] }).run, initial.baseline);
+    const changed = await readDiscussion('owner/repo', '61', fixture({ inline: [[{ ...raw, ...change }]] }).run, initial.baseline);
     assert.deepEqual(changed.discussion.inline_comments, [{ ...evidence, ...change }]);
   }
-  const dismissed = readDiscussion('owner/repo', '61', fixture({
+  const dismissed = await readDiscussion('owner/repo', '61', fixture({
     reviews: [[{ ...review, state: 'DISMISSED' }]],
   }).run, initial.baseline);
   assert.equal(dismissed.discussion.reviews[0].state, 'DISMISSED');
 });
 
-test('删除全部历史 thread 时仍输出删除变化，固定基线支持重复刷新', () => {
-  const initial = readDiscussion('owner/repo', '587', fixture({
+test('删除全部历史 thread 时仍输出删除变化，固定基线支持重复刷新', async () => {
+  const initial = await readDiscussion('owner/repo', '587', fixture({
     inline: [[comment(3975642831), comment(3975642841)]],
     threads: [threadPage([thread(3975642831), thread(3975642841)])],
   }).run);
@@ -123,7 +147,7 @@ test('删除全部历史 thread 时仍输出删除变化，固定基线支持重
   const before = JSON.stringify(initial.baseline);
   const deleted = fixture({ issue: [[]], inline: [[]], reviews: [[]], threads: [threadPage([])] });
   for (let attempt = 0; attempt < 2; attempt++) {
-    const refresh = readDiscussion('owner/repo', '587', deleted.run, initial.baseline);
+    const refresh = await readDiscussion('owner/repo', '587', deleted.run, initial.baseline);
     assert.deepEqual(refresh.discussion, { issue_comments: [], inline_comments: [], reviews: [], threads: [] });
     assert.deepEqual(refresh.removed_thread_ids, ['thread-3975642831', 'thread-3975642841']);
   }
@@ -131,43 +155,43 @@ test('删除全部历史 thread 时仍输出删除变化，固定基线支持重
   assert.equal(deleted.calls.length, 8);
 });
 
-test('完整分页后区分删除、未变化、新增和状态变化的 thread', () => {
-  const initial = readDiscussion('owner/repo', '61', fixture({
+test('完整分页后区分删除、未变化、新增和状态变化的 thread', async () => {
+  const initial = await readDiscussion('owner/repo', '61', fixture({
     threads: [threadPage([thread(1), thread(2), thread(3)])],
   }).run);
-  const refresh = readDiscussion('owner/repo', '61', fixture({
+  const refresh = await readDiscussion('owner/repo', '61', fixture({
     threads: [threadPage([thread(3, true)], true), threadPage([thread(2), thread(4)])],
   }).run, initial.baseline);
   assert.deepEqual(refresh.removed_thread_ids, ['thread-1']);
   assert.deepEqual(refresh.discussion.threads.map(record => record.id), ['thread-3', 'thread-4']);
 });
 
-test('request failure, partial GraphQL data and unfinished pagination fail instead of returning an empty delta', () => {
-  assert.throws(() => readDiscussion('owner/repo', '61', () => { throw new Error('HTTP 403'); }), /HTTP 403/);
+test('request failure, partial GraphQL data and unfinished pagination fail instead of returning an empty delta', async () => {
+  await assert.rejects(readDiscussion('owner/repo', '61', async () => { throw new Error('HTTP 403'); }), /HTTP 403/);
   for (const threads of [
     [threadPage([], true)],
     [{ ...threadPage([]), errors: [{ message: 'Denied' }] }],
     [{ data: { repository: null } }],
     [],
-  ]) assert.throws(() => readDiscussion('owner/repo', '61', fixture({ threads }).run), /thread pages/);
-  assert.throws(() => readDiscussion('owner/repo', '61', fixture({ issue: [{}] }).run), /issue_comments pages/);
-  const { baseline } = readDiscussion('owner/repo', '61', fixture().run);
-  assert.throws(() => readDiscussion('other/repo', '61', fixture().run, baseline), /baseline/);
+  ]) await assert.rejects(readDiscussion('owner/repo', '61', fixture({ threads }).run), /thread pages/);
+  await assert.rejects(readDiscussion('owner/repo', '61', fixture({ issue: [{}] }).run), /issue_comments pages/);
+  const { baseline } = await readDiscussion('owner/repo', '61', fixture().run);
+  await assert.rejects(readDiscussion('other/repo', '61', fixture().run, baseline), /baseline/);
 });
 
-test('refresh CLI leaves its baseline unchanged on both success and failure', () => {
+test('refresh CLI leaves its baseline unchanged on both success and failure', async () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-discussion-'));
   const originalEnv = { ...process.env };
   try {
     Object.assign(process.env, { REVIEW_WORKSPACE_PATH: directory, REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '61' });
     const baselinePath = path.join(directory, 'discussion-baseline.json');
-    assert.throws(() => main(fixture().run), /ENOENT/);
-    const baseline = JSON.stringify(readDiscussion('owner/repo', '61', fixture().run).baseline);
+    await assert.rejects(main(fixture().run), /ENOENT/);
+    const baseline = JSON.stringify((await readDiscussion('owner/repo', '61', fixture().run)).baseline);
     writeFileSync(baselinePath, baseline);
-    assert.deepEqual(JSON.parse(main(fixture().run)).inline_comments, []);
-    assert.deepEqual(JSON.parse(main(fixture().run)).removed_thread_ids, []);
-    assert.deepEqual(JSON.parse(main(fixture({ threads: [threadPage([])] }).run)).removed_thread_ids, ['thread-2']);
-    assert.throws(() => main(() => { throw new Error('network failure'); }), /network failure/);
+    assert.deepEqual(JSON.parse(await main(fixture().run)).inline_comments, []);
+    assert.deepEqual(JSON.parse(await main(fixture().run)).removed_thread_ids, []);
+    assert.deepEqual(JSON.parse(await main(fixture({ threads: [threadPage([])] }).run)).removed_thread_ids, ['thread-2']);
+    await assert.rejects(main(async () => { throw new Error('network failure'); }), /network failure/);
     assert.equal(readFileSync(baselinePath, 'utf8'), baseline);
   } finally {
     process.env = originalEnv;
