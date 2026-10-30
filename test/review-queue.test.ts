@@ -1,27 +1,66 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 
 const entry = parse(readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8'));
 const execution = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
 
+// 这两条表达式只使用上下文、字符串与布尔运算；比较实际分组关系，不固定前缀和拼写。
+function groupFor(template: string, repository: string, pull: string, source: string, run: number) {
+  return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => String(runInNewContext(expression, {
+    inputs: { repository_id: repository, pull_number: pull, trigger_source: source },
+    github: { run_id: run },
+  }))).toLowerCase();
+}
+
+function assertGrouping(admission: string, serialized: string) {
+  const automatic = groupFor(admission, '11', '7', 'automatic', 101);
+  assert.equal(automatic, groupFor(admission, '11', '7', 'automatic', 102));
+  const explicit = groupFor(admission, '11', '7', 'pr_comment', 103);
+  assert.notEqual(explicit, automatic);
+  assert.notEqual(explicit, groupFor(admission, '11', '7', 'pr_comment', 104));
+  assert.notEqual(explicit, groupFor(admission, '11', '7', 'thread', 105));
+  const executionGroup = groupFor(serialized, '11', '7', 'automatic', 101);
+  for (const source of ['automatic', 'pr_comment', 'thread']) {
+    const admitted = groupFor(admission, '11', '7', source, 106);
+    assert.notEqual(admitted, groupFor(admission, '12', '7', source, 106));
+    assert.notEqual(admitted, groupFor(admission, '11', '8', source, 106));
+    assert.equal(executionGroup, groupFor(serialized, '11', '7', source, 106));
+    assert.notEqual(executionGroup, admitted);
+  }
+  assert.notEqual(executionGroup, groupFor(serialized, '12', '7', 'automatic', 101));
+  assert.notEqual(executionGroup, groupFor(serialized, '11', '8', 'automatic', 101));
+}
+
 test('automatic admission replaces only pending automatic requests, preserving explicit requests', () => {
   const admission = entry.concurrency;
   assert.equal(admission['cancel-in-progress'], false);
   assert.ok(admission.queue === undefined || admission.queue === 'single');
-  assert.equal(admission.group,
-    "agentic-review-admission-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source == 'automatic' && 'automatic' || github.run_id }}");
+  assertGrouping(admission.group, execution.concurrency.group);
+  const equivalent = "other-admission-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source != 'automatic' && github.run_id || 'automatic' }}";
+  assert.doesNotThrow(() => assertGrouping(equivalent, 'other-execution-${{ inputs.repository_id }}-${{ inputs.pull_number }}'));
+  const request = "${{ inputs.trigger_source == 'automatic' && 'automatic' || github.run_id }}";
+  for (const broken of [
+    `entry-\${{ inputs.pull_number }}-${request}`,
+    `entry-\${{ inputs.repository_id }}-${request}`,
+    "entry-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ github.run_id }}",
+    "entry-${{ inputs.repository_id }}-${{ inputs.pull_number }}",
+  ]) assert.throws(() => assertGrouping(broken, execution.concurrency.group));
+  for (const broken of [
+    'execution-${{ inputs.pull_number }}',
+    'execution-${{ inputs.repository_id }}',
+    'execution-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ github.run_id }}',
+  ]) assert.throws(() => assertGrouping(admission.group, broken));
   assert.equal(entry.on.workflow_dispatch.inputs.trigger_source.default, 'automatic');
 });
 
 test('the reusable execution serializes the entire review and trusted publication for each PR', () => {
   assert.equal(entry.jobs.review.uses, './.github/workflows/review-execution.yml');
   assert.deepEqual(Object.keys(entry.jobs), ['review']);
-  assert.equal(execution.concurrency.group, 'agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}');
   assert.equal(execution.concurrency.queue, 'max');
   assert.equal(execution.concurrency['cancel-in-progress'], false);
-  assert.notEqual(execution.concurrency.group, entry.concurrency.group);
   assert.equal(execution.jobs.publish.needs, 'review');
   assert.equal(execution.on.workflow_dispatch, undefined);
   assert.deepEqual(entry.permissions, execution.permissions);

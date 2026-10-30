@@ -34,6 +34,13 @@ function assertAgentCredentials(workflow: any) {
     for (const expression of expressions) {
       const normalized = normalizeReference(expression).replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, "''");
       assert.doesNotMatch(normalized, /(?<![\w.])secrets\b/i, 'unapproved Agent secret source');
+      // 配置变量也能存放令牌；只允许已约定为非敏感配置的来源，不能按 env 名称猜测。
+      const variables = /(?<![\w.])vars\.([\w-]+)/gi;
+      for (const reference of normalized.matchAll(variables)) {
+        assert.ok(['REVIEW_AGENT_MODEL', 'REVIEW_AGENT_BASE_URL', 'REVIEW_THINKING_LEVEL'].includes(reference[1].toUpperCase()),
+          'unapproved Agent variable source');
+      }
+      assert.doesNotMatch(normalized.replace(variables, ''), /(?<![\w.])vars\b/i, 'unapproved Agent variable source');
       const outputReference = /(?<![\w.])steps\.([\w-]+)\.outputs\.[\w-]+/gi;
       // 整体或动态步骤上下文可能包含写令牌；只接受可追踪的输出和无凭据的状态字段。
       const otherReferences = normalized.replace(outputReference, '')
@@ -102,8 +109,10 @@ test('Agent credential checks reject renamed secrets in inherited env and action
       : level === 'step' ? (agent.env ??= {}) : agent.with;
     target.FEISHU_USER_TOKEN = "${{ secrets['FEISHU_USER_ACCESS_TOKEN'] }}";
     assert.throws(() => assertAgentCredentials(changed), level);
+    target.FEISHU_USER_TOKEN = "${{ vars['REVIEW_WRITE_TOKEN'] }}";
+    assert.throws(() => assertAgentCredentials(changed), /unapproved Agent variable source/, level);
   }
-  for (const context of ['secrets', 'steps']) {
+  for (const context of ['secrets', 'steps', 'vars']) {
     const changed = structuredClone(workflow);
     const agent = changed.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
     agent.env.EXTRA_CONTEXT = `\${{ toJSON(${context}) }}`;
@@ -142,6 +151,8 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   const harmlessAgent = harmless.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   harmlessAgent.env.REVIEW_DIAGNOSTICS = 'enabled';
   harmlessAgent.env.DIAGNOSTIC_LABEL = "${{ 'steps and secrets' }}";
+  harmlessAgent.env.MODEL_LABEL = "${{ vars['REVIEW_AGENT_MODEL'] }}";
+  harmlessAgent.env.API_ENDPOINT = '${{ vars.REVIEW_AGENT_BASE_URL }}';
   harmlessAgent.env.EXTRA_TOKEN = '${{ steps.forward-read-token.outputs.value }}';
   assert.doesNotThrow(() => assertAgentCredentials(harmless));
 });
