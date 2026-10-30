@@ -3,7 +3,7 @@
     "id": "A",
     "kind": "summary",
     "input": "来源：用户提供的本仓库 PR #69 总评及固定版本的变更信息；本用例只重写既有判断。\n\nPR 摘要：改善 Review 意见的表达和问题记录。\n\n审查事实：\n\n- 比较范围 d60207f944ccecd71ee837413f6d55de1e969aa9...9b63e7fae510720207974c21205126c9c0c884be，完整 PR，两个变更文件。\n- skills/agentic-review/references/findings.md 补充业务场景、触发条件、预期与实际、影响和修复验收的写作要求；区分静态推演、已有测试结果、待执行验收。\n- central/review-result.md 补充历史 thread 的修复、反证、接受边界和部分修复的 evidence 写作要求。\n- 原有 finding 门槛、严重度、三段结构、四字段 JSON schema、thread 状态枚举、发布授权边界均保留。\n- 静态核对 scripts/review-result.ts 的结果校验和 scripts/publish-review.ts 的 evidence 消费路径。新增说明可以通过现有正文、finding/evidence Markdown 和 thread_updates 表达，不需要新字段或状态。\n- 未执行目标仓库代码、测试或构建。仅使用 Git diff、规则文本及可读本地调用方。\n- 审查结论：没有需要报告的新问题，没有人工确认项。\n- 启动快照和最终讨论刷新均没有历史 Review、inline thread 或讨论变化；没有历史问题需要更新。\n- 调用方会自动附加运行链接、工作稿链接、模型、耗时、token、版本和完整 PR 范围。",
-    "expected": "无新问题；简短业务说明与现有发布能力可承载的依据；没有空历史/人工确认汇报或协议枚举；静态边界。"
+    "expected": "无新问题；简短业务说明与现有发布能力可承载的依据；没有空历史/人工确认汇报或协议枚举；不重复声明默认审查方式。"
   },
   {
     "id": "B",
@@ -27,13 +27,13 @@
     "id": "T1",
     "kind": "finding",
     "input": "已固定的审查判断：P2，一般缺陷。影响限于 RC 创建发布的重复构建与远程调用，未证明线上业务受损；本任务不重新定级。\n\n来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n背景：开发者创建 RC 候选发布分支，触发候选版本发布。同一次创建应只执行一次发布。\n\n本次修改增加分支 create 事件入口。首次用 git push 创建 RC 分支会产生 push 与 create 两条事件路径，二者均满足 build 条件。相同 concurrency group，cancel-in-progress 仅在 push 事件为 true；最小路径是 push 先开始、create 排队、push 完成后 create 继续。共享并发组不保证两条路径只运行一次。\n\n后果已确认到同一候选版本重复构建、推送镜像和更新部署包，额外消耗构建及远程调用；没有进一步证据证明数据损坏或生产事故。\n\nbase 无 create 入口，head 新增。根因定位 .github/workflows/publish.yml:13，所审版本 https://github.com/example/backend/blob/12b2a63fe8e6c81f82d08e2dc2137f94c41e3079/.github/workflows/publish.yml#L13 。完整规则来源为同一版本的 workflow。修复约束：同一次 RC 创建只有一个事件发布，同时保留从已有 commit 创建 RC 的发布入口。没有执行任何测试，验收仅为待检查的场景。",
-    "expected": "保留已定级的 P2；三段独立可读；最小顺序证明串行仍会重复，后果不升级；恢复唯一发布且保留已有commit创建；稳定证据和待验收边界。"
+    "expected": "保留已定级的 P2；因果说明独立可读；最小顺序证明串行仍会重复，后果不升级；恢复唯一发布且保留已有commit创建；稳定证据和待验收边界。"
   },
   {
     "id": "T2",
     "kind": "finding",
     "input": "已固定的审查判断：P2，一般缺陷。影响限于 dev/test 环境，下一次 commit push 或人工 dispatch 可恢复；本任务不重新定级。\n\n来源：合成案例（T1/T2 为发布问题场景的脱敏改编），路径与链接仅作固定定位，不代表已在线核验。\n\n背景：开发者删除后通过 git push 重建 dev/test 分支时，应与原行为一样自动更新对应测试环境。\n\n本次为 RC 发布去重，把 github.event.created != true 放在所有 branch 路由外层。首次 push 重建 dev 或 test 时 created=true，因此 build 被跳过。另一个 create 事件入口只允许 RC 分支，不能承接 dev/test。base 没有外层 created 条件，同一次 push 可以正常发布。\n\n后果：测试环境继续运行旧版本，直到下一次 commit push 或人工 dispatch；job 被跳过而非失败。没有断言 production/main 受影响。\n\n根因定位 .github/workflows/publish.yml:30，所审版本 https://github.com/example/backend/blob/923ec96cade8d3e9dcbbe672536825ca51871f5a/.github/workflows/publish.yml#L30 。历史时间线：此前 RC 重复发布问题已由去重修复消除，本轮仍未重现；当前外层条件同时引入了 dev/test 漏发这一独立根因，不是 RC 原问题重现。原问题入口 https://github.com/example/backend/pull/498#discussion_r101 。修复约束：RC 去重只限制 RC 创建的 push，或为 dev/test 提供等价唯一发布入口；既要恢复 dev/test 创建发布，也保留 RC 创建只发布一次。未执行测试。",
-    "expected": "保留已定级的 P2；三段独立可读；重建dev/test导致跳过/旧环境，不泛化生产；新修复回归关联原thread；恢复dev/test且保留RC去重。"
+    "expected": "保留已定级的 P2；因果说明独立可读；重建dev/test导致跳过/旧环境，不泛化生产；新修复回归关联原thread；恢复dev/test且保留RC去重。"
   },
   {
     "id": "T3",
@@ -51,7 +51,7 @@
     "id": "E",
     "kind": "summary",
     "input": "来源：合成案例，链接仅作定位保真测试，不访问。\n\nPR 简介：用户可以选择每天或每周接收未读通知汇总，不再只能逐条接收邮件。\n\n固定事实：完整 PR，修改 8 个文件、113 行。新增 digest_frequency 字段、DailyDigestJob 和 WeeklyDigestJob、两份模板及设置页面。静态核对设置保存、任务选人和邮件渲染：频率设置会被正确读取，同一条通知有稳定发送记录避免重复汇总，已关闭邮件通知的用户会被排除。原有登录鉴权、租户隔离和 API envelope 均未变。没有需要报告的新问题，无人工确认事项，无历史 thread。没有执行测试、发送真实邮件或部署。完整 SHA、文件覆盖与查询记录已在工作稿；发布器会附加运行信息。",
-    "expected": "可选择通知汇总频率；关键核对覆盖设置生效、重复/关闭通知处理；无生产发送或实测声明，无内部标识符清单。"
+    "expected": "说明用户可选择通知汇总频率及其作用；不列出无关保证清单、内部标识符或默认审查方式，不虚构生产发送或实测。"
   },
   {
     "id": "F",
@@ -75,6 +75,30 @@
     "id": "H",
     "kind": "summary",
     "input": "来源：合成案例。PR 简介：管理员可以预约在指定时区的当地上午九点发布公告，不必手动守着时间点发布。\n\n固定审查事实：完整 PR 静态审查，未执行测试、发送真实公告或部署。修改 7 个文件，新增 scheduled_at、timezone 字段和公告调度任务。静态核对日期选择、存储换算和任务查询：管理员选择的当地九点被转换为正确的 UTC 时间；调度任务按同一个 UTC 时间读取待发布公告；取消预约的公告会排除；同一公告重复被查询时沿用已发布记录，不重复发送。原有管理员鉴权、租户隔离和接口响应字段均未改变。没有需要报告的新问题，没有人工确认项，没有历史 thread。调用方自动附加完整范围和运行信息。",
-    "expected": "用预约当地时间发布公告的用户行为说明变化，选择正确换算和调度/取消/去重的关键静态依据；不罗列字段或无关未变化项/空状态，不声称真实发送或实测。"
+    "expected": "用预约当地时间发布公告的用户行为说明变化与用途；不罗列字段、无关未变化项或保证清单，不重复默认审查方式，不虚构真实发送或实测。"
+  },
+  {
+    "id": "I",
+    "kind": "summary",
+    "input": "来源：https://github.com/Qiyin-Tech/agentic-review/pull/92#pullrequestreview-5709770630 与 https://github.com/Qiyin-Tech/agentic-review/pull/92 的实际报告及 PR 简介。\n\nPR 简介：并行读取 Review 启动输入，减少串行网络等待。\n\n固定判断：完整 PR 静态审查，未发现需要处理的新问题，没有历史状态变化。审查者未执行测试。\n\n所审版本 d8844494b073dfcb94908200077e9a2d8233dd4a，base 9bb73ba79c3b2d1ea8be52a7b05b40db249a3ee5。\n原启动准备串行读取 PR 元数据、普通评论、行内评论、Review 和 thread，逐项等待网络返回。现在并行读取这五组独立输入；讨论刷新和关联 PR 读取也复用同一异步实现。\n每组仍读完所有分页，讨论基线在全部请求开始前固定，保留原有增量指纹、删除 thread 检测及数据校验；任一查询失败都会让整次读取失败。\n原审查已静态核对完整分页、固定基线、变化识别和失败校验仍保留。\nPR 作者报告 11 项相关测试、pnpm check、git diff --check 通过，覆盖并行启动、完整分页、讨论变化、删除检测、失败传播和输入恢复。这是作者报告，不是审查者本轮执行。\nPR 作者在同一台机器对 #91 交替测量新旧实现，各 3 次：串行读取 6.26–11.51 秒，并行读取 1.36–1.96 秒，记录数量一致。测量对象仅是输入读取阶段；整体 Actions 启动耗时需合并后复测。另一次前置试跑遇到 GitHub EOF 并非零退出。\n发布器追加运行元数据，评论无需列出全部字段、SHA 或文件。",
+    "expected": "总评能独立解释启动读取从串行改为并行、减少逐项等待，并说明讨论刷新和关联 PR 复用的范围。无新问题的结论直接，不附加保证清单、静态审查声明或未执行事项。若引用作者测速，在句内交代作者和输入读取阶段，不另加整体效果尚待复测的防御性说明。"
+  },
+  {
+    "id": "J",
+    "kind": "finding",
+    "input": "来源：https://github.com/Qiyin-Tech/agentic-review/pull/91#discussion_r4421561733，真实评论固定判断的表达用例。\n\nPR 简介：精简 Review 收尾并在页脚展示费用估算：提交工具接收结果对象，保留工作稿副本并将最终结果交给可信发布器。\n\nP2。仅重写已核定判断，不重新发现缺陷或定级。\n\n版本 7b4324beff99b656725f51f310b1d814d59ef26c；根因 .github/pi-extensions/review-tools.ts:129–139。\nsubmit_review 由审查 Agent 调用；提交失败后的同一轮重试也由 Agent 发起，维护者阅读最终报告和留存副本。\n工作稿副本留作事后追溯；resultPath 对应另一份结果文件，可信发布器从此读取。\n用 open(resultPath, wx) 创建结果文件，禁止覆盖已有文件；文件已存在时 EEXIST。\n创建句柄 sealed 后，try 块写工作稿副本与 sealed 的内容，catch 删除 resultPath，finally 执行 sealed.close()。\n本例触发为两次内容写入均成功，随后 sealed.close() 因 I/O 错误抛异常；该错误不会进入只捕获写入失败的 catch，而由外层捕获并返回 queued:false。\n异常后本次创建的 resultPath 文件仍存在。按同一工具路径再次提交会在 wx 创建处失败，同一轮不能由工具得到 queued:true。\n修复目标：关闭失败也清理本次调用创建的结果文件，不能删除其他调用已有的文件。故障解除后允许重试。正常提交的两份内容保持一致。\n静态异常路径推演；未实测文件系统故障。无额外证据证明内容损坏或丢数据。\n\n代码定位：https://github.com/Qiyin-Tech/agentic-review/blob/7b4324beff99b656725f51f310b1d814d59ef26c/.github/pi-extensions/review-tools.ts#L129-L139",
+    "expected": "保持 P2 与审查 Agent 调用身份；解释关闭失败未清理本次文件、已有文件使同轮重试失败，给出恢复与正常提交一致性目标。排除项留工作稿，不追加未证明损坏或未执行故障测试的声明。"
+  },
+  {
+    "id": "K",
+    "kind": "finding",
+    "input": "来源：https://github.com/Qiyin-Tech/agentic-review/pull/91#discussion_r4421493287，真实评论固定判断的表达用例。\n\nPR 简介：提交工具改为直接接收结果对象，同时保存工作稿副本和交给可信发布器的结果文件。\n\nP2。仅重写已核定判断。\n\n版本 8ea95dfafc72b1ef1d6a924a63a0ef7ce4f67f9c；根因 .github/pi-extensions/review-tools.ts:128–129。\n并发调用来自同一轮审查 Agent；维护者是留存工作稿副本的读者。\n两次 submit_review 调用可以并发携带不同内容，都在 submitted 仍为 false 时通过检查。\n两次调用都会先覆盖写同一路径的工作稿副本 review-result.json，再以 wx 独占创建另一份结果文件。\nwx 禁止覆盖，因此只有一个调用创建结果文件成功；失败者得到 EEXIST。\n一个可达顺序：A 写工作稿副本，A 创建结果文件成功；B 覆盖工作稿副本，B 创建结果文件失败。\n工作稿副本随 artifact 留给维护者回查；可信发布器读取结果文件。因此留存与发布可以是不同结论。\n结果文件本身不会被失败者覆盖。影响限于事后追溯拿到错误副本，没有证明公开结果被覆盖。\n恢复目标：只有获准提交的内容能写入两份结果。验收并发提交不同内容时两份逐字一致，失败调用不能覆盖成功副本。\n同轮总评 https://github.com/Qiyin-Tech/agentic-review/pull/91#pullrequestreview-5709449405 明确完整 PR 静态审查，未执行测试。\n\n代码定位：https://github.com/Qiyin-Tech/agentic-review/blob/8ea95dfafc72b1ef1d6a924a63a0ef7ce4f67f9c/.github/pi-extensions/review-tools.ts#L128-L129",
+    "expected": "保持 P2；用并发顺序解释失败调用覆盖留存副本，区分留存副本和发布器读取的结果；给出两份一致的处理目标。用具体对象限定影响，不再附加更严重后果未发生的说明。"
+  },
+  {
+    "id": "L",
+    "kind": "finding",
+    "input": "来源：https://github.com/Qiyin-Tech/agentic-review/pull/82#discussion_r4420577606，真实评论固定判断的表达用例。\n\nPR 简介：暂停飞书取证并合并自动审查请求，保留 token 续期；相应修改 workflow 与凭据边界测试。\n\nT1，测试漏检。仅重写已核定判断。\n\n原评论正文固定代码版本 d3a10572b7b7dd1760f1b628378431956243ca01，根因 test/review-runtime.test.ts:35–40。\n独立约束来自项目 AGENTS.md：审查 Agent 始终只读；写 GitHub 只能由 Agent 结束后的独立可信 publisher 执行。\n错误配置探针：Pi step 的 env 增加 EXTRA_TOKEN: ${{ vars.REVIEW_WRITE_TOKEN }}，且该 repository/org variable 实际存放一个有写权限的 GitHub token。Runner 将此变量交付给 Pi 进程。\n本次 assertSafeSource 只拒绝 secrets 和无法追踪的 steps 来源，不限制 vars。因此上述变量引用不触发断言。\n周边 GH_TOKEN 只读检查和 job 权限检查仍会通过；额外的写 token 可以让 Agent 绕过只读 GH_TOKEN 的写入限制。\n当前执行 workflow 没有这种输入，这是测试假阴性，不是已证实的当前生产凭据泄漏。\n恢复目标：识别并拒绝未批准的 vars token 来源，保持模型名称 REVIEW_AGENT_MODEL、服务地址 REVIEW_AGENT_BASE_URL 等非敏感配置以及获准只读 token 可用。\n验收错误写 token probe 被拒绝，合法配置仍通过。静态推演，未执行测试。\n\n代码定位：https://github.com/Qiyin-Tech/agentic-review/blob/d3a10572b7b7dd1760f1b628378431956243ca01/test/review-runtime.test.ts#L35-L40",
+    "expected": "保持 T1；说明实际有写权限的变量 token 是错误配置探针，以及来源检查为何接受它；合法配置仍能通过。正文主语与条件足以表达测试漏检，不追加生产未泄漏的防御性说明。"
   }
 ]
