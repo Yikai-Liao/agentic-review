@@ -67,6 +67,53 @@ test('timestamp boundary overlaps and newly visible records are not filtered by 
   assert.deepEqual(discussion.inline_comments.map(x => x.id), [10]);
 });
 
+test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬运字段', () => {
+  const evidence = {
+    id: 21, body: '已确认保留此范围。\n\n```ts\nconst enabled = false;\n```',
+    html_url: 'https://github.test/owner/repo/pull/61#discussion_r21',
+    created_at: '2026-10-28T01:00:00Z', updated_at: '2026-10-28T02:00:00Z',
+    author_association: 'MEMBER', commit_id: 'b'.repeat(40), original_commit_id: 'a'.repeat(40),
+    pull_request_review_id: 8, in_reply_to_id: 20, path: 'src/auth.ts',
+    diff_hunk: '@@ -10,2 +10,2 @@\n-const enabled = true;\n+const enabled = false;',
+    line: null, original_line: 11, start_line: null, original_start_line: 10,
+    side: 'RIGHT', start_side: 'RIGHT', position: null, original_position: 2, subject_type: 'line',
+    user: { id: 3, login: 'maintainer', type: 'User', html_url: 'https://github.test/maintainer' },
+    performed_via_github_app: { id: 4, slug: 'review-app', name: 'Review App' },
+    reactions: { '+1': 1, '-1': 0, total_count: 1 },
+    is_copilot_code_review: false, copilot_code_review_sources: [],
+  };
+  const raw = {
+    ...evidence, url: 'https://api.github.test/comments/21', node_id: 'opaque-comment-id',
+    pull_request_url: 'https://api.github.test/pulls/61', _links: { self: { href: 'api-url' } },
+    user: { ...evidence.user, avatar_url: 'avatar-url', followers_url: 'followers-url', node_id: 'opaque-user-id' },
+    performed_via_github_app: { ...evidence.performed_via_github_app, description: '应用介绍', owner: { avatar_url: 'avatar-url' } },
+  };
+  const review = { id: 8, body: '当前方案已确认，未运行测试。', state: 'COMMENTED',
+    submitted_at: '2026-10-28T02:00:00Z', commit_id: 'b'.repeat(40), user: null };
+  const initial = readDiscussion('owner/repo', '61', fixture({
+    inline: [[raw]], reviews: [[{ ...review, _links: { html: 'review-url' } }]],
+  }).run);
+  assert.deepEqual(initial.discussion.inline_comments, [evidence]);
+  assert.deepEqual(initial.discussion.reviews, [review]);
+
+  const metadataOnly = readDiscussion('owner/repo', '61', fixture({
+    inline: [[{ ...raw, user: { ...raw.user, avatar_url: 'new-avatar-url' } }]],
+    reviews: [[review]],
+  }).run, initial.baseline);
+  assert.deepEqual(metadataOnly.discussion.inline_comments, []);
+  assert.deepEqual(metadataOnly.discussion.reviews, []);
+
+  // 正文编辑、定位变更与 Review 状态变化仍能从固定启动基线检出。
+  for (const change of [{ body: '撤回之前的确认。' }, { line: 12 }, { commit_id: 'c'.repeat(40) }]) {
+    const changed = readDiscussion('owner/repo', '61', fixture({ inline: [[{ ...raw, ...change }]] }).run, initial.baseline);
+    assert.deepEqual(changed.discussion.inline_comments, [{ ...evidence, ...change }]);
+  }
+  const dismissed = readDiscussion('owner/repo', '61', fixture({
+    reviews: [[{ ...review, state: 'DISMISSED' }]],
+  }).run, initial.baseline);
+  assert.equal(dismissed.discussion.reviews[0].state, 'DISMISSED');
+});
+
 test('删除全部历史 thread 时仍输出删除变化，固定基线支持重复刷新', () => {
   const initial = readDiscussion('owner/repo', '587', fixture({
     inline: [[comment(3975642831), comment(3975642841)]],

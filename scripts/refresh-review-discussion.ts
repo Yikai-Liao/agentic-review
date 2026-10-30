@@ -22,6 +22,24 @@ export type DiscussionBaseline = {
 const runGh: Run = (command, args) => execFileSync(command, args, { encoding: 'utf8', maxBuffer: Infinity });
 const fingerprint = (record: RecordWithId) => createHash('sha256').update(JSON.stringify(record)).digest('hex');
 
+const selectFields = (record: Record<string, unknown>, fields: readonly string[]) =>
+  Object.fromEntries(fields.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]));
+
+// 当前 PR、关联 PR 和讨论刷新共用证据表示；正文与定位原样保留，
+// 不把每条评论重复的用户头像、关注列表和 API 导航地址带进模型上下文。
+function discussionEvidence(record: RecordWithId): RecordWithId {
+  const { url, node_id, issue_url, pull_request_url, _links, user, performed_via_github_app, ...evidence } = record;
+  for (const [field, fields] of [
+    ['user', ['id', 'login', 'type', 'html_url']],
+    ['performed_via_github_app', ['id', 'slug', 'name']],
+  ] as const) {
+    const actor = record[field];
+    if (actor === null) evidence[field] = null;
+    else if (actor && typeof actor === 'object') evidence[field] = selectFields(actor as Record<string, unknown>, fields);
+  }
+  return evidence;
+}
+
 export function readDiscussion(repository: string, pull: string, run: Run = runGh, baseline?: DiscussionBaseline) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[1-9]\d*$/.test(pull)) throw new Error('Invalid PR target');
   if (baseline && (baseline.repository !== repository || baseline.pull !== pull ||
@@ -42,7 +60,7 @@ export function readDiscussion(repository: string, pull: string, run: Run = runG
     }
     discussion[kind] = pages.flat().map(record => {
       if (!Number.isInteger(record?.id) || typeof record.body !== 'string') throw new Error(`Invalid ${kind} record`);
-      return record;
+      return discussionEvidence(record);
     });
   }
   const [owner, name] = repository.split('/');
