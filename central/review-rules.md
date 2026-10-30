@@ -35,12 +35,13 @@
    也不把复杂度形状或微优化偏好当成问题证据。
 
 5. 测试有效性：变化涉及测试、parameter row、assertion、snapshot、fixture、mock
-   或 helper 时，按其对 actual/oracle/verdict 的作用调查适用分支：错误是否被
-   接受（T1），契约允许的变化是否被拒绝（T2 过约束）。生产变化使既有测试
-   的错误判定重新可达时也调查 T1。使用 references/levels/code/test-contracts.md。
+   或 helper 时，按其对 actual/oracle/verdict 的作用调查错误是否被接受（T1）。
+   生产变化使既有测试的错误判定重新可达时也调查 T1。
+   使用 references/levels/code/test-contracts.md 的测试失真分支。
 
-测试审查限于上述有效性分支；测试经济性（零边际检测、冗余比较及删除证明）
-不在本入口范围内。读取通用代码或测试方法时，仅执行本入口选定的分支。
+默认测试审查仅执行 T1 失真分支；T2 过约束仅在本轮请求明确委托时调查。
+测试经济性（零边际检测、冗余比较及删除证明）不在本入口范围内。
+读取通用代码或测试方法时，仅执行本入口选定的分支。
 
 以上列出本入口选择的范围；具体分支、证明、反证、去重和 P/T 标签定义
 使用 references/levels/code.md 及其引用，不另建中央判断标准。
