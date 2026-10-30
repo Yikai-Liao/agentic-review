@@ -54,7 +54,7 @@ App repository permissions 至少为：
 中央仓库 Actions variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_MODEL`：例如 `gpt-5.6-luna-2`；当前 workflow 使用 OpenAI-compatible provider；
+- `REVIEW_AGENT_MODEL`：使用 Pi 模型目录中的 OpenAI model ID，例如 `gpt-6-luna`；当前 workflow 使用 OpenAI-compatible provider；
 - `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；
 - `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址；
 - `AGENTIC_REVIEW_LARK_APP_ID`：飞书企业自建应用 App ID；
@@ -193,7 +193,7 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 可信 workflow 在 Agent 启动前将 read token 的可读集合固定为目标 owner 中安装了 Review App 的仓库；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 自动关联索引，或 `.agentic-review.md` 等审查输入中的明确稳定 Issue/PR 引用，可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Agent 按 PR head 理解预期合并后的项目状态语义，只在当前 finding 确有需要时查询。单个 installation token 不能跨 GitHub owner，其他 owner 的私有仓库需要单独的 installation/token 设计。
 
-`check token` 在 Pi 启动前创建 Check；publisher 使用封存并核对过的请求身份，重新校验结果 schema、scope、覆盖与 root comment 在当前 PR 中的归属，成功发布 Review、回复历史 thread 和执行 resolve/reopen 后，completion 才能标记成功。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自动 resolve/reopen 根据审查结论，不限制 thread 创建者。自定义 `submit_review` 扩展本身不读取 token，只封存 Review 工作区内的最终 JSON；失败不能推进完整 audit checkpoint。
+`check token` 在 Pi 启动前创建 Check；publisher 使用封存并核对过的请求身份，重新校验结果 schema、scope、覆盖与 root comment 在当前 PR 中的归属，成功发布 Review、回复历史 thread 和执行 resolve/reopen 后，completion 才能标记成功。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 不进入 Agent shell，也不进入 review job。自动 resolve/reopen 根据审查结论，不限制 thread 创建者。自定义 `submit_review` 扩展本身不读取 token，只校验并持久化 Agent 提交的结果对象；失败不能推进完整 audit checkpoint。
 
 Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：禁用 Agent 层重放，只保留 3 次 provider 层 HTTP 429/5xx 重试，形成单一 retry budget；provider 层优先遵循服务端的 `Retry-After`，单次服务端退避上限为 120 秒（最多 3 次等待，即 360 秒），从而不会在 provider retry exhaustion 后再次复制整轮请求。`Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的结果上传留出时间。该机制只重试可识别的瞬时错误，不会把凭证、模型不存在、配额耗尽或账单错误伪装成成功；所有重试耗尽后仍会失败并由 publisher 保留工作稿。若仍频繁出现容量错误，应检查 `REVIEW_AGENT_BASE_URL` 的网关容量或切换模型/Provisioned Throughput，不能无限增加重试次数。
 
@@ -215,7 +215,9 @@ Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/set
 
 中央 workflow 在 workflow 级使用 `repository_id` 与 `pull_number` 组成 concurrency group，Review 与 publish 共享同一槽位；不同 PR 可以并行。配置为 `queue: max` 和 `cancel-in-progress: false`：同一 PR 最多一个运行中的任务，最多 100 个 pending 任务，队列满后 GitHub 会取消新增任务。FIFO 依据任务开始等待的时间，不保证 webhook 发出时间的绝对顺序。详见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
-Review footer 链接工作稿 Actions artifact，保留期以 workflow 的 `retention-days` 为准；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
+Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型目录公开单价计算的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时通过 `modelOverrides` 调整窗口等设置，继承目录中的输入、输出、缓存和分档价格；该金额不代表网关账单、折扣或税费。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
+
+页脚链接工作稿 Actions artifact，保留期以 workflow 的 `retention-days` 为准；访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
 
 如果 Review 发布失败，先检查：
 

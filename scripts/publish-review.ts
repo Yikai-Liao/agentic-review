@@ -15,8 +15,6 @@ type FooterMetadata = {
   inputTokens?: number;
   outputTokens?: number;
   cost?: number;
-  actionRef?: string;
-  scopeDescription?: string;
 };
 type PublishOptions = {
   result: ReviewResult;
@@ -143,20 +141,18 @@ export function buildFooter({
   inputTokens,
   outputTokens,
   cost,
-  actionRef,
-  scopeDescription,
 }: FooterMetadata) {
-  const actionVersion = actionRef?.match(/^shaftoe\/pi-coding-agent-action@v(\d+\.\d+\.\d+)$/)?.[1];
-  if (actionRef && !actionVersion) throw new Error('Invalid Pi action release reference');
   const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
   if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
   if (Number.isFinite(durationSeconds)) parts.push(`Time: ${formatDuration(durationSeconds!)}`);
   if (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)) {
     parts.push(`Tokens: ${formatNumber(inputTokens! + outputTokens!)}`);
   }
-  if (Number.isFinite(cost) && cost !== 0) parts.push(`Cost: $${Math.abs(cost!).toFixed(2)}`);
-  if (actionVersion) parts.push(`Action v${actionVersion}`);
-  if (scopeDescription) parts.push(`审查范围: ${scopeDescription}`);
+  if (cost === undefined) parts.push('Cost (est.): 未提供');
+  else {
+    if (!Number.isFinite(cost) || cost < 0) throw new Error('Invalid review cost');
+    parts.push(`Cost (est.): ${cost > 0 && cost < 0.0001 ? '<$0.0001' : `$${cost.toFixed(4)}`}`);
+  }
   return parts.join(' | ');
 }
 
@@ -326,7 +322,6 @@ export async function main() {
     if (request.source === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
     if (request.source !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
     await validateCoverageCompletion(coverage, requiredEnv('REVIEW_INVENTORY_DIGEST'));
-    const scopeDescription = `${coverage.scope.kind}/${coverage.scope.mode} (${[...new Set(coverage.scope.ranges.flatMap((range) => range.targets))].join(', ')})`;
     const options: PublishOptions = {
       publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result,
       repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
@@ -341,7 +336,6 @@ export async function main() {
         durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
         inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
         outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
-        actionRef: process.env.REVIEW_PI_ACTION_REF, scopeDescription,
       }),
     };
     return { coverage, coveragePath, options };

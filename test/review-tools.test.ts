@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, rm, writeFile, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -107,25 +107,27 @@ async function configureProgress(directory: string, source: 'automatic' | 'pr_co
   } }));
 }
 
-test('submit_review seals one JSON file from the review workspace', async () => {
+test('submit_review 直接接收结果对象，保存工作稿副本并封存一次', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
   const originalEnv = { ...process.env };
   try {
     const workspace = path.join(directory, 'workspace');
-    const sourcePath = path.join(workspace, 'final.json');
     const resultPath = path.join(directory, 'review-result.json');
     await mkdir(workspace);
-    await writeFile(sourcePath, `${JSON.stringify(result)}\n`);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = resultPath;
     await configureProgress(directory);
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
 
-    const response = await tool.execute('call', { path: sourcePath });
+    const response = await tool.execute('call', result);
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
-    assert.deepEqual(response.details, { queued: true, source: sourcePath });
-    await assertSubmissionFailed(tool.execute('call', { path: sourcePath }), /already submitted/);
+    assert.deepEqual(response.details, { queued: true });
+    const savedPath = path.join(workspace, 'review-result.json');
+    assert.deepEqual(parseReviewResult(await readFile(savedPath, 'utf8')), result);
+    await writeFile(savedPath, '修改工作稿副本');
+    assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
+    await assertSubmissionFailed(tool.execute('call', result), /already submitted/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -146,10 +148,8 @@ test('范围与提交只需要模型判断和文件进度，不搬运请求身�
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     const tools = new Map<string, any>();
     reviewTools({ registerTool: (definition) => tools.set(definition.name, definition) });
-    const resultPath = path.join(workspace, 'result.json');
     const summary = { body: '总结', comments: [], thread_updates: [], request_reply: null };
-    await writeFile(resultPath, JSON.stringify(summary));
-    await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /scope must be recorded/);
+    await assertSubmissionFailed(tools.get('submit_review').execute('call', summary), /scope must be recorded/);
     await tools.get('set_review_scope').execute('call', {
       mode: 'focused', rationale: '用户明确限定鉴权链路。', explicit_text: '只看 auth',
       ranges: [{ targets: ['src/auth/**'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40) }],
@@ -159,11 +159,11 @@ test('范围与提交只需要模型判断和文件进度，不搬运请求身�
     assert.deepEqual(Object.keys(saved.scope).sort(), ['explicit_text', 'mode', 'ranges', 'rationale']);
     assert.deepEqual(saved.ledger, [{ path: 'src/auth.ts', status: 'pending' }]);
     process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
-    await assertSubmissionFailed(tools.get('submit_review').execute('call', { path: resultPath }), /Incomplete coverage/);
+    await assertSubmissionFailed(tools.get('submit_review').execute('call', summary), /Incomplete coverage/);
     await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), /ENOENT/);
     saved.ledger[0] = { path: 'src/auth.ts', status: 'complete' };
     await writeFile(progressPath, JSON.stringify(saved));
-    await tools.get('submit_review').execute('call', { path: resultPath });
+    await tools.get('submit_review').execute('call', summary);
     assert.deepEqual(parseReviewResult(await readFile(process.env.REVIEW_RESULT_PATH!, 'utf8')), summary);
     assert.equal(await readFile(process.env.REVIEW_CONTEXT_PATH!, 'utf8'), originalContext);
   } finally {
@@ -194,7 +194,6 @@ test('submit_review rejects invalid results without sealing and allows correctio
   const originalEnv = { ...process.env };
   try {
     const workspace = path.join(directory, 'workspace');
-    const sourcePath = path.join(workspace, 'final.json');
     const resultPath = path.join(directory, 'result.json');
     await mkdir(workspace);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
@@ -203,33 +202,34 @@ test('submit_review rejects invalid results without sealing and allows correctio
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
 
-    const invalidResults: Array<[string, RegExp]> = [
-      ['{', /JSON/],
-      [JSON.stringify({ ...result, version: '1.0.0', private: true }), /Invalid review result fields/],
-      [JSON.stringify({ ...result, body: '' }), /Invalid review body/],
-      [JSON.stringify({ ...result, comments: [{ ...result.comments[0], start_line: 43 }] }), /start_line/],
-      [JSON.stringify({ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }), /thread status/],
-      [JSON.stringify({ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }), /Duplicate thread update/],
-      [JSON.stringify({ ...result, request_reply: '字符串答复' }), /Invalid request reply/],
+    const invalidResults: Array<[unknown, RegExp]> = [
+      [null, /Invalid review result/],
+      [{ ...result, version: '1.0.0', private: true }, /Invalid review result fields/],
+      [{ ...result, body: '' }, /Invalid review body/],
+      [{ ...result, body: '中'.repeat(400_000) }, /too large/],
+      [{ ...result, comments: [{ ...result.comments[0], path: '../secret' }] }, /comment path/],
+      [{ ...result, comments: [{ ...result.comments[0], start_line: 43 }] }, /start_line/],
+      [{ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }, /thread status/],
+      [{ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }, /Duplicate thread update/],
+      [{ ...result, request_reply: '字符串答复' }, /Invalid request reply/],
+      [{ ...result, request_reply: { body: '非 thread 请求不能提交原 thread 答复。' } }, /does not match request source/],
     ];
-    for (const [content, error] of invalidResults) {
-      await writeFile(sourcePath, content);
-      await assertSubmissionFailed(tool.execute('call', { path: sourcePath }), error);
+    for (const [input, error] of invalidResults) {
+      await assertSubmissionFailed(tool.execute('call', input), error);
       await assert.rejects(readFile(resultPath), { code: 'ENOENT' });
+      await assert.rejects(readFile(path.join(workspace, 'review-result.json')), { code: 'ENOENT' });
     }
 
-    const content = `${JSON.stringify(result)}\n`;
-    await writeFile(sourcePath, content);
-    await tool.execute('call', { path: sourcePath });
-    assert.equal(await readFile(resultPath, 'utf8'), content);
-    await assertSubmissionFailed(tool.execute('call', { path: sourcePath }), /already submitted/);
+    await tool.execute('call', result);
+    assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
+    await assertSubmissionFailed(tool.execute('call', result), /already submitted/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('submit_review rejects files outside the review workspace', async () => {
+test('submit_review 不接受文件路径，不把外部文件内容当作结果', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
   const originalEnv = { ...process.env };
   try {
@@ -242,14 +242,15 @@ test('submit_review rejects files outside the review workspace', async () => {
     await configureProgress(directory);
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
-    await assertSubmissionFailed(tool.execute('call', { path: outside }), /inside REVIEW_WORKSPACE_PATH/);
+    await assertSubmissionFailed(tool.execute('call', { path: outside }), /Invalid review result fields/);
+    await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), { code: 'ENOENT' });
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('thread submission accepts the documented reply object on its first attempt', async () => {
+test('thread 请求必须提供答复，修正后可以提交', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-thread-submit-'));
   const originalEnv = { ...process.env };
   try {
@@ -258,12 +259,132 @@ test('thread submission accepts the documented reply object on its first attempt
     await configureProgress(directory, 'thread');
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
-    const source = path.join(workspace, 'result.json');
-    await writeFile(source, JSON.stringify({ ...result, request_reply: { body: '已复核并更新该问题的状态。' } }));
     let tool: any;
     reviewTools({ registerTool: (definition) => { tool = definition; } });
-    const response = await tool.execute('call', { path: source });
+    await assertSubmissionFailed(tool.execute('call', result), /does not match request source/);
+    const response = await tool.execute('call', { ...result, request_reply: { body: '已复核并更新该问题的状态。' } });
     assert.equal(response.details.queued, true);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('封存写入失败不能返回完成，修复后可重试且不能覆盖已有封存结果', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-seal-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(workspace);
+    await mkdir(sealed);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    const tools = new Map<string, any>();
+    reviewTools({ registerTool: definition => tools.set(definition.name, definition) });
+    const submit = tools.get('submit_review');
+    await assertSubmissionFailed(submit.execute('call', result), /EEXIST/);
+    await rm(sealed, { recursive: true });
+    assert.equal((await submit.execute('call', result)).details.queued, true);
+    await assert.rejects(tools.get('set_review_scope').execute('call', {}), /already submitted/);
+
+    // 新扩展实例也不能覆盖已封存的结果。
+    reviewTools({ registerTool: definition => tools.set(definition.name, definition) });
+    await assertSubmissionFailed(tools.get('submit_review').execute('call', { ...result, body: '另一份结果' }), /EEXIST/);
+    assert.deepEqual(parseReviewResult(await readFile(sealed, 'utf8')), result);
+    assert.deepEqual(parseReviewResult(await readFile(path.join(workspace, 'review-result.json'), 'utf8')), result);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('并发提交不同结果时，只有成功封存的调用能保存工作稿副本', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-concurrent-submit-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    const submitters: any[] = [];
+    for (let i = 0; i < 2; i++) {
+      reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submitters.push(definition); } });
+    }
+    const results = [result, { ...result, body: '另一份结果' }];
+    const responses = await Promise.all(submitters.map((tool, i) => tool.execute(`call-${i}`, results[i])));
+    const winner = responses.findIndex(response => response.details.queued);
+    assert.notEqual(winner, -1);
+    assert.equal(responses.filter(response => response.details.queued).length, 1);
+    assert.equal(responses[1 - winner].isError, true);
+    assert.match(responses[1 - winner].details.error, /EEXIST/);
+    const content = await readFile(sealed, 'utf8');
+    assert.deepEqual(parseReviewResult(content), results[winner]);
+    assert.equal(await readFile(path.join(workspace, 'review-result.json'), 'utf8'), content);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('工作稿副本写入失败时撤销封存占位，修复后可重试', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-copy-failure-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const saved = path.join(workspace, 'review-result.json');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(saved, { recursive: true });
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    let submit: any;
+    reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
+    await assertSubmissionFailed(submit.execute('call', result), /EISDIR/);
+    await assert.rejects(readFile(sealed), { code: 'ENOENT' });
+    await rm(saved, { recursive: true });
+    assert.equal((await submit.execute('call', result)).details.queued, true);
+    assert.equal(await readFile(saved, 'utf8'), await readFile(sealed, 'utf8'));
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-close-failure-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    let submit: any;
+    reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
+
+    // 用真实文件完成写入，只在该句柄关闭时注入故障。
+    const probe = await open(path.join(directory, 'probe'), 'wx');
+    const prototype = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const write = prototype.writeFile;
+    const injected = t.mock.method(prototype, 'writeFile', async function (this: FileHandle, ...args: Parameters<FileHandle['writeFile']>) {
+      await write.apply(this, args);
+      const close = this.close.bind(this);
+      this.close = async () => {
+        await close();
+        throw new Error('Injected close failure');
+      };
+    });
+    await assertSubmissionFailed(submit.execute('call', result), /Injected close failure/);
+    await assert.rejects(readFile(sealed), { code: 'ENOENT' });
+    injected.mock.restore();
+    assert.equal((await submit.execute('call', result)).details.queued, true);
+    assert.equal(await readFile(path.join(workspace, 'review-result.json'), 'utf8'), await readFile(sealed, 'utf8'));
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -385,7 +506,7 @@ test('parser rejects duplicate thread updates and invalid comment locations', ()
   );
 });
 
-test('footer preserves action metadata', () => {
+test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
   assert.equal(
     buildFooter({
       runUrl: 'https://github.test/run',
@@ -395,10 +516,9 @@ test('footer preserves action metadata', () => {
       durationSeconds: 175,
       inputTokens: 700_000,
       outputTokens: 15_300,
-      cost: 0,
-      actionRef: 'shaftoe/pi-coding-agent-action@v2.27.0',
+      cost: 0.00424,
     }),
-    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Action v2.27.0',
+    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Cost (est.): $0.0042',
   );
 });
 
