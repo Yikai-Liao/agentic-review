@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSyn
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { parseReviewCoverage } from './review-coverage.ts';
+import { parseReviewCoverage, validateFindingEvidence } from './review-coverage.ts';
+import { parseReviewResult } from './review-result.ts';
 import type { ReviewContext, ReviewProgress } from './review-request.ts';
 
 // 启动前迁移证据和可确定的进度；自然语言范围、跨文件影响与讨论反证仍由 Agent 判断。
@@ -20,6 +21,9 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
     : null;
   if (previous && (previous.request.repository !== context.request.repository
     || previous.request.pull_number !== context.request.pull_number)) throw new Error('Previous workspace belongs to another PR');
+  if (previous?.status === 'published') {
+    validateFindingEvidence(previous, parseReviewResult(readFileSync(path.join(previousPath!, 'review-result.json'), 'utf8')));
+  }
 
   const sameSnapshot = previous?.request.base_sha === context.request.base_sha
     && previous?.request.head_sha === context.request.head_sha;

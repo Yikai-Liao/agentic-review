@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import { buildReviewRequest, initialReviewCoverage, validateReviewScope } from '../scripts/review-request.ts';
 import { inventoryDigest, parseReviewCoverage, validateAuditCheckpoint, validateCoverageCompletion } from '../scripts/review-coverage.ts';
 
+const noFindings = { body: '未发现问题。', comments: [], thread_updates: [], request_reply: null };
+
 function fixture() {
   const request = buildReviewRequest({ source: 'automatic', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '20' });
   return { ...initialReviewCoverage(request), status: 'draft' as const, completed_batches: ['B1'],
@@ -19,20 +21,29 @@ test('发布允许无候选完成项省略 batch，仍拒绝漏项、未完成�
   try {
     const noCandidate = { ...fixture(), completed_batches: [],
       ledger: [{ path: 'src/a.ts', status: 'complete' as const, batches: [] }] };
-    await validateCoverageCompletion(noCandidate, workspace, digest);
+    await validateCoverageCompletion(noCandidate, workspace, digest, noFindings);
     await mkdir(path.join(workspace, 'batches'));
     await writeFile(path.join(workspace, 'batches/B1.md'), 'a.ts 全部 hunk 的证据与结论');
-    await validateCoverageCompletion(fixture(), workspace, digest);
+    await validateCoverageCompletion(fixture(), workspace, digest, noFindings);
     await validateCoverageCompletion({ ...fixture(), ledger: [fixture().ledger[0],
-      { path: 'src/b.ts', status: 'complete', batches: [] }] }, workspace, inventoryDigest(['src/a.ts', 'src/b.ts']));
-    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [] }, workspace, digest), /inventory/);
-    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [{ path: 'src/a.ts', status: 'pending', batches: [] }] }, workspace, digest), /Incomplete/);
-    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [{ path: 'src/a.ts', status: 'out_of_scope', batches: [] }] }, workspace, digest), /Incomplete/);
-    await assert.rejects(validateCoverageCompletion({ ...fixture(), completed_batches: [] }, workspace, digest), /batches/);
+      { path: 'src/b.ts', status: 'complete', batches: [] }] }, workspace, inventoryDigest(['src/a.ts', 'src/b.ts']), noFindings);
+    const finding = { ...noFindings, comments: [{ path: 'src/a.ts', line: 1, start_line: null, body: '有 finding。' }] };
+    await assert.rejects(validateCoverageCompletion(noCandidate, workspace, digest, finding), /Missing finding batch evidence/);
+    await validateCoverageCompletion(fixture(), workspace, digest, finding);
+    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [fixture().ledger[0],
+      { path: 'src/b.ts', status: 'complete', batches: [] }] }, workspace, inventoryDigest(['src/a.ts', 'src/b.ts']),
+      { ...finding, comments: [{ ...finding.comments[0], path: 'src/b.ts' }] }), /Missing finding batch evidence: src\/b.ts/);
+    const update = { ...noFindings, thread_updates: [{ root_comment_id: 1, status: 'resolved' as const, evidence: '有依据的状态变化。' }] };
+    await assert.rejects(validateCoverageCompletion(noCandidate, workspace, digest, update), /Missing thread update batch evidence/);
+    await validateCoverageCompletion(fixture(), workspace, digest, update);
+    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [] }, workspace, digest, noFindings), /inventory/);
+    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [{ path: 'src/a.ts', status: 'pending', batches: [] }] }, workspace, digest, noFindings), /Incomplete/);
+    await assert.rejects(validateCoverageCompletion({ ...fixture(), ledger: [{ path: 'src/a.ts', status: 'out_of_scope', batches: [] }] }, workspace, digest, noFindings), /Incomplete/);
+    await assert.rejects(validateCoverageCompletion({ ...fixture(), completed_batches: [] }, workspace, digest, noFindings), /batches/);
     await writeFile(path.join(workspace, 'batches/B1.md'), '');
-    await assert.rejects(validateCoverageCompletion(fixture(), workspace, digest), /Missing batch/);
+    await assert.rejects(validateCoverageCompletion(fixture(), workspace, digest, noFindings), /Missing batch/);
     await rm(path.join(workspace, 'batches/B1.md'));
-    await assert.rejects(validateCoverageCompletion(fixture(), workspace, digest), /ENOENT/);
+    await assert.rejects(validateCoverageCompletion(fixture(), workspace, digest, noFindings), /ENOENT/);
   } finally { await rm(workspace, { recursive: true, force: true }); }
 });
 

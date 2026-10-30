@@ -146,6 +146,9 @@ test('prepared input captures discussion baseline and project rules without gene
     mkdirSync(path.join(previous, 'batches'));
     writeFileSync(path.join(previous, 'batches/B1.md'), '上轮完整证据');
     writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(unavailable));
+    writeFileSync(path.join(previous, 'review-result.json'), JSON.stringify({
+      body: '未发现问题。', comments: [], thread_updates: [], request_reply: null,
+    }));
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({
       ledger: [{ path: '含\n换行.ts', status: 'pending', batches: [] }],
     }));

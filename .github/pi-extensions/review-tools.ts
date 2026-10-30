@@ -105,7 +105,7 @@ export default function reviewTools(pi: ExtensionAPI) {
         if (!contextPath || !progressPath) throw new Error('Review context or progress path is unavailable');
         const coverage = await readReviewProgress(contextPath, progressPath);
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
-        await validateCoverageCompletion(coverage, workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '');
+        await validateCoverageCompletion(coverage, workspacePath, process.env.REVIEW_INVENTORY_DIGEST ?? '', parsed);
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
         await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
         submitted = true;

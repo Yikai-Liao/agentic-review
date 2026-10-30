@@ -106,6 +106,12 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).completed_batches, []);
+    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [{
+      path: 'auth.ts', line: 2, start_line: null, body: '缺少工作稿的 finding。',
+    }], thread_updates: [], request_reply: null }));
+    await assert.rejects(publish(), /Missing finding batch evidence/);
+    assert.equal(writes.length, 0);
+    await writeFile(resultPath, JSON.stringify({ body: '已审查鉴权变化。', comments: [], thread_updates: [], request_reply: null }));
     await publish();
     assert.equal(writes.length, 1);
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
@@ -239,8 +245,8 @@ test('trusted inventory includes reverted incremental files and intervals from r
     coverage.scope = { ...old.scope, kind: 'pr', mode: 'incremental', ranges: coverage.default_plan!.ranges };
     coverage.status = 'draft';
     coverage.ledger[1].status = 'out_of_scope';
-    await assert.rejects(validateCoverageCompletion(coverage, workspace, outputs.inventory_digest), /Incomplete coverage: auth.ts/);
-    await assert.rejects(validateCoverageCompletion({ ...coverage, ledger: [coverage.ledger[1]] }, workspace, outputs.inventory_digest), /inventory/);
+    await assert.rejects(validateCoverageCompletion(coverage, workspace, outputs.inventory_digest, { body: '总结', comments: [], thread_updates: [], request_reply: null }), /Incomplete coverage: auth.ts/);
+    await assert.rejects(validateCoverageCompletion({ ...coverage, ledger: [coverage.ledger[1]] }, workspace, outputs.inventory_digest, { body: '总结', comments: [], thread_updates: [], request_reply: null }), /inventory/);
     // 第二轮保存实际范围后仍失败；第三轮必须继续携带 A→B 和 B→C。
     await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify(coverage));
     await writeFile(path.join(directory, 'payments.ts'), 'new payments');

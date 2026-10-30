@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import type { CoverageEntry } from './review-coverage.ts';
+import { parseReviewResult } from './review-result.ts';
 
 export type ReviewRequest = {
   version: 1;
@@ -232,7 +233,8 @@ export async function main() {
         || previous.request.source !== process.env.REVIEW_PREVIOUS_SOURCE) throw new Error('Previous coverage does not match selected artifact');
       if (process.env.REVIEW_PREVIOUS_PUBLISHED === 'true') {
         if (previous.status !== 'published') throw new Error('Completion artifact is not published');
-        await validateCoverageCompletion(previous, previousPath, inventoryDigest(previous.ledger.map((entry) => entry.path)));
+        const result = parseReviewResult(await readFile(path.join(previousPath, 'review-result.json'), 'utf8'));
+        await validateCoverageCompletion(previous, previousPath, inventoryDigest(previous.ledger.map((entry) => entry.path)), result);
       } else {
         previous = { ...previous, status: previous.scope ? 'draft' : 'requested', complete_audit: false };
       }

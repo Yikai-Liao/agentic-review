@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { buildReviewRequest, validateReviewScope, validateReviewRanges, type ReviewCoverage } from './review-request.ts';
+import { parseReviewResult, type ReviewResult } from './review-result.ts';
 
 export type CoverageEntry = { path: string; status: 'pending' | 'complete' | 'out_of_scope'; batches: string[] };
 const record = (value: unknown): value is Record<string, any> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -71,7 +72,17 @@ export async function readReviewProgress(contextPath: string, progressPath: stri
   });
 }
 
-export async function validateCoverageCompletion(coverage: ReviewCoverage, workspace: string, expectedDigest: string): Promise<void> {
+export function validateFindingEvidence(coverage: ReviewCoverage, result: ReviewResult): void {
+  const completed = new Map(coverage.ledger.filter(entry => entry.status === 'complete').map(entry => [entry.path, entry.batches]));
+  for (const comment of result.comments) {
+    if (!completed.get(comment.path)?.length) throw new Error(`Missing finding batch evidence: ${comment.path}`);
+  }
+  if (result.thread_updates.length && ![...completed.values()].some(batches => batches.length)) {
+    throw new Error('Missing thread update batch evidence');
+  }
+}
+
+export async function validateCoverageCompletion(coverage: ReviewCoverage, workspace: string, expectedDigest: string, result: ReviewResult): Promise<void> {
   parseReviewCoverage(coverage);
   if (!coverage.scope || !['draft', 'published'].includes(coverage.status)) throw new Error('Review coverage is not ready for publication');
   if (!/^[0-9a-f]{64}$/.test(expectedDigest) || inventoryDigest(coverage.ledger.map((entry) => entry.path)) !== expectedDigest) throw new Error('Coverage does not match trusted change inventory');
@@ -82,6 +93,7 @@ export async function validateCoverageCompletion(coverage: ReviewCoverage, works
     entry.batches.forEach((batch) => used.add(batch));
   }
   if (coverage.completed_batches.length !== used.size || coverage.completed_batches.some((batch) => !used.has(batch))) throw new Error('Completed batches do not match coverage ledger');
+  validateFindingEvidence(coverage, result);
   const root = await realpath(workspace);
   for (const batch of used) {
     const file = await realpath(path.join(root, 'batches', `${batch}.md`));
@@ -101,6 +113,7 @@ async function main() {
   const workspace = process.env.PREVIOUS_WORKSPACE_PATH!;
   const coverage = parseReviewCoverage(JSON.parse(await readFile(path.join(workspace, 'review-coverage.json'), 'utf8')));
   validateAuditCheckpoint(coverage, { repository: process.env.REPOSITORY!, pullNumber: Number(process.env.PULL_NUMBER), base: process.env.CHECKPOINT_BASE!, head: process.env.CHECKPOINT_HEAD!, run: process.env.CHECKPOINT_RUN!, attempt: process.env.CHECKPOINT_ATTEMPT! });
-  await validateCoverageCompletion(coverage, workspace, inventoryDigest(coverage.ledger.map((entry) => entry.path)));
+  const result = parseReviewResult(await readFile(path.join(workspace, 'review-result.json'), 'utf8'));
+  await validateCoverageCompletion(coverage, workspace, inventoryDigest(coverage.ledger.map((entry) => entry.path)), result);
 }
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });

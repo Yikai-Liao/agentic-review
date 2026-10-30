@@ -23,7 +23,7 @@ test('resume preserves the index and completed files while reopening the request
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
     writeFileSync(path.join(previousPath, 'batches/B1.md'), '完整证据与稳定覆盖 ID');
     writeFileSync(path.join(previousPath, 'notes.md'), '历史索引与 finding 摘要');
-    writeFileSync(path.join(previousPath, 'review-result.json'), '{"body":"上一轮结论"}');
+    writeFileSync(path.join(previousPath, 'review-result.json'), '{"body":"上一轮结论","comments":[],"thread_updates":[],"request_reply":null}');
     const progress: ReviewProgress = { scope: { mode: 'focused', rationale: '复核当前 thread', explicit_text: '', ranges },
       ledger: previous.ledger.map((entry) => ({ path: entry.path, status: 'pending', batches: [] })) };
     const reset = () => writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify(progress));
@@ -36,7 +36,7 @@ test('resume preserves the index and completed files while reopening the request
     assert.deepEqual(manifest.batches, [{ id: 'B1', path: path.join(workspace, 'batches/B1.md'), pending_file_count: 1, directly_changed_files: [] }]);
     assert.equal(manifest.inherited_from_run, '10:1');
     assert.equal(readFileSync(manifest.paths.notes!, 'utf8'), '历史索引与 finding 摘要');
-    assert.equal(readFileSync(manifest.paths.previous_result!, 'utf8'), '{"body":"上一轮结论"}');
+    assert.equal(readFileSync(manifest.paths.previous_result!, 'utf8'), '{"body":"上一轮结论","comments":[],"thread_updates":[],"request_reply":null}');
     assert.equal(readFileSync(manifest.batches[0].path, 'utf8'), '完整证据与稳定覆盖 ID');
     assert.equal(JSON.parse(readFileSync(path.join(previousPath, 'review-coverage.json'), 'utf8')).ledger[0].status, 'complete');
 
@@ -107,6 +107,8 @@ test('同一快照恢复无 batch 的完成项，代码变化后重新核定', (
     const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published', scope,
       ledger: [{ path: 'auth.ts', status: 'complete', batches: [] }], completed_batches: [] };
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
+    const result = { body: '未发现问题。', comments: [] as Array<{ path: string; line: number; start_line: null; body: string }>, thread_updates: [], request_reply: null };
+    writeFileSync(path.join(previousPath, 'review-result.json'), JSON.stringify(result));
     const reset = () => writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify({ scope,
       ledger: [{ path: 'auth.ts', status: 'pending', batches: [] }] }));
     reset();
@@ -121,6 +123,18 @@ test('同一快照恢复无 batch 的完成项，代码变化后重新核定', (
       context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, readChanges: () => ['auth.ts'] });
     assert.deepEqual(changed.batches, []);
     assert.deepEqual(changed.pending_files, ['auth.ts']);
+    result.comments.push({ path: 'auth.ts', line: 1, start_line: null, body: '有 finding。' });
+    writeFileSync(path.join(previousPath, 'review-result.json'), JSON.stringify(result));
+    reset();
+    assert.throws(() => prepareReviewWorkspace({ workspace, context, previousPath }), /Missing finding batch evidence/);
+    previous.ledger[0].batches = ['B1'];
+    previous.completed_batches = ['B1'];
+    writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
+    mkdirSync(path.join(previousPath, 'batches'));
+    writeFileSync(path.join(previousPath, 'batches/B1.md'), 'auth.ts finding 的调查证据。');
+    const withEvidence = prepareReviewWorkspace({ workspace, context, previousPath });
+    assert.deepEqual(withEvidence.pending_files, []);
+    assert.equal(withEvidence.batches[0].id, 'B1');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

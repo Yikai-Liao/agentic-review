@@ -16,7 +16,7 @@
 
 workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含工具记录的 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；读完文件及其全部实质变化、完成必要调查后登记为 `complete`。无候选文件使用 `{"path":"src/example.ts","status":"complete","batches":[]}`，无需创建 batch 文件；存在疑点或历史问题证据时，把对应 batch ID 写入 `batches`。batch ID 只用字母、数字、下划线和连字符。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope` 和空 `batches`，full 范围不允许排除条目。中央 ledger 提供文件级完成校验，调查覆盖和证据门槛继续遵循通用方法，书面记录按本节执行。
 
-可信代码持有请求身份、默认计划和清单摘要，自动汇总 batch，并决定发布状态；Agent 只维护审查判断和进度。发布器校验清单未缺失、scope 内条目全部完成，所有已引用的证据文件存在且非空；任一不满足就失败。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级，局部成功不代表完整 audit。
+可信代码持有请求身份、默认计划和清单摘要，自动汇总 batch，并决定发布状态；Agent 只维护审查判断和进度。发布器校验清单未缺失、scope 内条目全部完成，所有已引用的证据文件存在且非空；新 inline finding 所在文件必须关联 batch，有 thread update 时至少有一份 batch。任一不满足就失败。automatic 只能使用完整 PR 的 `full` scope，增量 diff 仅影响调查优先级，局部成功不代表完整 audit。
 
 输入中的 `Workspace resume manifest` 给出初始恢复结果与准确路径，当前进度以 `review-progress.json` 为准。准备阶段已复制选中历史工作稿的 `notes.md`、已有 `batches/` 和 `previous-review-result.json`，同一 base/head 的完成项可恢复状态，包括空 `batches` 的无候选项；当前 thread 对应文件和代码快照变化保留 `pending`。每个 `pr_comment` 都重开范围内进度，包括上一轮失败的情况；证据保留供本轮重新核验。核对最新讨论和跨文件前提后按需重开或确认继承；跨快照时，仅有完成状态而无法恢复原调查前提的项，重新读取必要代码再核定，无需补写旧的无问题证明。局部更新现有索引与相关 batch，生成本轮最终 JSON。自然语言决定的范围外条目由 Agent 判断；scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
 
