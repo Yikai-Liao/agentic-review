@@ -12,9 +12,10 @@ function groupFor(template: string, repository: string, pull: string, source: st
   const context = JSON.parse(JSON.stringify({
     inputs: { repository_id: repository, pull_number: pull, trigger_source: source },
     github: { run_id: String(run) },
+    vars: { REVIEW_QUEUE_PREFIX: 'sample-queue' },
   }), data.reviver);
   return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) => {
-    const parsed = new Parser(new Lexer(expression).lex().tokens, ['inputs', 'github'], []).parse();
+    const parsed = new Parser(new Lexer(expression).lex().tokens, ['inputs', 'github', 'vars'], []).parse();
     return new Evaluator(parsed, context).evaluate().coerceString();
   }).toLowerCase();
 }
@@ -51,6 +52,8 @@ test('automatic admission replaces only pending automatic requests, preserving e
     "${{ format('entry-{0}-{1}-{2}', inputs['repository_id'], inputs['pull_number'], inputs.trigger_source != 'AUTOMATIC' && github.run_id || 'automatic') }}",
     "${{ format('execution-{0}-{1}', inputs.repository_id, inputs.pull_number) }}",
   ));
+  assert.doesNotThrow(() => assertGrouping(`\${{ vars.REVIEW_QUEUE_PREFIX }}-${equivalent}`,
+    '${{ vars.REVIEW_QUEUE_PREFIX }}-execution-${{ inputs.repository_id }}-${{ inputs.pull_number }}'));
   const request = "${{ inputs.trigger_source == 'automatic' && 'automatic' || github.run_id }}";
   for (const broken of [
     `entry-\${{ inputs.pull_number }}-${request}`,
