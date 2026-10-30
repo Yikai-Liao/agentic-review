@@ -293,6 +293,61 @@ test('封存写入失败不能返回完成，修复后可重试且不能覆盖�
     reviewTools({ registerTool: definition => tools.set(definition.name, definition) });
     await assertSubmissionFailed(tools.get('submit_review').execute('call', { ...result, body: '另一份结果' }), /EEXIST/);
     assert.deepEqual(parseReviewResult(await readFile(sealed, 'utf8')), result);
+    assert.deepEqual(parseReviewResult(await readFile(path.join(workspace, 'review-result.json'), 'utf8')), result);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('并发提交不同结果时，只有成功封存的调用能保存工作稿副本', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-concurrent-submit-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    const submitters: any[] = [];
+    for (let i = 0; i < 2; i++) {
+      reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submitters.push(definition); } });
+    }
+    const results = [result, { ...result, body: '另一份结果' }];
+    const responses = await Promise.all(submitters.map((tool, i) => tool.execute(`call-${i}`, results[i])));
+    const winner = responses.findIndex(response => response.details.queued);
+    assert.notEqual(winner, -1);
+    assert.equal(responses.filter(response => response.details.queued).length, 1);
+    assert.equal(responses[1 - winner].isError, true);
+    assert.match(responses[1 - winner].details.error, /EEXIST/);
+    const content = await readFile(sealed, 'utf8');
+    assert.deepEqual(parseReviewResult(content), results[winner]);
+    assert.equal(await readFile(path.join(workspace, 'review-result.json'), 'utf8'), content);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('工作稿副本写入失败时撤销封存占位，修复后可重试', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-copy-failure-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    const saved = path.join(workspace, 'review-result.json');
+    const sealed = path.join(directory, 'sealed.json');
+    await mkdir(saved, { recursive: true });
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = sealed;
+    await configureProgress(directory);
+    let submit: any;
+    reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
+    await assertSubmissionFailed(submit.execute('call', result), /EISDIR/);
+    await assert.rejects(readFile(sealed), { code: 'ENOENT' });
+    await rm(saved, { recursive: true });
+    assert.equal((await submit.execute('call', result)).details.queued, true);
+    assert.equal(await readFile(saved, 'utf8'), await readFile(sealed, 'utf8'));
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { open, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parseReviewResult, type ReviewResult } from '../../scripts/review-result.ts';
@@ -125,8 +125,18 @@ export default function reviewTools(pi: ExtensionAPI) {
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
         await validateCoverageCompletion(coverage, process.env.REVIEW_INVENTORY_DIGEST ?? '');
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
-        await writeFile(path.join(workspace, 'review-result.json'), content, { encoding: 'utf8', mode: 0o600 });
-        await writeFile(resultPath, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+        // 先独占创建封存文件，失败的并发调用不能覆盖工作稿副本。
+        const sealed = await open(resultPath, 'wx', 0o600);
+        try {
+          await writeFile(path.join(workspace, 'review-result.json'), content, { encoding: 'utf8', mode: 0o600 });
+          await sealed.writeFile(content, 'utf8');
+        } catch (error) {
+          // 写入未完成时撤销本次占位，允许修正后重试。
+          await rm(resultPath);
+          throw error;
+        } finally {
+          await sealed.close();
+        }
         submitted = true;
 
         return {
