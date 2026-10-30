@@ -376,6 +376,8 @@ jobs:
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+          REVIEW_AGENT_BASE_URL: ${{ vars.REVIEW_AGENT_BASE_URL }}
+          REVIEW_AGENT_API_KEY: ${{ secrets.REVIEW_AGENT_API_KEY }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
         run: |
           mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
@@ -418,6 +420,7 @@ jobs:
               }
             }
           }' > "$HOME/.pi/agent/models.json"
+          PI_MODELS_PATH="$HOME/.pi/agent/models.json" node control/scripts/configure-review-fast-mode.ts
 
       - name: Load review prompt
         id: review-prompt
@@ -491,7 +494,6 @@ jobs:
           # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
           extensions: |
             control/.github/pi-extensions/review-tools.ts
-            control/.github/pi-extensions/fast-mode.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
           loaded_tools: |
             read

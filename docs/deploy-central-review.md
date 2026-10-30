@@ -198,7 +198,7 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：禁用 Agent 层重放，只保留 3 次 provider 层 HTTP 429/5xx 重试，形成单一 retry budget；provider 层优先遵循服务端的 `Retry-After`，单次服务端退避上限为 120 秒（最多 3 次等待，即 360 秒），从而不会在 provider retry exhaustion 后再次复制整轮请求。`Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的结果上传留出时间。该机制只重试可识别的瞬时错误，不会把凭证、模型不存在、配额耗尽或账单错误伪装成成功；所有重试耗尽后仍会失败并由 publisher 保留工作稿。若仍频繁出现容量错误，应检查 `REVIEW_AGENT_BASE_URL` 的网关容量或切换模型/Provisioned Throughput，不能无限增加重试次数。
 
-`REVIEW_FAST_MODE=true` 时，可信扩展向 OpenAI Responses 请求加入 `service_tier: "priority"`，对应 [OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)，可能采用更高单价。网关或模型明确拒绝该参数或服务层（HTTP 400/422）时，扩展移除参数重发当前请求，并记录回退日志；本轮后续请求不再携带该参数。回退发生在流式输出前，不重放 Agent 或工具。鉴权、配额、限流及网络错误仍交给 Pi 处理，默认请求失败也仍会报错。API 接受参数但自行降为默认服务层时，直接使用响应，不重复请求；关闭开关只停止主动请求 priority，不覆盖 API 项目自身的默认服务层设置。
+`REVIEW_FAST_MODE=true` 时，`Configure Pi runtime` 在 Agent 启动前向配置的模型网关发送一次短 Responses 请求，探测 `service_tier: "priority"`（[OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)）。响应确认 `priority`/`fast` 后，将该参数写入 Pi 的模型配置；网关或模型明确拒绝（HTTP 400/422），或响应未确认优先服务层时，本轮沿用 API 默认模式。正式 Review 直接使用 Pi 原生请求链路，不包装 fetch 或重复探测。探测的鉴权、配额、限流、网络及无关参数错误会使准备步骤失败；关闭开关时不探测，也不覆盖 API 项目自身的默认服务层设置。Fast mode 可能采用更高单价，额外的启动探测不计入 Review 主会话的 token 和费用统计。
 
 发布统一采用 fail soft：公共输入校验失败停止全部写入；校验通过后，正文、每条 finding、请求回复、每个 thread 的状态同步和证据回复各自执行，异常只阻断依赖该操作的后续步骤。查询失败不能当作空列表继续写入。正文与 finding 分开请求，避免一条无效行号使全部结果无法发布；失效的历史 thread 也不影响其他结果。工作稿上传与发布按实际前置依赖编排，上传失败不阻断已经准备好的 GitHub 写入。
 
