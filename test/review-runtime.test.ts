@@ -30,9 +30,15 @@ function assertAgentCredentials(workflow: any) {
   function assertSafeSource(value: unknown, ancestors = new Set<string>()) {
     const expressions = String(value).match(/\$\{\{[\s\S]*?\}\}/g) ?? [];
     for (const expression of expressions) {
-      assert.doesNotMatch(expression, /\bsecrets\s*(?:\.|\[)/i, 'unapproved Agent secret source');
-      const normalized = expression.replace(/\s/g, '').replace(/\[['"]([^'"]+)['"]\]/g, '.$1');
-      for (const reference of normalized.matchAll(/steps\.([\w-]+)\.outputs\.[\w-]+/gi)) {
+      const normalized = expression.replace(/\[['"]([^'"]+)['"]\]/g, '.$1')
+        .replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, "''").replace(/\s/g, '');
+      assert.doesNotMatch(normalized, /(?<![\w.])secrets\b/i, 'unapproved Agent secret source');
+      const outputReference = /(?<![\w.])steps\.([\w-]+)\.outputs\.[\w-]+/gi;
+      // 整体或动态步骤上下文可能包含写令牌；只接受可追踪的输出和无凭据的状态字段。
+      const otherReferences = normalized.replace(outputReference, '')
+        .replace(/(?<![\w.])steps\.[\w-]+\.(?:outcome|conclusion)\b/gi, '');
+      assert.doesNotMatch(otherReferences, /(?<![\w.])steps\b/i, 'Agent step source must name a specific output');
+      for (const reference of normalized.matchAll(outputReference)) {
         const id = reference[1];
         assert.ok(!ancestors.has(id), 'cyclic Agent output source');
         const producer = review.steps.find((step: { id?: string }) => step.id === id);
@@ -93,6 +99,12 @@ test('Agent credential checks reject renamed secrets in inherited env and action
     target.FEISHU_USER_TOKEN = "${{ secrets['FEISHU_USER_ACCESS_TOKEN'] }}";
     assert.throws(() => assertAgentCredentials(changed), level);
   }
+  for (const context of ['secrets', 'steps']) {
+    const changed = structuredClone(workflow);
+    const agent = changed.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+    agent.env.EXTRA_CONTEXT = `\${{ toJSON(${context}) }}`;
+    assert.throws(() => assertAgentCredentials(changed), `whole ${context} context contains credentials`);
+  }
   // 写令牌经步骤输出转交、或现有 token 被放宽权限，同样必须失败。
   const writeToken = structuredClone(workflow);
   const agent = writeToken.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
@@ -123,6 +135,7 @@ test('Agent credential checks reject renamed secrets in inherited env and action
   });
   const harmlessAgent = harmless.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   harmlessAgent.env.REVIEW_DIAGNOSTICS = 'enabled';
+  harmlessAgent.env.DIAGNOSTIC_LABEL = "${{ 'steps and secrets' }}";
   harmlessAgent.env.EXTRA_TOKEN = '${{ steps.forward-read-token.outputs.value }}';
   assert.doesNotThrow(() => assertAgentCredentials(harmless));
 });
