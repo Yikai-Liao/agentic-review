@@ -6,8 +6,35 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { parse } from 'yaml';
+import { archiveReviewPublisher } from '../scripts/prepare-review-context.ts';
 
 const exec = promisify(execFile);
+
+test('稀疏部分克隆在远端不可用时仍可封存已检出的发布器，不补取范围外对象', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-publisher-partial-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const origin = path.join(directory, 'origin');
+  const control = path.join(directory, 'control');
+  execFileSync('git', ['init', '-q', origin]);
+  const git = (...args: string[]) => execFileSync('git', ['-C', origin, ...args], { stdio: 'pipe' });
+  git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.com');
+  git('config', 'uploadpack.allowFilter', 'true');
+  await mkdir(path.join(origin, 'scripts'));
+  await writeFile(path.join(origin, 'scripts/publish-review-run.ts'), 'export async function main() {}');
+  await writeFile(path.join(origin, 'package.json'), '{"type":"module"}');
+  await writeFile(path.join(origin, '.agentic-review.md'), '范围外材料，不应为发布器打包而下载。');
+  git('add', '.'); git('commit', '-qm', 'control');
+  execFileSync('git', ['clone', '--quiet', '--filter=blob:none', '--no-checkout', `file://${origin}`, control]);
+  execFileSync('git', ['-C', control, 'sparse-checkout', 'set', '--no-cone', '/scripts/', '/package.json']);
+  execFileSync('git', ['-C', control, 'checkout', '--quiet', 'HEAD']);
+  await assert.rejects(readFile(path.join(control, '.agentic-review.md')), { code: 'ENOENT' });
+  execFileSync('git', ['-C', control, 'remote', 'set-url', 'origin', path.join(directory, 'unavailable')]);
+
+  const archive = Buffer.from(await archiveReviewPublisher(control), 'base64');
+  assert.equal(execFileSync('tar', ['-xzOf', '-', 'scripts/publish-review-run.ts'], { input: archive, encoding: 'utf8' }),
+    'export async function main() {}');
+  assert.equal(execFileSync('tar', ['-xzOf', '-', 'package.json'], { input: archive, encoding: 'utf8' }), '{"type":"module"}');
+});
 
 test('发布启动器只执行可信步骤输出，忽略本地脚本篡改；缺失、损坏及发布失败均失败', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-publisher-'));

@@ -22,6 +22,12 @@ const required = (name: string) => {
   return value;
 };
 
+export async function archiveReviewPublisher(control: string) {
+  // 直接读取可信准备阶段的工作树，不能让部分克隆为打包触发额外 Git 下载。
+  const { stdout } = await exec('tar', ['-czf', '-', '-C', control, 'scripts', 'package.json'], { encoding: 'buffer' });
+  return stdout.toString('base64');
+}
+
 async function downloadWorkspace(run: string, name: string, directory: string) {
   // GitHub CLI 负责下载和安全解包；中央制品读取使用 workflow token，目标读取 token 仍保持原范围。
   await exec('gh', ['run', 'download', run, '--repo', required('GITHUB_REPOSITORY'), '--name', name, '--dir', directory], {
@@ -67,12 +73,9 @@ export async function main() {
   const workspace = required('GITHUB_WORKSPACE');
   const temporary = required('RUNNER_TEMP');
   const control = fileURLToPath(new URL('../', import.meta.url));
-  // 固定控制面版本的发布器由 Runner 保存为步骤输出；Agent 后续不能替换它。
+  // 控制面已按固定 ref 检出，尚未启动 Agent；发布器由 Runner 保存为步骤输出。
   // 在持久化请求前交付，后续输入准备失败时仍可由该发布器保存恢复范围。
-  const { stdout: publisher } = await exec('git', ['-C', control, 'archive', '--format=tar.gz', required('GITHUB_SHA'), 'scripts', 'package.json'], {
-    encoding: 'buffer',
-  });
-  await appendFile(required('GITHUB_OUTPUT'), `publisher_archive=${publisher.toString('base64')}\n`);
+  await appendFile(required('GITHUB_OUTPUT'), `publisher_archive=${await archiveReviewPublisher(control)}\n`);
   const target = path.join(workspace, 'review-target');
   const base = path.join(workspace, 'review-base');
   const draft = path.join(workspace, 'review-workspace');
