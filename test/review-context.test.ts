@@ -28,6 +28,7 @@ async function fixture(t: TestContext, source: 'automatic' | 'pr_comment' | 'thr
   await writeFile(path.join(working, 'view.ts'), 'new change');
   git('add', '.'); git('commit', '-qm', 'new change');
   const head = git('rev-parse', 'HEAD');
+  const history = { head: oldHead };
   let requestedHead = oldHead;
   if (source === 'pr_comment') {
     git('checkout', '--detach', base);
@@ -83,8 +84,10 @@ async function fixture(t: TestContext, source: 'automatic' | 'pr_comment' | 'thr
         const sha = variables[key];
         repository[`c${key.slice(3)}`] = query.includes('AssociatedPullRequests')
           ? { oid: sha, associatedPullRequests: { nodes: [], pageInfo: { hasNextPage: false } } }
-          : { oid: sha, checkSuites: { nodes: sha === oldHead ? [{ app: { slug: 'review-app' }, checkRuns: { nodes: [{
-            name: 'Agentic Review / audit', externalId: `1:7:${base}:${oldHead}:automatic:10:1`, status: 'COMPLETED', conclusion: 'SUCCESS',
+          // GitHub 默认只展示同名最新 Check；当前 head 的新 IN_PROGRESS 会遮住旧成功项。
+          : { oid: sha, checkSuites: { nodes: sha === history.head && (sha !== head || /\bcheckType\s*:\s*ALL\b/.test(query))
+            ? [{ app: { slug: 'review-app' }, checkRuns: { nodes: [{
+            name: 'Agentic Review / audit', externalId: `1:7:${base}:${history.head}:automatic:10:1`, status: 'COMPLETED', conclusion: 'SUCCESS',
           }] } }] : [] } };
       }
       res.end(JSON.stringify({ data: { repository } }));
@@ -122,7 +125,7 @@ if(args[0]==='run' && args[1]==='download') {
     REVIEW_REPOSITORY: 'owner/repo', REVIEW_REPOSITORY_ID: '1', REVIEW_PULL_NUMBER: '7', REVIEW_TRIGGER_SOURCE: source,
     REVIEW_COMMENT_ID: source === 'automatic' ? '' : '456', REVIEW_COMMENT_ROOT_ID: source === 'thread' ? '123' : source === 'automatic' ? '' : '456', REVIEW_COMMENT_BODY: '请继续审查',
     REVIEW_SNAPSHOT_PATH: snapshot, REVIEW_APP_SLUG: 'review-app', FIXTURE_SOURCE: source, FIXTURE_AUDIT: previous, FIXTURE_REQUESTED: requested };
-  return { env, workspace, temporary, outputs, previous, prepare: (extra: Record<string, string> = {}) =>
+  return { env, workspace, temporary, outputs, previous, head, history, prepare: (extra: Record<string, string> = {}) =>
     exec(process.execPath, ['scripts/prepare-review-context.ts'], { env: { ...env, ...extra } }) };
 }
 
@@ -162,6 +165,24 @@ for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`完�
   assert.match(output, /prompt<<REVIEW_PROMPT_/);
   const config = await readFile(path.join(f.workspace, 'review-target/.git/config'), 'utf8');
   assert.doesNotMatch(config, /target-readonly|extraheader|credential/);
+});
+
+test('同一快照新建的进行中 Check 不遮住旧成功审查，完整准备入口延续全部完成项', async t => {
+  const f = await fixture(t, 'automatic');
+  f.history.head = f.head;
+  const file = path.join(f.previous, 'review-coverage.json');
+  const coverage = JSON.parse(await readFile(file, 'utf8'));
+  coverage.request.head_sha = f.head;
+  coverage.scope.ranges[0].comparison_end = f.head;
+  coverage.ledger.push({ path: 'view.ts', status: 'complete' });
+  await writeFile(file, JSON.stringify(coverage));
+  await f.prepare();
+  const manifest = JSON.parse(await readFile(path.join(f.workspace, 'review-workspace/resume-manifest.json'), 'utf8'));
+  const progress = JSON.parse(await readFile(path.join(f.workspace, 'review-workspace/review-progress.json'), 'utf8'));
+  assert.equal(manifest.inherited_from_run, '10:1');
+  assert.equal(manifest.same_snapshot, true);
+  assert.deepEqual(manifest.pending_files, []);
+  assert.deepEqual(progress.ledger, [{ path: 'auth.ts', status: 'complete' }, { path: 'view.ts', status: 'complete' }]);
 });
 
 test('讨论读取失败仍先固定本次请求和范围，准备入口报错且不交付 Prompt', async t => {

@@ -57,6 +57,7 @@ fragment Checkpoint on Commit {
       app { slug }
       checkRuns(first: 10, filterBy: {
         checkName: "${checkName}",
+        checkType: ALL,
         statuses: [COMPLETED],
         conclusions: [SUCCESS]
       }) {
@@ -231,6 +232,7 @@ export async function main() {
   const { stdout } = await exec('git', ['-C', targetPath, 'rev-list', '--topo-order', headSha, `^${mergeBase}`]);
   const commits = stdout.trim() ? stdout.trim().split('\n') : [];
   // 候选均为当前 head 的祖先；merge 的净变化（含冲突解决）仍进入 focus diff。
+  // 同一 head 的本轮 Check 已在查询前创建；查询 ALL，避免 LATEST 将旧成功记录隐藏。
   // 未改完成项可延续；间接影响由 Agent 沿增量按需重开。
   let checkpoint = await findReviewCheckpointSafely({
     commits,
