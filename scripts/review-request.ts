@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import type { CoverageEntry } from './review-coverage.ts';
 
@@ -243,14 +244,16 @@ export async function main() {
   coverage.default_plan = prepareDefaultReviewPlan(request, previous, (start, end) => comparisonUsable(process.env.REVIEW_TARGET_PATH!, start, end));
   coverage.ledger = reviewInventory(process.env.REVIEW_TARGET_PATH!, request, coverage.default_plan)
     .map((file) => ({ path: file, status: 'pending' }));
-  await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\n`);
   const context: ReviewContext = { request, default_plan: coverage.default_plan };
+  const contextText = `${JSON.stringify(context)}\n`;
   await mkdir(path.dirname(contextPath), { recursive: true, mode: 0o700 });
-  await writeFile(contextPath, `${JSON.stringify(context)}\n`, { encoding: 'utf8', mode: 0o400, flag: 'wx' });
+  await writeFile(contextPath, contextText, { encoding: 'utf8', mode: 0o400, flag: 'wx' });
   await persistReviewProgress(progressPath, { ledger: coverage.ledger, scope: {
     mode: coverage.default_plan.mode, ranges: coverage.default_plan.ranges,
     rationale: '采用默认审查计划；显式请求改变范围时由 Agent 调整。', explicit_text: '',
   } });
+  // Runner 在本步骤结束时保存摘要；后续 Agent 对本地文件的修改不能改写该步骤输出。
+  await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\ncontext_digest=${createHash('sha256').update(contextText).digest('hex')}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });

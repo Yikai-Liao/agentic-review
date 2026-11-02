@@ -1,4 +1,3 @@
-import { appendFile } from 'node:fs/promises';
 function record(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -41,17 +40,3 @@ export async function findLatestReviewWorkspace(options: {
   }).filter((candidate): candidate is { artifactId: string; runId: string; runAttempt: string; source: string; published: boolean; createdAt: string } => candidate !== null);
   return candidates.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || Number(b.runId) - Number(a.runId))[0] ?? null;
 }
-
-export async function main() {
-  const found = await findLatestReviewWorkspace({
-    repositoryId: process.env.REPOSITORY_ID!,
-    pullNumber: process.env.PULL_NUMBER!,
-    controlRepository: process.env.CONTROL_REPOSITORY!,
-    token: process.env.CONTROL_TOKEN!,
-    currentRun: `${process.env.GITHUB_RUN_ID}:${process.env.GITHUB_RUN_ATTEMPT}`,
-    api: process.env.GITHUB_API_URL,
-  });
-  await appendFile(process.env.GITHUB_OUTPUT!, `run_id=${found?.runId ?? ''}\nrun_attempt=${found?.runAttempt ?? ''}\nartifact_id=${found?.artifactId ?? ''}\nsource=${found?.source ?? ''}\npublished=${found?.published ?? false}\n`);
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { cp, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { parseReviewResult } from '../scripts/review-result.ts';
+import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const skill = 'skills/agentic-review/';
@@ -34,35 +34,34 @@ function headingAnchors(source: string): Set<string> {
     .toLowerCase().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '').replace(/\s/g, '-')));
 }
 
-test('真实中央预载与 compaction 恢复集合一致，缺规则时加载失败', async t => {
+test('共同规则预载与 compaction 恢复一致，默认 code 方法直接预载，缺规则时加载失败', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-instructions-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const relative of ['central', 'skills/agentic-review']) {
     await cp(path.join(root, relative), path.join(directory, 'control', relative), { recursive: true });
   }
-  const workflow = await read('.github/workflows/review-execution.yml');
-  const block = workflow.split('      - name: Load review prompt\n')[1].split('\n      - name:')[0];
-  const script = block.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
-  const output = path.join(directory, 'prompt-output');
-  const options = { cwd: directory, env: { ...process.env, GITHUB_OUTPUT: output }, stdio: 'pipe' as const };
-  execFileSync('bash', ['-e', '-c', script], options);
-  const assembled = await readFile(output, 'utf8');
+  const assembled = await loadReviewPrompt(path.join(directory, 'control'));
   const loaded = [...assembled.matchAll(/^## control\/(.+)$/gm)].map(match => match[1]);
   const prompt = await read('central/review-rules.md');
   const recovery = prompt.split('\n').find(line => line.startsWith('本入口已预载'))!;
   const restored = [...recovery.matchAll(/`((?:skills\/|references\/|central\/)[^`]+\.md)`/g)]
     .flatMap(match => expandBraces(match[1].startsWith('references/') ? skill + match[1] : match[1]));
-  assert.deepEqual(loaded, restored);
-  assert.deepEqual(loaded, [
+  assert.deepEqual(loaded.slice(0, restored.length), restored);
+  assert.deepEqual(restored, [
     `${skill}SKILL.md`, ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `${skill}references/${name}.md`),
     'central/github-context.md', 'central/review-result.md',
   ]);
   assert.ok(assembled.includes(await read('central/review-result.md')));
-  assert.ok(!loaded.some(file => /references\/levels\/|evals/.test(file)));
+  assert.deepEqual(loaded.slice(restored.length), [
+    `${skill}references/levels/code.md`,
+    ...['alignment', 'security', 'reliability', 'performance'].map(name => `${skill}references/focuses/${name}.md`),
+    `${skill}references/levels/code/behavior.md`,
+  ]);
+  assert.ok(!loaded.some(file => /references\/levels\/(requirements|architecture|plan)\.md|evals/.test(file)));
   for (const level of ['requirements', 'architecture', 'plan', 'code']) await read(`${skill}references/levels/${level}.md`);
   for (const match of prompt.matchAll(/\breferences\/[\w/-]+\.md/g)) await read(skill + match[0]);
   await rm(path.join(directory, 'control', skill, 'references/protocol.md'));
-  assert.throws(() => execFileSync('bash', ['-e', '-c', script], options));
+  await assert.rejects(loadReviewPrompt(path.join(directory, 'control')), /ENOENT/);
 });
 
 test('关联记录规则由可信中央入口按需加载，分类不替代 finding 关闭条件', async () => {

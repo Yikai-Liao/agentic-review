@@ -105,17 +105,17 @@ test('发布在 Agent 结束后签发独立 token，恢复可信脚本和封存�
   const step = (id: string) => steps[index(id)];
   assert.ok(index('pi-review') < index('publication-token'));
   assert.ok(index('publication-token') < index('publish-review'));
-  assert.ok(index('publisher-checkout') < index('assemble-workspace'));
-  assert.ok(index('download-context') < index('assemble-workspace'));
+  assert.ok(index('publisher-checkout') < index('publish-review'));
+  assert.ok(index('review-context') < index('pi-review'));
   const checkout = step('publisher-checkout');
   assert.equal(checkout.with.ref, '${{ github.sha }}');
   assert.equal(checkout.with['persist-credentials'], false);
   assert.equal(checkout.with.path, 'publisher');
-  assert.equal(step('download-context').with['artifact-ids'], '${{ steps.review-context.outputs.artifact-id }}');
-  assert.notEqual(step('download-context').with.path, '${{ runner.temp }}/review-context');
-  assert.equal(step('assemble-workspace').run, 'node publisher/scripts/prepare-review-publication.ts');
-  assert.equal(step('assemble-workspace').env.REVIEW_PROGRESS_PATH, '${{ github.workspace }}/review-workspace/review-progress.json');
-  assert.equal(step('publish-review').run, 'node publisher/scripts/publish-review.ts');
+  assert.equal(step('publish-review').env.REVIEW_CONTEXT_DIGEST, '${{ steps.review-context.outputs.context_digest }}');
+  assert.equal(step('publish-review').env.REVIEW_CONTEXT_PATH, '${{ runner.temp }}/review-context/review-context.json');
+  assert.equal(step('review-context').run, 'node control/scripts/prepare-review-context.ts');
+  assert.equal(step('publish-review').env.REVIEW_PROGRESS_PATH, '${{ github.workspace }}/review-workspace/review-progress.json');
+  assert.equal(step('publish-review').run, 'node publisher/scripts/publish-review-run.ts');
   assert.equal(step('publish-review').env.REVIEW_RESULT_PATH, step('pi-review').env.REVIEW_RESULT_PATH);
   assert.equal(step('publish-review').env.GH_TOKEN, '${{ steps.publication-token.outputs.token }}');
   const token = step('publication-token').with;
@@ -124,8 +124,10 @@ test('发布在 Agent 结束后签发独立 token，恢复可信脚本和封存�
   assert.deepEqual(Object.fromEntries(Object.entries(token).filter(([key]) => key.startsWith('permission-'))), {
     'permission-contents': 'write', 'permission-pull-requests': 'write', 'permission-checks': 'write',
   });
-  assert.equal(steps.filter((item: { uses?: string }) => item.uses?.startsWith('actions/setup-node@')).length, 1);
-  for (const removed of ['review-result', 'download-result', 'download-progress', 'publisher-node']) {
+  assert.equal(steps.filter((item: { uses?: string }) => item.uses?.startsWith('actions/setup-node@')).length, 0);
+  assert.equal(step('snapshot').uses, 'actions/github-script@v9.0.0');
+  assert.ok(step('snapshot').with.script.includes("core.addPath(require('node:path').dirname(process.execPath))"));
+  for (const removed of ['request-scope', 'review-checkpoint', 'assemble-workspace', 'previous-workspace-download', 'download-context', 'completion-workspace', 'publication-report', 'review-result', 'download-result', 'download-progress', 'publisher-node']) {
     assert.equal(index(removed), -1);
   }
 });

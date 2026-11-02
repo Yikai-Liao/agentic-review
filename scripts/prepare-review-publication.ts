@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { inventoryDigest, readReviewProgress } from './review-coverage.ts';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { inventoryDigest, parseReviewProgress } from './review-coverage.ts';
 import { buildReviewRequest, persistReviewCoverage } from './review-request.ts';
 
 // Agent 结束后，把预先封存的上下文与 Agent 进度组装为历史记录。
@@ -11,7 +13,12 @@ export async function main() {
     if (!value) throw new Error(`Missing ${name}`);
     return value;
   };
-  const coverage = await readReviewProgress(required('REVIEW_CONTEXT_PATH'), required('REVIEW_PROGRESS_PATH'));
+  const context = await readFile(required('REVIEW_CONTEXT_PATH'), 'utf8');
+  if (createHash('sha256').update(context).digest('hex') !== required('REVIEW_CONTEXT_DIGEST')) {
+    throw new Error('Review context does not match the trusted preparation digest');
+  }
+  // 校验和解析使用同一份内容，避免校验后重新读取可变文件。
+  const coverage = parseReviewProgress(JSON.parse(context), JSON.parse(await readFile(required('REVIEW_PROGRESS_PATH'), 'utf8')));
   const request = buildReviewRequest({
     source: required('REVIEW_TRIGGER_SOURCE'),
     commentId: process.env.REVIEW_COMMENT_ID,

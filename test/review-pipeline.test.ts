@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -89,12 +89,30 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     await writeFile(resultPath, JSON.stringify({ body: '已审查鉴权变化。', comments: [], thread_updates: [], request_reply: null }));
     const publishEnv = { ...env, REPOSITORY: 'owner/repo', PULL_NUMBER: '7', BASE_SHA: base, HEAD_SHA: head,
       REVIEW_INVENTORY_DIGEST: outputs.inventory_digest, REVIEW_COMPARISON_START: outputs.comparison_start,
+      REVIEW_CONTEXT_DIGEST: outputs.context_digest,
       REVIEW_RUN_ID: '20', REVIEW_RUN_ATTEMPT: '1', REVIEW_RESULT_PATH: resultPath, REVIEW_COVERAGE_PATH: coveragePath, REVIEW_BOT_LOGIN: 'review-app[bot]',
       REVIEW_RUN_URL: 'https://github.test/run', REVIEW_WORKSPACE_URL: 'https://github.test/workspace', REVIEW_MODEL: 'test',
       REVIEW_COST: '0.00321',
       GITHUB_STEP_SUMMARY: path.join(directory, 'summary'), GH_TOKEN: 'test-token', GITHUB_API_URL: `http://127.0.0.1:${address.port}` };
     const publish = () => exec(process.execPath, ['scripts/publish-review.ts'], { env: publishEnv });
     const assemble = () => exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: publishEnv });
+    // 请求身份不变、只改默认范围也必须被准备阶段的摘要拦住。
+    const tampered = JSON.parse(sealedContext);
+    tampered.default_plan.ranges[0].targets = ['仅审查模型选择的文件'];
+    await chmod(contextPath, 0o600);
+    await writeFile(contextPath, JSON.stringify(tampered));
+    await assert.rejects(assemble(), /trusted preparation digest/);
+    assert.equal(writes.length, 0);
+    await writeFile(contextPath, sealedContext);
+    await chmod(contextPath, 0o400);
+    await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], {
+      env: { ...publishEnv, REVIEW_CONTEXT_DIGEST: '' },
+    }), /Missing REVIEW_CONTEXT_DIGEST/);
+    await assert.rejects(exec(process.execPath, ['scripts/publish-review-run.ts'], {
+      env: { ...publishEnv, PI_REVIEW_OUTCOME: 'failure' },
+    }), /workspace saved for recovery/);
+    assert.match(await readFile(outputPath, 'utf8'), /workspace_ready=true/);
+    assert.equal(writes.length, 0);
     await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, PULL_NUMBER: '8' } }), /context does not match/);
     await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, HEAD_SHA: base } }), /context does not match/);
     await assemble();
