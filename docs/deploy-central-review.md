@@ -222,6 +222,10 @@ Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/set
 
 Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型目录公开单价计算的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时通过 `modelOverrides` 调整窗口等设置，继承目录中的输入、输出、缓存和分档价格；该金额不代表网关账单、折扣或税费。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
 
+中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`，使同一模型的相同规则前缀可跨 PR 初审复用缓存；会话标头仍由 Pi 独立生成。缓存生命周期沿用 SDK 默认设置，是否命中由网关和实际前缀决定。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
+
+运行日志中每个 `[review-usage]` JSON 记录一个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。统计来自 Pi 的归一化 usage 与目录计价，不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
+
 页脚链接当前 Actions 运行的 artifacts 区域，其中包含可恢复草稿、完成工作区或失败诊断报告；保留期以 workflow 的 `retention-days` 为准，访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
 
 如果 Review 发布失败，先检查：

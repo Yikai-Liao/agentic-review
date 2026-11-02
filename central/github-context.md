@@ -42,6 +42,8 @@ node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 
 准备阶段从固定 SHA 的本地 Git 生成逐文件 patch 材料并统计 Token；索引保留完整 PR、当前增量及显式请求各区间的独立入口。补充源码或重查时仍使用本地 Git。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
 
+已预载的 patch 直接用于调查；其余 patch 从索引读取，版本或证据存在疑问时再从 Git 补查。补充源码时，先沿变化中的符号和调用位置定位，再读取相关函数、直接依赖与必要上下文；需要更大范围才能闭合行为路径时继续展开。保留完整变化覆盖，已在上下文中的同一证据直接复用。
+
 首次调查或没有可用基线时，以完整 PR 材料和文件进度为范围依据。需要补查清单或规模时：
 
 ```bash

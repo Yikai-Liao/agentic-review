@@ -209,7 +209,7 @@ jobs:
           REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
         run: node control/scripts/prepare-review-context.ts
 
-      # 从可信 control checkout 安装中央 Skill；模型覆盖保留 Pi 目录中的公开单价。
+      # 中央规则由可信 control checkout 预载；模型覆盖保留 Pi 目录中的公开单价。
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
@@ -217,9 +217,8 @@ jobs:
           REVIEW_AGENT_API_KEY: ${{ secrets.REVIEW_AGENT_API_KEY }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
         run: |
-          mkdir -p "$HOME/.pi/agent/skills" "$REVIEW_WORKSPACE_PATH"
+          mkdir -p "$HOME/.pi/agent" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          cp -R control/skills/agentic-review "$HOME/.pi/agent/skills/"
           # shaftoe action 不提供 retry input；Pi SDK 的 retry 默认值在不同
           # 版本间可能变化，因此在受信运行时显式配置。容量错误只保留
           # provider 层这一份 retry budget；禁用 Agent 层重放，避免每次
@@ -314,6 +313,7 @@ jobs:
           load_builtin_extensions: false
           # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
           extensions: |
+            control/.github/pi-extensions/review-cost.ts
             control/.github/pi-extensions/review-input.ts
             control/.github/pi-extensions/review-tools.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。

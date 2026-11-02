@@ -33,7 +33,7 @@
 | `known-issues.md` | 按需保留为关联记录处理入口：原文、因果关联、内容分类与当前 Review 去重；关闭证据引用 review-state，最终披露引用 findings，平台查询边界仍在中央适配器 |
 | `evidence.md` | protocol、findings、levels/code/behavior；代码现实路径与生产影响证明不以通用口号替代 |
 | `performance.md` | focuses/performance，保留代码成本证明，并扩展需求目标、架构容量和计划验证的跨层方法 |
-| `test-contracts.md` | levels/code/test-contracts，保留 census/fingerprint、违反/允许探针、独立价值与删除证明 |
+| `test-contracts.md` | levels/code/test-contracts 保存共同盘点、分组与 T1 证明；test-overconstraint、test-economics 分别按需加载合法变化证明和独立检测能力/删除证明 |
 | `findings.md` | 共享成立/去重/历史披露、code 的 P/T 特化；中央正文和 Alert/inline 模板完整迁到 central/review-result |
 
 `[agentic-review-worker]` 不再是必须识别的入口字符串。委派任务须明确“只调查指定 batch”、固定版本、证据、规则和输出边界；该改变不授予额外权限，不开放递归委派。当前中央 workflow 不加载 delegation 工具，本次泛化不引入多 Agent 运行时。
