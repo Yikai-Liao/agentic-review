@@ -5,6 +5,7 @@ import { parseReviewCoverage, validateCoverageCompletion } from './review-covera
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
+import { parseReviewUsage, reviewMetadataStart, reviewMetadataEnd, type ReviewUsage } from './review-usage.ts';
 
 type FooterMetadata = {
   runUrl: string;
@@ -15,6 +16,8 @@ type FooterMetadata = {
   inputTokens?: number;
   outputTokens?: number;
   cost?: number;
+  controlSha?: string;
+  usage?: ReviewUsage;
 };
 type PublishOptions = {
   result: ReviewResult;
@@ -127,6 +130,8 @@ export function buildFooter({
   inputTokens,
   outputTokens,
   cost,
+  controlSha,
+  usage,
 }: FooterMetadata) {
   const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
   if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
@@ -139,7 +144,25 @@ export function buildFooter({
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Invalid review cost');
     parts.push(`Cost (est.): ${cost > 0 && cost < 0.0001 ? '<$0.0001' : `$${cost.toFixed(4)}`}`);
   }
-  return parts.join(' | ');
+  if (controlSha) parts.push(`Rules: ${controlSha.slice(0, 7)}`);
+  if (!usage) return parts.join(' | ');
+  parseReviewUsage(usage);
+  const first = usage.first;
+  const total = usage.total;
+  const firstInput = first.input + first.cacheRead + first.cacheWrite;
+  const hit = firstInput === 0 ? '无输入' : `${(100 * first.cacheRead / firstInput).toFixed(1)}%`;
+  const dollars = (value: number) => value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
+  const tokens = (value: number) => value.toLocaleString('en-US');
+  return [reviewMetadataStart, parts.join(' | '), '', '<details>',
+    `<summary>费用分析：${usage.turns} 个审查回合；首轮缓存命中 ${hit}</summary>`, '',
+    '| 审查回合用量 | Token | 费用估算 |', '| --- | ---: | ---: |',
+    ...([
+      ['普通输入', 'input'], ['缓存读取', 'cacheRead'], ['缓存写入', 'cacheWrite'], ['输出（含推理）', 'output'],
+    ] as const).map(([label, key]) => `| ${label} | ${tokens(total[key])} | ${dollars(total.cost[key])} |`), '',
+    `首轮输入：普通 ${tokens(first.input)}；缓存读取 ${tokens(first.cacheRead)}；缓存写入 ${tokens(first.cacheWrite)}。`,
+    total.reasoning === undefined ? '推理 Token：未提供。' : `推理 Token：${tokens(total.reasoning)}，已包含在输出中。`,
+    '以上为审查回合统计；总费用采用 Action 汇总。', '', '</details>', reviewMetadataEnd,
+  ].join('\n');
 }
 
 export async function publishReview({
@@ -326,6 +349,8 @@ export async function main() {
         durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
         inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
         outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
+        controlSha: process.env.GITHUB_SHA,
+        usage: parseReviewUsage(JSON.parse(await readFile(path.join(path.dirname(coveragePath), 'review-usage.json'), 'utf8'))),
       }),
     };
     return { coverage, coveragePath, options };

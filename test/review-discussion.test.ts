@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { main, readDiscussion } from '../scripts/refresh-review-discussion.ts';
+import { reviewMetadataStart, reviewMetadataEnd } from '../scripts/review-usage.ts';
 
 const comment = (id: number, body = '原始评论') => ({ id, body, user: { login: 'author' }, updated_at: '2026-09-07T10:00:00Z' });
 const thread = (id: number, isResolved = false) => ({ id: `thread-${id}`, isResolved, isOutdated: false,
@@ -78,6 +79,31 @@ test('独立讨论查询并发开始，全部完成后才返回快照', async ()
   assert.deepEqual(discussion.inline_comments.map(record => record.id), [2]);
   assert.deepEqual(discussion.reviews.map(record => record.id), [3]);
   assert.deepEqual(discussion.threads.map(record => record.root_comment_id), [2]);
+});
+
+test('自己的统计 footer 不回流到模型；判断、发布标记及人工引用保持原文', async t => {
+  const original = process.env.REVIEW_APP_SLUG;
+  process.env.REVIEW_APP_SLUG = 'review-app';
+  t.after(() => {
+    if (original === undefined) delete process.env.REVIEW_APP_SLUG;
+    else process.env.REVIEW_APP_SLUG = original;
+  });
+  const body = `已确认权限修复满足原关闭条件。\n\n${reviewMetadataStart}\n费用分析：缓存写入 30K token。\n${reviewMetadataEnd}\n<!-- publication-id -->`;
+  const own = { ...comment(11, body), user: { login: 'review-app[bot]' } };
+  const human = comment(12, body);
+  const other = { ...comment(13, body), user: { login: 'other-app[bot]' } };
+  const source = fixture({ issue: [[own, human, other]], inline: [[own]], reviews: [[own]] });
+  const snapshot = await readDiscussion('owner/repo', '61', source.run);
+  for (const records of [snapshot.discussion.issue_comments, snapshot.discussion.inline_comments, snapshot.discussion.reviews]) {
+    assert.equal(records[0].body, '已确认权限修复满足原关闭条件。\n\n\n<!-- publication-id -->');
+  }
+  assert.equal(snapshot.discussion.issue_comments[1].body, body);
+  assert.equal(snapshot.discussion.issue_comments[2].body, body);
+  assert.equal(own.body, body);
+  const statsOnly = fixture({ issue: [[{ ...own, body: body.replace('30K', '40K') }, human, other]], inline: [[own]], reviews: [[own]] });
+  assert.deepEqual((await readDiscussion('owner/repo', '61', statsOnly.run, snapshot.baseline)).discussion.issue_comments, []);
+  const decision = fixture({ issue: [[{ ...own, body: body.replace('满足', '不满足') }, human, other]], inline: [[own]], reviews: [[own]] });
+  assert.match(String((await readDiscussion('owner/repo', '61', decision.run, snapshot.baseline)).discussion.issue_comments[0].body), /不满足原关闭条件/);
 });
 
 test('timestamp boundary overlaps and newly visible records are not filtered by creation time', async () => {

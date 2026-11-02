@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { reviewMetadataStart, reviewMetadataEnd } from './review-usage.ts';
 
 export type Run = (command: string, args: string[]) => Promise<string>;
 type RecordWithId = { id: number | string; [key: string]: unknown };
@@ -44,10 +45,18 @@ export function groupReviewThreads(discussion: DiscussionThreads) {
 const selectFields = (record: Record<string, unknown>, fields: readonly string[]) =>
   Object.fromEntries(fields.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]));
 
-// 当前 PR、关联 PR 和讨论刷新共用证据表示；正文与定位原样保留，
+// 当前 PR、关联 PR 和讨论刷新共用证据表示；审查正文与定位保留，
 // 不把每条评论重复的用户头像、关注列表和 API 导航地址带进模型上下文。
 function discussionEvidence(record: RecordWithId): RecordWithId {
   const { url, node_id, issue_url, pull_request_url, _links, user, performed_via_github_app, ...evidence } = record;
+  // 新增统计只供人分析；不让自己的 footer 在下一轮变成付费审查材料。
+  // 按当前 App 身份限定，人工回复或其他机器人的同名标记仍是证据原文。
+  if (process.env.REVIEW_APP_SLUG && (user as { login?: string } | null)?.login === `${process.env.REVIEW_APP_SLUG}[bot]`
+    && typeof evidence.body === 'string') {
+    const start = evidence.body.lastIndexOf(reviewMetadataStart);
+    const end = evidence.body.indexOf(reviewMetadataEnd, start);
+    if (start !== -1 && end !== -1) evidence.body = evidence.body.slice(0, start) + evidence.body.slice(end + reviewMetadataEnd.length);
+  }
   for (const [field, fields] of [
     ['user', ['id', 'login', 'type', 'html_url']],
     ['performed_via_github_app', ['id', 'slug', 'name']],
