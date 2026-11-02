@@ -136,12 +136,9 @@ test('paginates commit-associated pull requests', async () => {
 test('prepares the association index before running Pi', async () => {
   const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const steps = parse(workflow).jobs.review.steps;
-  const associations = steps.findIndex((step: { name: string }) => step.name === 'Prepare review association index');
-  const input = steps.findIndex((step: { name: string }) => step.name === 'Prepare review input');
+  const context = steps.findIndex((step: { id: string }) => step.id === 'review-context');
   const agent = steps.findIndex((step: { name: string }) => step.name === 'Run Pi review');
-  assert.ok(associations >= 0 && input > associations && agent > input);
-  assert.equal(steps[associations].run, 'node control/scripts/list-review-associations.ts');
-  for (const index of [associations, input, agent]) {
-    assert.equal(steps[index].env.REVIEW_ASSOCIATIONS_PATH, '${{ runner.temp }}/review-associations.json');
-  }
+  assert.ok(context >= 0 && agent > context);
+  assert.equal(steps[context].run, 'node control/scripts/prepare-review-context.ts');
+  assert.equal(steps[agent].env.REVIEW_ASSOCIATIONS_PATH, '${{ runner.temp }}/review-associations.json');
 });

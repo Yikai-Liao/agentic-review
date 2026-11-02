@@ -59,16 +59,13 @@ function publisherFetch({
             repository: {
               pullRequest: {
                 reviewThreads: {
-                  nodes: [{ id: 'thread-id', comments: { nodes: [{ databaseId: 123 }] } }],
+                  nodes: [{ id: 'thread-id', isResolved, comments: { nodes: [{ databaseId: 123 }] } }],
                   pageInfo: { hasNextPage: false, endCursor: null },
                 },
               },
             },
           },
         });
-      }
-      if (url.endsWith('/graphql') && body.includes('query($thread:ID!)')) {
-        return Response.json({ data: { node: { id: 'thread-id', isResolved } } });
       }
       if (url.endsWith('/comments/123/replies')) return Response.json({ html_url: 'https://github.test/thread#reply' });
       if (url.endsWith('/pulls/7/reviews')) return Response.json({ html_url: 'https://github.test/review/1' });

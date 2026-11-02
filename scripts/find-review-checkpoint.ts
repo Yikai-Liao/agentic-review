@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { appendFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -211,10 +210,9 @@ export async function main() {
     CONTROL_TOKEN: controlToken,
     GITHUB_GRAPHQL_URL: graphql,
     GITHUB_API_URL: api,
-    GITHUB_OUTPUT: output,
   } = process.env;
   if (!targetPath || !repository || !repositoryId || !pullNumber || !baseSha || !headSha || !appSlug
-    || !token || !controlRepository || !controlToken || !output) {
+    || !token || !controlRepository || !controlToken) {
     throw new Error('Missing review checkpoint environment');
   }
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)
@@ -258,11 +256,5 @@ export async function main() {
     })
     : null;
   if (!artifactId) checkpoint = null;
-  await appendFile(output, [
-    `head_sha=${checkpoint?.headSha ?? ''}`,
-    `run_id=${checkpoint ? checkpointRunId : ''}`,
-    `run_attempt=${checkpoint ? checkpointRunAttempt : ''}`,
-    `workspace_artifact_id=${artifactId ?? ''}`,
-    '',
-  ].join('\n'));
+  return checkpoint ? { headSha: checkpoint.headSha, runId: checkpointRunId!, runAttempt: checkpointRunAttempt!, artifactId: artifactId! } : null;
 }

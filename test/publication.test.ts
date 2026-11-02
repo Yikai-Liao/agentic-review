@@ -40,7 +40,7 @@ function fixture() {
       if (call.url.endsWith('/graphql')) {
         const query = call.body.query as string;
         if (query.includes('reviewThreads')) return Response.json({ data: { repository: { pullRequest: {
-          reviewThreads: { nodes: [123, 456].map(id => ({ id: `thread-${id}`, comments: { nodes: [{ databaseId: id }] } })),
+          reviewThreads: { nodes: [123, 456].map(id => ({ id: `thread-${id}`, isResolved: resolved.has(`thread-${id}`), comments: { nodes: [{ databaseId: id }] } })),
             pageInfo: { hasNextPage: false, endCursor: null } },
         } } } });
         const id = call.body.variables.thread;
@@ -92,6 +92,32 @@ function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters
 }
 
 const mutations = (calls: Call[]) => calls.filter(call => call.method !== 'GET' && !call.body?.query?.startsWith('query'));
+
+test('发布前独立读取并行，thread 列表直接提供状态而不逐条重查', { timeout: 5000 }, async () => {
+  const state = fixture();
+  const originalFetch = state.fetchImpl;
+  const started = new Set<string>();
+  let resolveReady!: () => void;
+  const ready = new Promise<void>(resolve => { resolveReady = resolve; });
+  state.fetchImpl = (async (input, init) => {
+    const url = String(input);
+    const query = init?.body ? JSON.parse(String(init.body)).query : undefined;
+    const kind = url.includes('/comments?') ? 'comments' : url.includes('/reviews?') ? 'reviews'
+      : query?.includes('reviewThreads') ? 'threads' : null;
+    if (kind) {
+      started.add(kind);
+      if (started.size === 3) resolveReady();
+      await ready;
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  await publish(state);
+  assert.equal(started.size, 3);
+  const queries = state.calls.filter(call => call.body?.query?.startsWith('query'));
+  assert.equal(queries.length, 1);
+  assert.match(queries[0].body.query, /isResolved/);
+  assert.equal(state.resolved.size, 2);
+});
 
 test('统一执行边界收集任意异常，只阻断声明了失败依赖的操作', async () => {
   const publication = createPublication();
@@ -258,10 +284,12 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   const workflow = readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const execution = parse(workflow).jobs.review.steps;
   const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = Object.fromEntries([
-    'pi-review', 'review-context', 'review-check', 'review-workspace', 'publisher-checkout', 'download-context',
-    'assemble-workspace', 'publication-token', 'publish-review', 'publication-report', 'completion-workspace', 'diagnostic-workspace',
+    'pi-review', 'review-context', 'review-check', 'review-workspace', 'publisher-checkout',
+    'publication-token', 'publish-review', 'diagnostic-workspace',
   ].map(id => [id, { outcome: 'success', outputs: {} }]));
   steps['review-check'].outputs.check_id = '1';
+  steps['review-context'].outputs.context_digest = 'trusted-digest';
+  steps['publish-review'].outputs.workspace_ready = 'true';
   function shouldRun(id: string, cancelled = false) {
     const condition = execution.find((step: { id?: string }) => step.id === id)?.if;
     const expression = condition?.match(/^\$\{\{ (.+) \}\}$/)?.[1];
@@ -276,9 +304,7 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(shouldRun('review-workspace'), true);
   assert.equal(shouldRun('publication-token'), true);
   assert.equal(shouldRun('publisher-checkout'), true);
-  assert.equal(shouldRun('download-context'), true);
-  assert.equal(shouldRun('assemble-workspace'), true);
-  assert.equal(shouldRun('publish-review'), false);
+  assert.equal(shouldRun('publish-review'), true);
   assert.equal(shouldRun('complete-check'), true);
   steps['pi-review'].outcome = 'success';
   steps['review-check'].outputs.check_id = '';
@@ -287,32 +313,38 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   steps['review-check'].outputs.check_id = '1';
   steps['review-workspace'].outcome = 'failure';
   assert.equal(shouldRun('diagnostic-workspace'), true);
-  assert.equal(shouldRun('assemble-workspace'), true);
   assert.equal(shouldRun('publish-review'), true);
   steps['publication-token'].outcome = 'failure';
   assert.equal(shouldRun('publisher-checkout'), true);
-  assert.equal(shouldRun('assemble-workspace'), true);
-  assert.equal(shouldRun('publish-review'), false);
+  assert.equal(shouldRun('publish-review'), true);
   steps['publication-token'].outcome = 'success';
-  steps['download-context'].outcome = 'failure';
-  assert.equal(shouldRun('assemble-workspace'), false);
-  steps['assemble-workspace'].outcome = 'skipped';
+  steps['review-context'].outputs.context_digest = '';
+  assert.equal(shouldRun('publisher-checkout'), false);
+  steps['publish-review'].outputs.workspace_ready = '';
   assert.equal(shouldRun('review-workspace'), false);
   assert.equal(shouldRun('publish-review'), false);
-  steps['assemble-workspace'].outcome = 'success';
+  steps['review-context'].outputs.context_digest = 'trusted-digest';
+  steps['review-context'].outcome = 'failure';
+  assert.equal(shouldRun('publisher-checkout'), true);
+  assert.equal(shouldRun('publish-review'), true);
+  steps['publish-review'].outputs.workspace_ready = 'true';
   steps['publish-review'].outcome = 'failure';
-  assert.equal(shouldRun('publication-report'), true);
-  assert.equal(shouldRun('completion-workspace'), false);
+  assert.equal(shouldRun('review-workspace'), true);
+  assert.equal(shouldRun('review-workspace', true), true);
   steps['publish-review'].outcome = 'success';
-  assert.equal(shouldRun('publication-report'), false);
-  steps['publication-report'].outcome = 'skipped';
-  assert.equal(shouldRun('completion-workspace'), true);
-  assert.equal(shouldRun('completion-workspace', true), false);
+  assert.equal(shouldRun('review-workspace'), true);
   steps['review-workspace'].outcome = 'success';
   assert.equal(shouldRun('diagnostic-workspace'), false);
-  // 正常运行仅上传封存请求、可恢复草稿和可信完成工作区。
+  // 正常运行只归档一次；发布失败或取消也保留可恢复工作区及其中的发布报告。
   assert.equal(execution.filter((step: { id: string; uses?: string; if?: string }) =>
-    step.uses?.startsWith('actions/upload-artifact@') && (!step.if || shouldRun(step.id))).length, 3);
+    step.uses?.startsWith('actions/upload-artifact@') && (!step.if || shouldRun(step.id))).length, 1);
+  const archive = execution.find((step: { id?: string }) => step.id === 'review-workspace');
+  const prefix = archive.with.name.match(/^\$\{\{ (.+?) \}\}/)[1];
+  for (const outcome of ['success', 'failure', 'cancelled', 'skipped']) {
+    steps['publish-review'].outcome = outcome;
+    assert.equal(runInNewContext(prefix.replace(/steps\.([\w-]+)\./g, 'steps["$1"].'), { steps }),
+      outcome === 'success' ? 'review-completed-workspace' : 'review-workspace');
+  }
 
   const completion = workflow.split('      - name: Complete Agentic Review check')[1];
   assert.match(completion, /REVIEW_JOB_STATUS: \$\{\{ job.status \}\}/);

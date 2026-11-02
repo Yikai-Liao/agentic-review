@@ -42,6 +42,7 @@ type ReviewComment = {
 };
 type ReviewThread = {
   id: string;
+  isResolved: boolean;
   comments: { nodes: Array<{ databaseId: number }> };
 };
 
@@ -85,13 +86,14 @@ async function reviewThreads(
     const result: any = await github(fetchImpl, api, token, '/graphql', {
       method: 'POST',
       body: JSON.stringify({
-        query: 'query($owner:String!,$repo:String!,$pull:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$pull){reviewThreads(first:100,after:$cursor){nodes{id comments(first:1){nodes{databaseId}}}pageInfo{hasNextPage endCursor}}}}}',
+        query: 'query($owner:String!,$repo:String!,$pull:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$pull){reviewThreads(first:100,after:$cursor){nodes{id isResolved comments(first:1){nodes{databaseId}}}pageInfo{hasNextPage endCursor}}}}}',
         variables: { owner, repo, pull: pullNumber, cursor },
       }),
     });
     if (result.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(result.errors)}`);
     const page = result.data?.repository?.pullRequest?.reviewThreads;
-    if (!Array.isArray(page?.nodes) || typeof page.pageInfo?.hasNextPage !== 'boolean' ||
+    if (!Array.isArray(page?.nodes) || page.nodes.some((thread: ReviewThread) => typeof thread?.isResolved !== 'boolean')
+        || typeof page.pageInfo?.hasNextPage !== 'boolean' ||
         (page.pageInfo.hasNextPage && (typeof page.pageInfo.endCursor !== 'string' || !page.pageInfo.endCursor))) {
       throw new Error('Incomplete review thread page');
     }
@@ -99,22 +101,6 @@ async function reviewThreads(
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
   return threads;
-}
-
-async function reviewThreadState(fetchImpl: typeof fetch, api: string, token: string, threadId: string) {
-  const result: any = await github(fetchImpl, api, token, '/graphql', {
-    method: 'POST',
-    body: JSON.stringify({
-      query: 'query($thread:ID!){node(id:$thread){... on PullRequestReviewThread{id isResolved}}}',
-      variables: { thread: threadId },
-    }),
-  });
-  if (result.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(result.errors)}`);
-  if (!result.data.node) throw new Error(`${threadId} is no longer a review thread`);
-  if (result.data.node.id !== threadId || typeof result.data.node.isResolved !== 'boolean') {
-    throw new Error('Invalid review thread state');
-  }
-  return result.data.node as { id: string; isResolved: boolean };
 }
 
 function formatNumber(value: number) {
@@ -188,10 +174,16 @@ export async function publishReview({
   const marker = (id: string, content: unknown) => `<!-- agentic-review-publication:${createHash('sha256')
     .update(JSON.stringify([publicationId, repository, pullNumber, expectedHeadSha, id, content])).digest('hex')} -->`;
   const needsComments = result.comments.length > 0 || result.thread_updates.length > 0 || requestSource === 'thread';
-  const comments = needsComments ? await run('读取 PR 评论', [], () =>
-    listPullRecords<ReviewComment>(fetchImpl, api, token, `${route}/comments`)) : undefined;
-  const threads = result.thread_updates.length ? await run('读取 PR thread', [], () =>
-    reviewThreads(fetchImpl, api, token, repository, pullNumber)) : undefined;
+  const needsReview = !threadReplyOnly || result.comments.length > 0;
+  const [comments, threads, reviews] = await Promise.all([
+    needsComments ? run('读取 PR 评论', [], () =>
+      listPullRecords<ReviewComment>(fetchImpl, api, token, `${route}/comments`)) : undefined,
+    result.thread_updates.length ? run('读取 PR thread', [], () =>
+      reviewThreads(fetchImpl, api, token, repository, pullNumber)) : undefined,
+    needsReview ? run('读取已发布 Review', [], () => listPullRecords<{
+      id: number; body: string; html_url: string; user?: { login?: string };
+    }>(fetchImpl, api, token, `${route}/reviews`)) : undefined,
+  ]);
   const notice = () => {
     const failed = publication.operations.filter(item => item.status !== 'succeeded').length;
     return failed
@@ -228,9 +220,8 @@ export async function publishReview({
     await run(`${id} 状态同步`, [root, threads!], async () => {
       const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
       if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
-      const current = await reviewThreadState(fetchImpl, api, token, thread.id);
       const shouldResolve = update.status === 'resolved';
-      if (current.isResolved === shouldResolve) return;
+      if (thread.isResolved === shouldResolve) return;
       const mutation = shouldResolve
         ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
         : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
@@ -276,13 +267,10 @@ export async function publishReview({
   }
 
   let reviewUrl = '';
-  if (!threadReplyOnly || result.comments.length > 0) {
-    const reviews = await run('读取已发布 Review', [], () => listPullRecords<{
-      id: number; body: string; html_url: string; user?: { login?: string };
-    }>(fetchImpl, api, token, `${route}/reviews`));
-    const review = await run('Review 正文', [reviews], async () => {
+  if (needsReview) {
+    const review = await run('Review 正文', [reviews!], async () => {
       const tag = marker('summary', result);
-      const existing = reviews.value!.find(item => isBot(item) && item.body.includes(tag));
+      const existing = reviews!.value!.find(item => isBot(item) && item.body.includes(tag));
       const body = `${tag}\n${notice()}\n\n${result.body}\n\n---\n\n${footer}`;
       if (existing) {
         if (existing.body !== body) await request(`${route}/reviews/${existing.id}`, {

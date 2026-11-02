@@ -1,0 +1,420 @@
+{
+  "description": "2026-10-31 至 2026-11-01（UTC+8）中央 Review 运行及本地优化验证；不包含凭据或原始讨论。",
+  "window_utc": [
+    "2026-10-30T16:00:00Z",
+    "2026-11-01T16:00:00Z"
+  ],
+  "control_sha": "bc307bbe19ddd9de4fd44e065b3fb7c25c78d645",
+  "model": "openai/gpt-6.1-sol",
+  "thinking_level": "high",
+  "fast_mode": false,
+  "medians_seconds": {
+    "total": 100.5,
+    "pi": 56.5,
+    "queue": 4,
+    "prepare": 18.5,
+    "after": 12.5,
+    "prepare_and_after": 31
+  },
+  "runs": [
+    {
+      "id": 41162730657,
+      "repo": "Qiyin-Tech/orchestra-frontend",
+      "pr": 461,
+      "files": 16,
+      "pending": 16,
+      "inherited_from": null,
+      "total": 134,
+      "queue": 4,
+      "before": 16,
+      "pi": 102,
+      "after": 12,
+      "tool_count": 16,
+      "tool_seconds": 1.813,
+      "finding_count": 1,
+      "thread_update_count": 0,
+      "notes_bytes": 2685,
+      "result_bytes": 2324,
+      "created_at": "2026-10-31T03:04:07Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41162730657",
+      "turn_count": 17
+    },
+    {
+      "id": 41163216395,
+      "repo": "Qiyin-Tech/orchestra-frontend",
+      "pr": 461,
+      "files": 17,
+      "pending": 3,
+      "inherited_from": "41162730657:1",
+      "total": 83,
+      "queue": 3,
+      "before": 23,
+      "pi": 39,
+      "after": 18,
+      "tool_count": 8,
+      "tool_seconds": 0.952,
+      "finding_count": 0,
+      "thread_update_count": 1,
+      "notes_bytes": 2470,
+      "result_bytes": 1976,
+      "created_at": "2026-10-31T03:10:40Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41163216395",
+      "turn_count": 9
+    },
+    {
+      "id": 41171466680,
+      "repo": "Qiyin-Tech/orchestra-frontend",
+      "pr": 462,
+      "files": 8,
+      "pending": 8,
+      "inherited_from": null,
+      "total": 108,
+      "queue": 4,
+      "before": 17,
+      "pi": 75,
+      "after": 12,
+      "tool_count": 16,
+      "tool_seconds": 1.609,
+      "finding_count": 0,
+      "thread_update_count": 0,
+      "notes_bytes": 798,
+      "result_bytes": 675,
+      "created_at": "2026-10-31T05:09:41Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41171466680",
+      "turn_count": 17
+    },
+    {
+      "id": 41186253360,
+      "repo": "Qiyin-Tech/orchestra-frontend",
+      "pr": 463,
+      "files": 3,
+      "pending": 3,
+      "inherited_from": null,
+      "total": 86,
+      "queue": 3,
+      "before": 19,
+      "pi": 51,
+      "after": 13,
+      "tool_count": 15,
+      "tool_seconds": 1.259,
+      "finding_count": 0,
+      "thread_update_count": 0,
+      "notes_bytes": 798,
+      "result_bytes": 519,
+      "created_at": "2026-10-31T08:50:52Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41186253360",
+      "turn_count": 16
+    },
+    {
+      "id": 41186858453,
+      "repo": "Qiyin-Tech/orchestra-frontend",
+      "pr": 464,
+      "files": 11,
+      "pending": 11,
+      "inherited_from": null,
+      "total": 129,
+      "queue": 3,
+      "before": 18,
+      "pi": 96,
+      "after": 12,
+      "tool_count": 17,
+      "tool_seconds": 2.208,
+      "finding_count": 1,
+      "thread_update_count": 0,
+      "notes_bytes": 2954,
+      "result_bytes": 2574,
+      "created_at": "2026-10-31T09:00:18Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41186858453",
+      "turn_count": 18
+    },
+    {
+      "id": 41187399725,
+      "repo": "Qiyin-Tech/orchestra-frontend",
+      "pr": 464,
+      "files": 12,
+      "pending": 2,
+      "inherited_from": "41186858453:1",
+      "total": 103,
+      "queue": 4,
+      "before": 21,
+      "pi": 60,
+      "after": 18,
+      "tool_count": 12,
+      "tool_seconds": 0.741,
+      "finding_count": 0,
+      "thread_update_count": 1,
+      "notes_bytes": 3956,
+      "result_bytes": 1548,
+      "created_at": "2026-10-31T09:07:44Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41187399725",
+      "turn_count": 13
+    },
+    {
+      "id": 41199690681,
+      "repo": "Qiyin-Tech/orchestra-backend",
+      "pr": 886,
+      "files": 1,
+      "pending": 1,
+      "inherited_from": null,
+      "total": 66,
+      "queue": 4,
+      "before": 16,
+      "pi": 36,
+      "after": 10,
+      "tool_count": 10,
+      "tool_seconds": 0.731,
+      "finding_count": 0,
+      "thread_update_count": 0,
+      "notes_bytes": 1502,
+      "result_bytes": 431,
+      "created_at": "2026-10-31T12:07:20Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41199690681",
+      "turn_count": 11
+    },
+    {
+      "id": 41267584329,
+      "repo": "Qiyin-Tech/orchestra-backend",
+      "pr": 887,
+      "files": 15,
+      "pending": 15,
+      "inherited_from": null,
+      "total": 98,
+      "queue": 5,
+      "before": 24,
+      "pi": 53,
+      "after": 16,
+      "tool_count": 11,
+      "tool_seconds": 2.19,
+      "finding_count": 0,
+      "thread_update_count": 0,
+      "notes_bytes": 1661,
+      "result_bytes": 704,
+      "created_at": "2026-11-01T03:02:59Z",
+      "url": "https://github.com/Qiyin-Tech/agentic-review/actions/runs/41267584329",
+      "turn_count": 12
+    }
+  ],
+  "local_preparation_comparison": {
+    "description": "本机直连 GitHub；固定 PR base/head，串行与并行都使用相同的 base worktree 准备和读取逻辑。每 PR 交替顺序运行三对，仅执行只读 GitHub 查询，不包含 Actions 平台调度、artifact 或模型执行。",
+    "serial_median_ms": 2590,
+    "parallel_median_ms": 1306,
+    "cases": [
+      {
+        "id": 41163216395,
+        "repository": "Qiyin-Tech/orchestra-frontend",
+        "pull_number": 461,
+        "samples": [
+          {
+            "serial_ms": 3140,
+            "parallel_ms": 1384
+          },
+          {
+            "serial_ms": 2617,
+            "parallel_ms": 1277
+          },
+          {
+            "serial_ms": 2327,
+            "parallel_ms": 1435
+          }
+        ]
+      },
+      {
+        "id": 41199690681,
+        "repository": "Qiyin-Tech/orchestra-backend",
+        "pull_number": 886,
+        "samples": [
+          {
+            "serial_ms": 2341,
+            "parallel_ms": 1306
+          },
+          {
+            "serial_ms": 2527,
+            "parallel_ms": 1468
+          },
+          {
+            "serial_ms": 2715,
+            "parallel_ms": 1188
+          }
+        ]
+      },
+      {
+        "id": 41267584329,
+        "repository": "Qiyin-Tech/orchestra-backend",
+        "pull_number": 887,
+        "samples": [
+          {
+            "serial_ms": 2590,
+            "parallel_ms": 1199
+          },
+          {
+            "serial_ms": 2594,
+            "parallel_ms": 1199
+          },
+          {
+            "serial_ms": 2213,
+            "parallel_ms": 1428
+          }
+        ]
+      }
+    ]
+  },
+  "startup_input_verification": {
+    "description": "使用周末固定 SHA 和相应历史工作稿，读取验证时的 GitHub 元数据和讨论；500K 窗口、128K 输出余量。只验证材料交付与继承，不运行模型。",
+    "cases": [
+      {
+        "id": 41163216395,
+        "prepare_input_ms": 1014,
+        "fixed_prompt_tokens": 27252,
+        "material_tokens": 25600,
+        "preloaded_tokens": 13315,
+        "rules": [
+          "Base = Head .agentic-review.md",
+          "Base = Head AGENTS.md",
+          "Base = Head src/AGENTS.md"
+        ],
+        "pending_files": 3,
+        "previous_result_preloaded": true
+      },
+      {
+        "id": 41199690681,
+        "prepare_input_ms": 877,
+        "fixed_prompt_tokens": 27252,
+        "material_tokens": 5808,
+        "preloaded_tokens": 6548,
+        "rules": [
+          "Base = Head .agentic-review.md",
+          "Base = Head AGENTS.md",
+          "Base = Head src/modules/canvas/AGENTS.md",
+          "Base = Head src/AGENTS.md"
+        ],
+        "pending_files": 1,
+        "previous_result_preloaded": false
+      },
+      {
+        "id": 41267584329,
+        "prepare_input_ms": 923,
+        "fixed_prompt_tokens": 27252,
+        "material_tokens": 19533,
+        "preloaded_tokens": 21721,
+        "rules": [
+          "Base = Head .agentic-review.md",
+          "Base = Head AGENTS.md",
+          "Base = Head src/AGENTS.md"
+        ],
+        "pending_files": 15,
+        "previous_result_preloaded": false
+      }
+    ]
+  },
+  "full_context_preparation_comparison": {
+    "description": "完整准备流程只读对照：基线复现周末控制面版本的代码下载、历史恢复、范围持久化、输入准备与 Prompt 文件读取顺序；候选直接运行生产 prepare-review-context.ts。固定相同 SHA，Git 下载使用同一本地镜像，GitHub 查询及历史制品下载访问线上；每组交替顺序执行三对。不包含快照解析、依赖缓存、Actions 步骤调度或模型执行。每对完整 ledger（含路径与状态）一致。",
+    "baseline_control_sha": "bc307bbe19ddd9de4fd44e065b3fb7c25c78d645",
+    "candidate_digest": "1c610216cb609319ba631c4940b0633a24a5971538a3d849d86572dece0eca84",
+    "candidate_digest_algorithm": "SHA-256；按路径排序，依次加入路径、NUL、文件内容、NUL；范围为 .github/workflows/review-execution.yml、scripts/*.ts、central/*.md。",
+    "complete": true,
+    "cases": [
+      {
+        "id": 41199690681,
+        "mode": "首次准备：一个文件",
+        "repository": "Qiyin-Tech/orchestra-backend",
+        "pull_number": 886,
+        "samples": [
+          {
+            "baseline_ms": 4410,
+            "baseline_files": 1,
+            "baseline_pending": 1,
+            "candidate_ms": 1837,
+            "candidate_files": 1,
+            "candidate_pending": 1
+          },
+          {
+            "candidate_ms": 1770,
+            "candidate_files": 1,
+            "candidate_pending": 1,
+            "baseline_ms": 4817,
+            "baseline_files": 1,
+            "baseline_pending": 1
+          },
+          {
+            "baseline_ms": 4714,
+            "baseline_files": 1,
+            "baseline_pending": 1,
+            "candidate_ms": 1999,
+            "candidate_files": 1,
+            "candidate_pending": 1
+          }
+        ],
+        "baseline_median_ms": 4714,
+        "candidate_median_ms": 1837
+      },
+      {
+        "id": 41267584329,
+        "mode": "首次准备：15 个文件",
+        "repository": "Qiyin-Tech/orchestra-backend",
+        "pull_number": 887,
+        "samples": [
+          {
+            "baseline_ms": 4362,
+            "baseline_files": 15,
+            "baseline_pending": 15,
+            "candidate_ms": 1860,
+            "candidate_files": 15,
+            "candidate_pending": 15
+          },
+          {
+            "candidate_ms": 2055,
+            "candidate_files": 15,
+            "candidate_pending": 15,
+            "baseline_ms": 3974,
+            "baseline_files": 15,
+            "baseline_pending": 15
+          },
+          {
+            "baseline_ms": 4281,
+            "baseline_files": 15,
+            "baseline_pending": 15,
+            "candidate_ms": 1960,
+            "candidate_files": 15,
+            "candidate_pending": 15
+          }
+        ],
+        "baseline_median_ms": 4281,
+        "candidate_median_ms": 1960
+      },
+      {
+        "id": 41163216395,
+        "mode": "恢复已审查的固定快照",
+        "repository": "Qiyin-Tech/orchestra-frontend",
+        "pull_number": 461,
+        "samples": [
+          {
+            "baseline_ms": 7280,
+            "baseline_files": 17,
+            "baseline_pending": 0,
+            "candidate_ms": 4250,
+            "candidate_files": 17,
+            "candidate_pending": 0
+          },
+          {
+            "candidate_ms": 4269,
+            "candidate_files": 17,
+            "candidate_pending": 0,
+            "baseline_ms": 7607,
+            "baseline_files": 17,
+            "baseline_pending": 0
+          },
+          {
+            "baseline_ms": 7001,
+            "baseline_files": 17,
+            "baseline_pending": 0,
+            "candidate_ms": 4372,
+            "candidate_files": 17,
+            "candidate_pending": 0
+          }
+        ],
+        "baseline_median_ms": 7280,
+        "candidate_median_ms": 4269
+      }
+    ]
+  }
+}

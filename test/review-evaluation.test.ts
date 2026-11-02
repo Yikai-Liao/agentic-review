@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -216,7 +217,8 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   assert.ok(checkout.includes('sparse-checkout-cone-mode: false'));
   const patterns = checkout.match(/sparse-checkout: \|\n((?:            .+\n?)+)/)![1].split('\n').map(line => line.trim()).filter(Boolean);
   const levels = ['requirements', 'architecture', 'plan', 'code'].map(level => `skills/agentic-review/references/levels/${level}.md`);
-  const production = ['central/review-rules.md', 'skills/agentic-review/SKILL.md', ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `skills/agentic-review/references/${name}.md`), ...levels, ...['github-context', 'review-result'].map(name => `central/${name}.md`), '.github/pi-extensions/review-tools.ts', '.github/pi-extensions/review-input.ts', 'scripts/write-review-input.ts', 'scripts/publish-review.ts', 'package.json', 'pnpm-lock.yaml'];
+  const codeMethods = [...['alignment', 'security', 'reliability', 'performance'].map(name => `skills/agentic-review/references/focuses/${name}.md`), 'skills/agentic-review/references/levels/code/behavior.md'];
+  const production = ['central/review-rules.md', 'skills/agentic-review/SKILL.md', ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `skills/agentic-review/references/${name}.md`), ...levels, ...codeMethods, ...['github-context', 'review-result'].map(name => `central/${name}.md`), '.github/pi-extensions/review-tools.ts', '.github/pi-extensions/review-input.ts', 'scripts/write-review-input.ts', 'scripts/publish-review.ts', 'package.json', 'pnpm-lock.yaml'];
   const maintenance = ['.agents/skills/darwin-skill/SKILL.md', 'evals/evaluate.ts', 'evals/experiments/example/notes.md', 'AGENTS.md', 'README.md'];
   for (const file of production) await f.write(file, `PRODUCTION ${file}\n`);
   for (const file of maintenance) await f.write(file, 'DARWIN_MAINTENANCE_SENTINEL\n');
@@ -228,13 +230,11 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   execFileSync('git', ['checkout', '-q'], { cwd: path.join(workspace, 'control') });
   for (const file of production) await access(path.join(workspace, 'control', file));
   for (const file of maintenance) await assert.rejects(access(path.join(workspace, 'control', file)));
-  const block = workflow.split('      - name: Load review prompt\n')[1].split('\n      - name:')[0];
-  const script = block.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n');
-  const output = path.join(workspace, 'prompt-output');
-  execFileSync('bash', ['-e', '-c', script], { cwd: workspace, env: { ...process.env, GITHUB_OUTPUT: output } });
-  const prompt = await readFile(output, 'utf8');
+  const prompt = await loadReviewPrompt(path.join(workspace, 'control'));
   assert.ok(prompt.includes('PRODUCTION skills/agentic-review/SKILL.md'));
-  for (const file of levels) assert.ok(!prompt.includes(`PRODUCTION ${file}`));
+  assert.ok(prompt.includes('PRODUCTION skills/agentic-review/references/levels/code.md'));
+  for (const file of codeMethods) assert.ok(prompt.includes(`PRODUCTION ${file}`));
+  for (const file of levels.filter(file => !file.endsWith('/code.md'))) assert.ok(!prompt.includes(`PRODUCTION ${file}`));
   assert.ok(!prompt.includes('DARWIN_MAINTENANCE_SENTINEL'));
 });
 

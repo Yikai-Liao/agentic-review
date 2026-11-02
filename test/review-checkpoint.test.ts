@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -152,7 +151,6 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
     commitSource(5);
     assert.throws(() => git('merge', '--no-ff', 'conflicting-fix', '-m', '合并有冲突的修复'));
     const resolvedSha = commitSource(6);
-    const output = path.join(directory, 'output');
     let expired = false;
     let reviewedBase = baseSha;
     const queried = new Set<string>();
@@ -162,7 +160,6 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
       PULL_NUMBER: '7', BASE_SHA: baseSha, REVIEW_APP_SLUG: 'review-app', GH_TOKEN: 'read-token',
       CONTROL_REPOSITORY: 'control/review', CONTROL_TOKEN: 'control-token',
       GITHUB_GRAPHQL_URL: 'https://api.github.test/graphql', GITHUB_API_URL: 'https://api.github.test',
-      GITHUB_OUTPUT: output,
     });
     t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
       if (String(input) === process.env.GITHUB_GRAPHQL_URL) {
@@ -181,16 +178,14 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
     });
     const resolve = async (headSha: string) => {
       process.env.HEAD_SHA = headSha;
-      writeFileSync(output, '');
-      await main();
-      return readFileSync(output, 'utf8');
+      return main();
     };
 
     for (const [name, headSha, value] of [
       ['普通合并', mergedSha, 3], ['冲突解决', resolvedSha, 6],
     ] as const) {
       await t.test(name, async () => {
-        assert.equal(await resolve(headSha), `head_sha=${reviewedSha}\nrun_id=99\nrun_attempt=1\nworkspace_artifact_id=3\n`);
+        assert.deepEqual(await resolve(headSha), { headSha: reviewedSha, runId: '99', runAttempt: '1', artifactId: '3' });
         const focus = git('diff', `${reviewedSha}..${headSha}`, '--', 'limit.ts');
         assert.ok(focus.includes(`+export const limit = ${value};`));
       });
@@ -201,13 +196,13 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
 
     await t.test('工作稿过期时不接入基线', async () => {
       expired = true;
-      assert.equal(await resolve(resolvedSha), 'head_sha=\nrun_id=\nrun_attempt=\nworkspace_artifact_id=\n');
+      assert.equal(await resolve(resolvedSha), null);
     });
     await t.test('不同 base 的完成记录不能复用', async () => {
       expired = false;
       reviewedBase = 'e'.repeat(40);
       artifactRequests.length = 0;
-      assert.equal(await resolve(resolvedSha), 'head_sha=\nrun_id=\nrun_attempt=\nworkspace_artifact_id=\n');
+      assert.equal(await resolve(resolvedSha), null);
       assert.deepEqual(artifactRequests, []);
     });
   } finally {
@@ -286,16 +281,6 @@ test('continues without a checkpoint when GitHub lookup fails', async () => {
     fetchImpl: async () => new Response(null, { status: 500 }),
   }, (warning: string) => warnings.push(warning)), null);
   assert.deepEqual(warnings, ['Review checkpoint lookup skipped: GitHub GraphQL checkpoint lookup failed: 500']);
-});
-
-test('uses a checkpoint only after the previous workspace is ready', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
-  const requestDownload = workflow.split('id: previous-request-download')[1]!.split('      - name:')[0]!;
-  assert.match(requestDownload, /artifact-ids: \$\{\{ steps\.previous-request\.outputs\.artifact_id \}\}/);
-  assert.match(requestDownload, /run-id: \$\{\{ steps\.previous-request\.outputs\.run_id \}\}/);
-  assert.match(workflow, /id: previous-workspace-download[\s\S]*?continue-on-error: true/);
-  assert.match(workflow, /if: steps\.previous-workspace-download\.outcome == 'success'[\s\S]*?checkpoint_head=\$CHECKPOINT_HEAD/);
-  assert.match(workflow, /REVIEW_CHECKPOINT_HEAD: \$\{\{ steps\.previous-review-workspace\.outputs\.checkpoint_head \}\}/);
 });
 
 test('finds the newest PR workspace artifact independently of the current commit history', async () => {

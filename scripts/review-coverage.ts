@@ -51,6 +51,10 @@ export function parseReviewCoverage(value: unknown): ReviewCoverage {
 export async function readReviewProgress(contextPath: string, progressPath: string): Promise<ReviewCoverage> {
   const context = JSON.parse(await readFile(contextPath, 'utf8'));
   const progress = JSON.parse(await readFile(progressPath, 'utf8'));
+  return parseReviewProgress(context, progress);
+}
+
+export function parseReviewProgress(context: unknown, progress: unknown): ReviewCoverage {
   if (!record(context) || !record(context.request) || !record(progress)
     || Object.keys(progress).some((key) => !['scope', 'ledger'].includes(key))) throw new Error('Invalid review progress fields');
   if (progress.scope !== undefined && (!record(progress.scope)

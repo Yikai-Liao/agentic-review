@@ -5,8 +5,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { main } from '../scripts/prepare-review-input.ts';
+import { prepareReviewInput } from '../scripts/prepare-review-input.ts';
 import { buildReviewRequest, initialReviewCoverage } from '../scripts/review-request.ts';
+import { readDiscussion, type Run } from '../scripts/refresh-review-discussion.ts';
+
+async function main(run: Run) {
+  const { request } = JSON.parse(readFileSync(process.env.REVIEW_CONTEXT_PATH!, 'utf8'));
+  return prepareReviewInput({ repository: request.repository, pullNumber: String(request.pull_number),
+    baseSha: request.base_sha, headSha: request.head_sha, metadata: { title: '测试 PR' } },
+  await readDiscussion(request.repository, String(request.pull_number), run), run);
+}
 
 const readInput = (file: string) => JSON.parse(readFileSync(file, 'utf8')).materials
   .map((item: { title: string; path: string }) => `## ${item.title}\n\n${readFileSync(item.path, 'utf8')}`).join('\n\n');
@@ -35,10 +43,14 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     writeFileSync(path.join(base, '.agentic-review.md'), '默认按 code 层审查。');
     writeFileSync(path.join(head, '.agentic-review.md'), '设计文档按 architecture 层审查。');
     writeFileSync(path.join(head, 'AGENTS.md'), '项目约束：开发计划按 plan 层审查。');
+    mkdirSync(path.join(head, 'src'));
+    mkdirSync(path.join(base, 'src'));
+    writeFileSync(path.join(head, 'src/AGENTS.md'), '目录规则：接口错误保留分类。');
+    writeFileSync(path.join(base, 'src/AGENTS.md'), '目录旧规则：接口错误统一分类。');
     const initialRequest = buildReviewRequest({ repository: 'owner/repo', pullNumber: 60,
       baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '20', text: '只看鉴权' });
     writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: initialRequest }));
-    writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({ ledger: [] }));
+    writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending' }] }));
     const run = async (command: string, args: string[]) => {
       if (command === 'git') return args.includes('--name-only') ? 'src/auth.ts\0' : 'diff --git a/src/auth.ts b/src/auth.ts\n+auth change\n';
       assert.equal(command, 'gh');
@@ -58,6 +70,14 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     assert.ok(input.includes('## Base .agentic-review.md\n\n默认按 code 层审查。'));
     assert.ok(input.includes('## Head .agentic-review.md\n\n设计文档按 architecture 层审查。'));
     assert.ok(input.includes('## Head AGENTS.md\n\n项目约束：开发计划按 plan 层审查。'));
+    assert.ok(input.includes('## Head src/AGENTS.md\n\n目录规则：接口错误保留分类。'));
+    assert.ok(input.includes('## Base src/AGENTS.md\n\n目录旧规则：接口错误统一分类。'));
+    assert.ok(input.includes('## Current review notes\n\n# Review 调查索引'));
+    assert.ok(input.includes('## Current review progress\n\n'));
+    const runtimePaths = JSON.parse(input.split('## Review runtime paths\n\n')[1].split('\n\n## ')[0]);
+    assert.equal(runtimePaths.target, head);
+    assert.equal(runtimePaths.base, base);
+    assert.equal(runtimePaths.control, fileURLToPath(new URL('../', import.meta.url)));
     assert.ok(input.includes('明确决定'));
     assert.ok(input.includes('Workspace resume manifest'));
     assert.ok(input.includes(path.join(directory, 'review-progress.json')));
@@ -108,8 +128,12 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     mkdirSync(history);
     writeFileSync(path.join(history, 'review-coverage.json'), JSON.stringify(initialReviewCoverage({ ...initialRequest, run_id: '19' })));
     writeFileSync(path.join(history, 'discussion-baseline.json'), JSON.stringify(baseline));
+    writeFileSync(path.join(history, 'notes.md'), 'level: architecture\n历史判断：读取结果时保留原范围。');
+    writeFileSync(path.join(history, 'review-result.json'), JSON.stringify({ body: '上一轮明确结论', comments: [], thread_updates: [], request_reply: null }));
     process.env.REVIEW_PREVIOUS_WORKSPACE_PATH = history;
     await main(run);
+    assert.ok(readInput(process.env.REVIEW_INPUT_PATH!).includes('历史判断：读取结果时保留原范围。'));
+    assert.ok(readInput(process.env.REVIEW_INPUT_PATH!).includes('上一轮明确结论'));
     const materialIndex = () => JSON.parse(readFileSync(process.env.REVIEW_INPUT_PATH!, 'utf8')).materials as Array<{ kind: string; title: string; use: string; path: string }>;
     assert.ok(materialIndex().filter(item => item.kind === 'discussion').every(item => item.use === 'reference'));
     for (const comments of [

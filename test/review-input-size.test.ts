@@ -103,7 +103,7 @@ test('Tokenizer 依赖按可信 lockfile 缓存，并在 Agent 启动前完成�
   const restore = steps.findIndex(step => step.name === 'Restore trusted tokenizer dependencies');
   const install = steps.findIndex(step => step.name === 'Install trusted tokenizer dependencies');
   const save = steps.findIndex(step => step.name === 'Save trusted tokenizer dependencies');
-  const prepare = steps.findIndex(step => step.name === 'Prepare review input');
+  const prepare = steps.findIndex(step => step.name === 'Prepare review context');
   const agent = steps.findIndex(step => step.name === 'Run Pi review');
   assert.ok(restore < install && install < save && save < prepare && prepare < agent);
   assert.equal(steps[restore].with?.path, 'control/node_modules');

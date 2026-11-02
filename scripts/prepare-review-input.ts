@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { groupReviewThreads, readDiscussion, runGh, type DiscussionBaseline, type Run } from './refresh-review-discussion.ts';
 import { prepareReviewWorkspace } from './prepare-review-workspace.ts';
+import type { ReviewProgress } from './review-request.ts';
+import type { ReviewSnapshot } from './resolve-review-snapshot.ts';
 import { writeReviewInput, type ReviewMaterial } from './write-review-input.ts';
 
-export async function main(run: Run = runGh) {
+export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSnapshot: Awaited<ReturnType<typeof readDiscussion>>, run: Run = runGh) {
   const env = process.env;
   const required = (name: string) => {
     if (!env[name]) throw new Error(`Missing ${name}`);
@@ -21,18 +23,22 @@ export async function main(run: Run = runGh) {
     use: ReviewMaterial['use'] = 'context', location?: string) => materials.push({ kind, title, content, use, location });
   const associations = JSON.parse(readFileSync(required('REVIEW_ASSOCIATIONS_PATH'), 'utf8'));
   const context = JSON.parse(readFileSync(required('REVIEW_CONTEXT_PATH'), 'utf8'));
-  const [metadataText, { discussion, baseline }] = await Promise.all([
-    run('gh', ['pr', 'view', pull, '--repo', repository, '--json', 'title,body,author,baseRefName,baseRefOid,headRefName,headRefOid,commits']),
-    readDiscussion(repository, pull, run),
-  ]);
-  const { body, commits, ...metadata } = JSON.parse(metadataText);
+  if (snapshot.repository !== repository || snapshot.pullNumber !== pull || snapshot.baseSha !== context.request.base_sha
+    || snapshot.headSha !== context.request.head_sha) throw new Error('PR snapshot does not match the review request');
+  const { discussion, baseline } = discussionSnapshot;
+  const { body, ...metadata } = snapshot.metadata;
   section('request', 'Review request', JSON.stringify(context, null, 2), 'request');
   section('metadata', 'Untrusted PR metadata', JSON.stringify(metadata, null, 2));
-  if (body) section('metadata', 'PR description', body);
-  if (commits) section('metadata', 'PR commits', JSON.stringify(commits, null, 2), 'reference');
+  if (typeof body === 'string' && body) section('metadata', 'PR description', body);
+  const commits = await run('git', ['-C', target, 'log', '--no-decorate', '--format=fuller',
+    `${context.request.comparison_start}..${context.request.head_sha}`, '--']);
+  if (commits) section('metadata', 'PR commits', commits, 'reference');
   section('associations', 'PR association index', JSON.stringify(associations, null, 2));
   const workspace = required('REVIEW_WORKSPACE_PATH');
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  section('metadata', 'Review runtime paths', JSON.stringify({
+    control: fileURLToPath(new URL('../', import.meta.url)), target, base,
+  }, null, 2));
   const thread = discussion.inline_comments.find(comment => String(comment.id) === context.request.root_comment_id);
   if (context.request.source === 'thread' && (thread?.in_reply_to_id != null || typeof thread?.path !== 'string')) {
     throw new Error('Thread request root is missing from current PR discussion');
@@ -54,7 +60,22 @@ export async function main(run: Run = runGh) {
     },
   });
   section('workspace', 'Workspace resume manifest', JSON.stringify(manifest, null, 2));
-  for (const filename of ['.agentic-review.md', 'AGENTS.md']) {
+  for (const [title, file] of [
+    ['Current review notes', manifest.paths.notes],
+    ['Current review progress', manifest.paths.progress],
+    ['Previous review result', manifest.paths.previous_result],
+  ] as const) {
+    if (file) section('workspace', title, readFileSync(file, 'utf8'));
+  }
+  // 审查清单中路径的祖先指令可在启动前确定；后续扩展调查的目录仍按需读取。
+  const ruleFiles = new Set(['.agentic-review.md', 'AGENTS.md']);
+  const progress: ReviewProgress = JSON.parse(readFileSync(manifest.paths.progress, 'utf8'));
+  for (const { path: filename } of progress.ledger) {
+    for (let directory = path.posix.dirname(filename); directory !== '.'; directory = path.posix.dirname(directory)) {
+      ruleFiles.add(`${directory}/AGENTS.md`);
+    }
+  }
+  for (const filename of ruleFiles) {
     const baseFile = path.join(base, filename);
     const headFile = path.join(target, filename);
     const before = existsSync(baseFile) ? readFileSync(baseFile, 'utf8') : undefined;
@@ -114,8 +135,4 @@ export async function main(run: Run = runGh) {
     inline_comments: discussion.inline_comments, threads: discussion.threads,
   }), { mode: 0o600 });
   writeFileSync(path.join(workspace, 'discussion-baseline.json'), JSON.stringify(baseline), { mode: 0o600 });
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(error => { console.error(error); process.exitCode = 1; });
 }
