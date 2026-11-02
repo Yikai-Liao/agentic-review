@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -150,7 +150,14 @@ for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`完�
   assert.ok(publisher);
   // Linux 的单个环境字符串上限为 128 KiB，真实发布载荷须可由 Runner 传给后续 Action。
   assert.ok(Buffer.byteLength(`REVIEW_PUBLISHER_ARCHIVE=${publisher}\0`) <= 128 * 1024);
-  assert.deepEqual(Buffer.from(publisher, 'base64'), execFileSync('tar', ['-czf', '-', 'scripts', 'package.json']));
+  const restored = await mkdtemp(path.join(f.temporary, 'publisher-'));
+  execFileSync('tar', ['-xzf', '-', '-C', restored], { input: Buffer.from(publisher, 'base64') });
+  assert.deepEqual((await readdir(restored)).sort(), ['package.json', 'scripts']);
+  const scripts = await readdir(new URL('../scripts/', import.meta.url));
+  assert.deepEqual((await readdir(path.join(restored, 'scripts'))).sort(), scripts.sort());
+  for (const filename of ['package.json', ...scripts.map(file => `scripts/${file}`)]) {
+    assert.deepEqual(await readFile(path.join(restored, filename)), await readFile(new URL(`../${filename}`, import.meta.url)));
+  }
   assert.match(output, /context_digest=[0-9a-f]{64}/);
   assert.match(output, /prompt<<REVIEW_PROMPT_/);
   const config = await readFile(path.join(f.workspace, 'review-target/.git/config'), 'utf8');
