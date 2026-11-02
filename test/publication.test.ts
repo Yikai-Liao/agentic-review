@@ -44,7 +44,7 @@ function fixture() {
             pageInfo: { hasNextPage: false, endCursor: null } },
         } } } });
         const id = call.body.variables.thread;
-        if (query.startsWith('query')) return Response.json({ data: { node: { id, isResolved: resolved.has(id) } } });
+        assert.ok(query.includes('resolveReviewThread'), `Unexpected GraphQL operation: ${query}`);
         const operation = query.includes('unresolveReviewThread') ? 'unresolveReviewThread' : 'resolveReviewThread';
         if (operation === 'resolveReviewThread') resolved.add(id); else resolved.delete(id);
         state.afterWrite(call);
@@ -92,6 +92,60 @@ function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters
 }
 
 const mutations = (calls: Call[]) => calls.filter(call => call.method !== 'GET' && !call.body?.query?.startsWith('query'));
+
+test('发布多行 finding、正文和页脚，按结论同步人类及其他 bot 的 root', async () => {
+  const state = fixture();
+  state.comments[1].user.login = 'other[bot]';
+  const finding = { path: 'src/auth.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' };
+  const input = { ...result, comments: [finding], request_reply: null };
+  const report = await publish(state, { result: input, requestSource: 'automatic' });
+  assert.equal(report.reviewUrl, 'https://github.test/review/1');
+  assert.ok(report.operations.every(item => item.status === 'succeeded'), JSON.stringify(report));
+  assert.equal(state.reviews.length, 1);
+  assert.equal(state.reviews[0].event, 'COMMENT');
+  assert.equal(state.reviews[0].commit_id, 'b'.repeat(40));
+  assert.ok(state.reviews[0].body.includes(input.body));
+  assert.ok(state.reviews[0].body.includes('[运行报告](https://github.test/run)'));
+  assert.equal(state.calls.some(call => call.url.endsWith('/pulls/7')), false);
+  const posted = state.calls.find(call => call.method === 'POST' && call.url.endsWith('/comments'))!.body;
+  assert.match(posted.body, /agentic-review-publication:/);
+  assert.deepEqual({ ...posted, body: finding.body }, {
+    ...finding, commit_id: 'b'.repeat(40), side: 'RIGHT', start_side: 'RIGHT',
+  });
+  assert.deepEqual([...state.resolved].sort(), ['thread-123', 'thread-456']);
+  for (const root of [123, 456]) assert.match(state.comments.find(comment => comment.in_reply_to_id === root)!.body, /已关闭/);
+});
+
+test('风险升高时重开已关闭 thread', async () => {
+  const state = fixture();
+  state.resolved.add('thread-123');
+  await publish(state, { requestSource: 'automatic', result: {
+    ...result, comments: [], thread_updates: [{ ...result.thread_updates[0], status: 'severity_increased' }], request_reply: null,
+  } });
+  assert.equal(state.resolved.has('thread-123'), false);
+  assert.ok(state.calls.some(call => call.body?.query?.includes('unresolveReviewThread')));
+});
+
+test('仅正文 Review 不读取评论或 thread，也不附带 inline comments', async () => {
+  const state = fixture();
+  await publish(state, { requestSource: 'automatic', result: {
+    body: '未发现需要阻止合并的问题。', comments: [], thread_updates: [], request_reply: null,
+  } });
+  assert.equal(state.reviews.length, 1);
+  assert.equal(state.reviews[0].comments, undefined);
+  assert.equal(state.calls.some(call => call.url.includes('/comments?') || call.url.endsWith('/graphql')), false);
+});
+
+test('局部 thread 请求仅回复人类 root，不创建 Review 或改变 thread 状态', async () => {
+  const state = fixture();
+  await publish(state, { threadReplyOnly: true, result: {
+    body: '已复核该问题，结论未变。', comments: [], thread_updates: [], request_reply: { body: '结论未变，当前问题仍需关注。' },
+  } });
+  assert.equal(state.reviews.length, 0);
+  assert.equal(state.calls.some(call => call.url.includes('/reviews')), false);
+  assert.equal(state.calls.some(call => call.url.endsWith('/comments/123/replies')), true);
+  assert.equal(state.calls.some(call => call.body?.query?.includes('resolveReviewThread')), false);
+});
 
 test('发布前独立读取并行，thread 列表直接提供状态而不逐条重查', { timeout: 5000 }, async () => {
   const state = fixture();
@@ -212,14 +266,16 @@ for (const kind of ['comments', 'threads', 'reviews'] as const) {
   });
 }
 
-test('多个失败全部汇总，删除的 root 不影响另一个 thread 和正文', async () => {
+for (const invalidRoot of ['missing', 'reply']) test(`${invalidRoot} root 校验失败不影响独立 finding、其他 thread 和正文`, async () => {
   const state = fixture();
-  state.comments.shift();
+  if (invalidRoot === 'missing') state.comments.shift();
+  else state.comments[0].in_reply_to_id = 1;
   state.fail = call => call.body?.line === 1 ? new Response('invalid line', { status: 422 }) : undefined;
   const report = await publish(state);
   assert.equal(report.operations.filter(item => item.status === 'failed').length, 3);
   assert.ok(state.resolved.has('thread-456'));
   assert.ok(state.comments.some(item => item.line === 2));
+  assert.equal(state.calls.some(call => call.url.endsWith('/comments/123/replies')), false);
   assert.match(state.reviews[0].body, /发布未全部完成/);
 });
 

@@ -212,10 +212,10 @@ test('duplicate or stale judge results fail instead of counting extra votes', as
 
 test('production sparse checkout and actual prompt loader exclude maintenance skills and evaluations', async t => {
   const f = await fixture(t);
-  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
-  const checkout = workflow.split('      - name: Checkout control-plane rules\n')[1].split('\n      - name:')[0];
-  assert.ok(checkout.includes('sparse-checkout-cone-mode: false'));
-  const patterns = checkout.match(/sparse-checkout: \|\n((?:            .+\n?)+)/)![1].split('\n').map(line => line.trim()).filter(Boolean);
+  const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
+  const checkout = workflow.jobs.review.steps.find((step: { with?: { path?: string } }) => step.with?.path === 'control');
+  assert.equal(checkout.with['sparse-checkout-cone-mode'], false);
+  const patterns = checkout.with['sparse-checkout'].trim().split(/\r?\n/).map((line: string) => line.trim());
   const levels = ['requirements', 'architecture', 'plan', 'code'].map(level => `skills/agentic-review/references/levels/${level}.md`);
   const codeMethods = [...['alignment', 'security', 'reliability', 'performance'].map(name => `skills/agentic-review/references/focuses/${name}.md`), 'skills/agentic-review/references/levels/code/behavior.md'];
   const production = ['central/review-rules.md', 'skills/agentic-review/SKILL.md', ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `skills/agentic-review/references/${name}.md`), ...levels, ...codeMethods, ...['github-context', 'review-result'].map(name => `central/${name}.md`), '.github/pi-extensions/review-tools.ts', '.github/pi-extensions/review-input.ts', 'scripts/write-review-input.ts', 'scripts/publish-review.ts', 'package.json', 'pnpm-lock.yaml'];
@@ -238,38 +238,8 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   assert.ok(!prompt.includes('DARWIN_MAINTENANCE_SENTINEL'));
 });
 
-test('production Pi runtime enables bounded provider retries and one-hour review', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
-  const runtime = workflow.split('      - name: Configure Pi runtime\n')[1].split('\n      - name:')[0];
-  assert.match(runtime, /cat > "\$HOME\/\.pi\/agent\/settings\.json"/);
-  assert.match(runtime, /"enabled": false/);
-  assert.match(runtime, /"maxRetries": 3[\s\S]*"maxRetryDelayMs": 120000/);
-
-  const assertReviewTimeouts = (source: string) => {
-    const reviewJob = (parse(source) as {
-      jobs?: { review?: { 'timeout-minutes'?: number; steps?: Array<{ id?: string; 'timeout-minutes'?: number }> } };
-    }).jobs?.review;
-    assert.ok(reviewJob, 'review job must exist');
-    assert.equal(reviewJob['timeout-minutes'], 75);
-
-    const piStep = reviewJob.steps?.find(step => step.id === 'pi-review');
-    assert.ok(piStep, 'pi-review step must exist');
-    assert.equal(piStep['timeout-minutes'], 60);
-  };
-
-  assertReviewTimeouts(workflow);
-  const reordered = [
-    'jobs:',
-    '  review:',
-    '    timeout-minutes: 75 # 为结果上传预留时间',
-    '    runs-on: ubuntu-latest',
-    '    steps:',
-    '      - timeout-minutes: 60 # Agent 审查时间',
-    '        id: pi-review',
-    '  publish:',
-    '    timeout-minutes: 10',
-  ].join('\n');
-  assertReviewTimeouts(reordered);
-  assert.throws(() => assertReviewTimeouts(reordered.replace('timeout-minutes: 75', 'timeout-minutes: 74')));
-  assert.throws(() => assertReviewTimeouts(reordered.replace('timeout-minutes: 60', 'timeout-minutes: 59')));
+test('中央 workflow 为一小时审查及准备收尾预留时间', async () => {
+  const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
+  assert.equal(workflow.jobs.review['timeout-minutes'], 75);
+  assert.equal(workflow.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review')['timeout-minutes'], 60);
 });

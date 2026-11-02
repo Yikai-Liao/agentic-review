@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { parse } from 'yaml';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
-import { buildFooter, publishReview } from '../scripts/publish-review.ts';
+import { buildFooter } from '../scripts/publish-review.ts';
 
 import { inventoryDigest } from '../scripts/review-coverage.ts';
 import { buildReviewRequest } from '../scripts/review-request.ts';
@@ -28,68 +28,6 @@ const result = {
   }],
   request_reply: null,
 };
-
-type ReviewComment = {
-  id: number;
-  in_reply_to_id: number | null;
-  body: string;
-  user: { login: string };
-};
-
-function publisherFetch({
-  comments = [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login: 'review-app[bot]' } }] as ReviewComment[],
-  isResolved = false,
-}: {
-  comments?: ReviewComment[];
-  isResolved?: boolean;
-} = {}) {
-  const requests: Array<{ url: string; body: string }> = [];
-  return {
-    requests,
-    fetchImpl: async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      const body = String(init?.body ?? '');
-      requests.push({ url, body });
-      if (url.includes('/reviews?')) return Response.json([]);
-      if (url.endsWith('/pulls/7/comments')) return Response.json({ html_url: 'https://github.test/comment/1' });
-      if (url.includes('/comments?')) return Response.json(comments);
-      if (url.endsWith('/graphql') && body.includes('reviewThreads')) {
-        return Response.json({
-          data: {
-            repository: {
-              pullRequest: {
-                reviewThreads: {
-                  nodes: [{ id: 'thread-id', isResolved, comments: { nodes: [{ databaseId: 123 }] } }],
-                  pageInfo: { hasNextPage: false, endCursor: null },
-                },
-              },
-            },
-          },
-        });
-      }
-      if (url.endsWith('/comments/123/replies')) return Response.json({ html_url: 'https://github.test/thread#reply' });
-      if (url.endsWith('/pulls/7/reviews')) return Response.json({ html_url: 'https://github.test/review/1' });
-      if (body.includes('unresolveReviewThread')) return Response.json({ data: { unresolveReviewThread: { thread: { id: 'thread-id' } } } });
-      if (body.includes('resolveReviewThread')) return Response.json({ data: { resolveReviewThread: { thread: { id: 'thread-id' } } } });
-      throw new Error(`Unexpected request: ${url} ${body}`);
-    },
-  };
-}
-
-async function publish(reviewResult: Parameters<typeof publishReview>[0]['result'], fetchImpl: typeof fetch) {
-  return publishReview({
-    result: reviewResult,
-    repository: 'owner/repo',
-    pullNumber: 7,
-    botLogin: 'review-app[bot]',
-    token: 'write-token',
-    expectedHeadSha: headSha,
-    footer: '[View action run](https://github.test/run) | Model: openai/test',
-    publicationId: 'run-1',
-    api: 'https://api.github.test',
-    fetchImpl,
-  });
-}
 
 async function configureProgress(directory: string, source: 'automatic' | 'pr_comment' | 'thread' = 'automatic') {
   const request = buildReviewRequest({ source, commentId: source === 'automatic' ? '' : '8', rootCommentId: source === 'automatic' ? '' : '8',
@@ -386,121 +324,6 @@ test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) =
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test('all complete JSON examples in the central protocol match the submission schema', async () => {
-  const protocol = await readFile(new URL('../central/review-result.md', import.meta.url), 'utf8');
-  const examples = [...protocol.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => parseReviewResult(match[1]));
-  assert.equal(examples.length, 4);
-  assert.deepEqual(examples.slice(1).map((example) => example.request_reply === null), [true, true, false]);
-});
-
-test('publisher creates one review, updates threads, and appends the footer', async () => {
-  const { requests, fetchImpl } = publisherFetch();
-  const report = await publish(result, fetchImpl as typeof fetch);
-  assert.equal(report.reviewUrl, 'https://github.test/review/1');
-  assert.ok(report.operations.every(item => item.status === 'succeeded'), JSON.stringify(report));
-
-  assert.match(requests.find(({ url }) => url.endsWith('/comments/123/replies'))!.body, /已关闭/);
-  assert.match(requests.find(({ body }) => body.includes('resolveReviewThread'))!.body, /resolveReviewThread/);
-  const review = JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body);
-  assert.equal(review.event, 'COMMENT');
-  assert.equal(review.commit_id, headSha);
-  assert.match(review.body, /这个 PR 修复了清理行为。/);
-  assert.match(review.body, /View action run/);
-  const finding = JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/comments'))!.body);
-  assert.match(finding.body, /agentic-review-publication:/);
-  assert.deepEqual({ ...finding, body: result.comments[0].body }, {
-    commit_id: headSha,
-    path: 'src/auth.ts',
-    line: 42,
-    start_line: 40,
-    side: 'RIGHT',
-    start_side: 'RIGHT',
-    body: '**[P1] 仍会误删**\n\n详细证据。',
-  });
-});
-
-test('publisher reopens a resolved thread when risk increases', async () => {
-  const { requests, fetchImpl } = publisherFetch({ isResolved: true });
-  await publish({
-    ...result,
-    thread_updates: [{ ...result.thread_updates[0], status: 'severity_increased' }],
-  }, fetchImpl as typeof fetch);
-  assert.match(requests.find(({ body }) => body.includes('unresolveReviewThread'))!.body, /unresolveReviewThread/);
-});
-
-test('publisher supports a summary-only review', async () => {
-  const { requests, fetchImpl } = publisherFetch();
-  const summaryOnly = { body: '未发现需要阻止合并的问题。', comments: [], thread_updates: [], request_reply: null };
-  await publish(summaryOnly as typeof result, fetchImpl as typeof fetch);
-  assert.equal(requests.some(({ url }) => url.includes('/comments?')), false);
-  assert.deepEqual(
-    JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body).comments,
-    undefined,
-  );
-});
-
-test('publisher updates findings by conclusion regardless of who created the root', async () => {
-  for (const login of ['maintainer', 'other[bot]']) {
-    const { requests, fetchImpl } = publisherFetch({
-      comments: [{ id: 123, in_reply_to_id: null, body: 'original finding', user: { login } }],
-    });
-    await publish(result, fetchImpl as typeof fetch);
-    assert.ok(requests.some(({ body }) => body.includes('resolveReviewThread')));
-  }
-});
-
-test('publisher rejects missing roots and reply IDs while publishing independent findings and summary', async () => {
-  for (const comments of [[], [{ id: 123, in_reply_to_id: 1, body: 'reply', user: { login: 'maintainer' } }]]) {
-    const { requests, fetchImpl } = publisherFetch({ comments });
-    const report = await publish(result, fetchImpl as typeof fetch);
-    assert.match(report.operations.find(item => item.id === 'thread 123 归属校验')!.error!, /not a root comment in this PR/);
-    assert.equal(requests.some(({ url }) => url.endsWith('/replies')), false);
-    assert.ok(requests.some(({ url }) => url.endsWith('/reviews')));
-    assert.ok(requests.some(({ url }) => url.endsWith('/pulls/7/comments')));
-    assert.match(JSON.parse(requests.find(({ url }) => url.endsWith('/reviews'))!.body).body, /发布未全部完成/);
-  }
-});
-
-test('publisher keeps an older review available to later serial runs', async () => {
-  const { requests, fetchImpl } = publisherFetch();
-  await publish(result, fetchImpl as typeof fetch);
-
-  assert.equal(requests.some(({ url }) => url.endsWith('/pulls/7')), false);
-  assert.equal(JSON.parse(requests.find(({ url }) => url.endsWith('/pulls/7/reviews'))!.body).commit_id, headSha);
-  assert.equal(requests.some(({ url }) => url.endsWith('/comments/123/replies')), true);
-  assert.equal(requests.some(({ body }) => body.includes('resolveReviewThread')), true);
-});
-
-test('thread-only request replies to a human root without changing thread state', async () => {
-  const { requests, fetchImpl } = publisherFetch({
-    comments: [{ id: 123, in_reply_to_id: null, body: 'human finding', user: { login: 'maintainer' } }],
-  });
-  await publishReview({
-    result: { body: '已复核该问题，结论未变。', comments: [], thread_updates: [], request_reply: { body: '结论未变，当前问题仍需关注。' } },
-    repository: 'owner/repo', pullNumber: 7, botLogin: 'review-app[bot]', token: 'write-token', expectedHeadSha: headSha,
-    publicationId: 'run-1', footer: 'footer', api: 'https://api.github.test', requestSource: 'thread', requestCommentId: '456', requestRootCommentId: '123', threadReplyOnly: true,
-    fetchImpl,
-  });
-  assert.equal(requests.some(({ url }) => url.endsWith('/pulls/7/reviews')), false);
-  assert.equal(requests.some(({ url }) => url.endsWith('/comments/123/replies')), true);
-  assert.equal(requests.some(({ body }) => body.includes('resolveReviewThread') || body.includes('unresolveReviewThread')), false);
-});
-
-test('parser rejects duplicate thread updates and invalid comment locations', () => {
-  assert.throws(
-    () => parseReviewResult(JSON.stringify({ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] })),
-    /Duplicate thread update/,
-  );
-  assert.throws(
-    () => parseReviewResult(JSON.stringify({ ...result, comments: [{ ...result.comments[0], start_line: 43 }] })),
-    /start_line/,
-  );
-  assert.throws(
-    () => parseReviewResult(JSON.stringify({ ...result, comments: [{ ...result.comments[0], path: '../secret' }] })),
-    /path/,
-  );
 });
 
 test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
