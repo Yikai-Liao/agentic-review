@@ -70,9 +70,22 @@ test('历史参考只给索引，预算随窗口、输出和既有上下文调�
   const context = reviewInputContext(file, { contextWindow: 4000, maxTokens: 2400 }, fixed);
   assert.ok(context.includes('SMALL_PATCH'));
   assert.ok(!context.includes('HISTORICAL_RECORD'));
+  assert.ok(context.includes('"title": "未变化的历史"'));
   assert.equal(readFileSync(index.materials[1].path, 'utf8'), 'HISTORICAL_RECORD: 旧确认原文。');
   assert.ok(countTokens(context) + countTokens(JSON.stringify(fixed)) + 2400 + 400 <= 4000);
   assert.throws(() => reviewInputContext(file, model, { system: 'huge fixed context '.repeat(6000) }), /startup context budget/);
+});
+
+test('索引本身超出预算时仍交付小 patch，并保留完整索引文件入口', t => {
+  const { file, index } = fixture(t, [patch, ...Array.from({ length: 200 }, (_, n) => ({
+    kind: 'discussion' as const, title: `HISTORY_ITEM_${n}`, use: 'reference' as const, content: '历史原文。',
+  }))]);
+  assert.ok(countTokens(JSON.stringify(index)) > model.contextWindow / 2);
+  const context = reviewInputContext(file, model, fixed);
+  assert.ok(context.includes('SMALL_PATCH'));
+  assert.ok(context.includes(file));
+  assert.ok(!context.includes('HISTORY_ITEM_199'));
+  assert.ok(countTokens(context) + countTokens(JSON.stringify(fixed)) <= model.contextWindow / 2);
 });
 
 test('运行时只注入材料上下文，不增加读取工具或游标；输入失败明确中止', t => {

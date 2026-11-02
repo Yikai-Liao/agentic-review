@@ -8,7 +8,7 @@ export async function loadReviewPrompt(control: string) {
     'central/github-context.md', 'central/review-result.md',
     'skills/agentic-review/references/levels/code.md',
     ...['alignment', 'security', 'reliability', 'performance'].map(name => `skills/agentic-review/references/focuses/${name}.md`),
-    'skills/agentic-review/references/levels/code/behavior.md',
+    ...['behavior', 'test-contracts'].map(name => `skills/agentic-review/references/levels/code/${name}.md`),
   ];
   const [entry, ...references] = await Promise.all([
     'central/review-rules.md', ...files,

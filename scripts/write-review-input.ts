@@ -34,9 +34,15 @@ export function reviewInputContext(file: string, model: { contextWindow: number;
   if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0 || !Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
     throw new Error('Invalid review model limits');
   }
-  const index: ReviewInputIndex = JSON.parse(readFileSync(file, 'utf8'));
+  const indexText = readFileSync(file, 'utf8');
+  const index: ReviewInputIndex = JSON.parse(indexText);
+  // 索引与其他材料共用预算；常规输入直接交付导航，大索引仍保留文件入口。
+  const materials: ReviewInputIndex['materials'] = [
+    { kind: 'metadata', title: 'Review input index', use: 'context', path: file, tokens: countTokens(indexText) },
+    ...index.materials,
+  ];
   const totals = new Map<string, { tokens: number; count: number; candidates: number }>();
-  for (const material of index.materials) {
+  for (const material of materials) {
     const total = totals.get(material.kind) ?? { tokens: 0, count: 0, candidates: 0 };
     total.tokens += material.tokens;
     total.count++;
@@ -45,7 +51,7 @@ export function reviewInputContext(file: string, model: { contextWindow: number;
   }
   const header = [
     '# 审查材料', '', `完整材料索引：\`${file}\`。各条目提供类别、Token 数、原文路径和代码位置。`,
-    '下列原文已预载；其余材料按本轮范围、契约和疑点从索引选择。', '',
+    '下列已交付材料直接使用；从已有代码位置开始调查，其余材料按本轮范围、契约和疑点选择。', '',
     '| 类别 | 材料数 | 全部 Token | 默认候选 Token |', '| --- | ---: | ---: | ---: |',
     ...[...totals].map(([kind, total]) => `| ${kind} | ${total.count} | ${total.tokens} | ${total.candidates} |`), '',
   ].join('\n');
@@ -55,7 +61,7 @@ export function reviewInputContext(file: string, model: { contextWindow: number;
   const available = limit - countTokens(JSON.stringify(fixedContext)) - headerTokens;
   if (available < 0) throw new Error('Fixed review context exceeds the startup context budget');
   const rank = { request: 0, context: 1, changes: 1, discussion: 2, reference: 3 };
-  const candidates = index.materials.filter(material => material.use !== 'reference')
+  const candidates = materials.filter(material => material.use !== 'reference')
     .sort((a, b) => rank[a.use] - rank[b.use] || a.tokens - b.tokens);
   let remaining = available;
   const selected: string[] = [];
