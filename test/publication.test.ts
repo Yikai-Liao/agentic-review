@@ -318,7 +318,7 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   const workflow = readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const execution = parse(workflow).jobs.review.steps;
   const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = Object.fromEntries([
-    'pi-review', 'review-context', 'review-check', 'review-workspace', 'publisher-checkout',
+    'pi-review', 'review-context', 'review-check', 'review-workspace',
     'publication-token', 'publish-review', 'diagnostic-workspace',
   ].map(id => [id, { outcome: 'success', outputs: {} }]));
   steps['review-check'].outputs.check_id = '1';
@@ -337,7 +337,6 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   steps['pi-review'].outcome = 'failure';
   assert.equal(shouldRun('review-workspace'), true);
   assert.equal(shouldRun('publication-token'), true);
-  assert.equal(shouldRun('publisher-checkout'), true);
   assert.equal(shouldRun('publish-review'), true);
   assert.equal(shouldRun('complete-check'), true);
   steps['pi-review'].outcome = 'success';
@@ -349,17 +348,14 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(shouldRun('diagnostic-workspace'), true);
   assert.equal(shouldRun('publish-review'), true);
   steps['publication-token'].outcome = 'failure';
-  assert.equal(shouldRun('publisher-checkout'), true);
   assert.equal(shouldRun('publish-review'), true);
   steps['publication-token'].outcome = 'success';
   steps['review-context'].outputs.context_digest = '';
-  assert.equal(shouldRun('publisher-checkout'), false);
   steps['publish-review'].outputs.workspace_ready = '';
   assert.equal(shouldRun('review-workspace'), false);
   assert.equal(shouldRun('publish-review'), false);
   steps['review-context'].outputs.context_digest = 'trusted-digest';
   steps['review-context'].outcome = 'failure';
-  assert.equal(shouldRun('publisher-checkout'), true);
   assert.equal(shouldRun('publish-review'), true);
   steps['publish-review'].outputs.workspace_ready = 'true';
   steps['publish-review'].outcome = 'failure';

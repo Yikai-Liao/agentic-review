@@ -22,6 +22,12 @@ const required = (name: string) => {
   return value;
 };
 
+export async function archiveReviewPublisher(control: string) {
+  // 直接读取可信准备阶段的工作树，不能让部分克隆为打包触发额外 Git 下载。
+  const { stdout } = await exec('tar', ['-czf', '-', '-C', control, 'scripts', 'package.json'], { encoding: 'buffer' });
+  return stdout.toString('base64');
+}
+
 async function downloadWorkspace(run: string, name: string, directory: string) {
   // GitHub CLI 负责下载和安全解包；中央制品读取使用 workflow token，目标读取 token 仍保持原范围。
   await exec('gh', ['run', 'download', run, '--repo', required('GITHUB_REPOSITORY'), '--name', name, '--dir', directory], {
@@ -66,6 +72,10 @@ export async function main() {
   if (snapshot.repository !== inputs.repository || snapshot.pullNumber !== inputs.pull_number) throw new Error('PR snapshot does not match dispatch inputs');
   const workspace = required('GITHUB_WORKSPACE');
   const temporary = required('RUNNER_TEMP');
+  const control = fileURLToPath(new URL('../', import.meta.url));
+  // 控制面已按固定 ref 检出，尚未启动 Agent；发布器由 Runner 保存为步骤输出。
+  // 在持久化请求前交付，后续输入准备失败时仍可由该发布器保存恢复范围。
+  await appendFile(required('GITHUB_OUTPUT'), `publisher_archive=${await archiveReviewPublisher(control)}\n`);
   const target = path.join(workspace, 'review-target');
   const base = path.join(workspace, 'review-base');
   const draft = path.join(workspace, 'review-workspace');
@@ -117,7 +127,7 @@ export async function main() {
   const currentDiscussion = await discussion;
   if (currentDiscussion.status === 'rejected') throw currentDiscussion.reason;
   await prepareReviewInput(snapshot, currentDiscussion.value);
-  const prompt = await loadReviewPrompt(fileURLToPath(new URL('../', import.meta.url)));
+  const prompt = await loadReviewPrompt(control);
   const delimiter = `REVIEW_PROMPT_${crypto.randomUUID()}`;
   await appendFile(required('GITHUB_OUTPUT'), [
     `previous_workspace=${checkpoint ? previousAudit : ''}`, `previous_request_workspace=${previous ? previousRequest : ''}`,
