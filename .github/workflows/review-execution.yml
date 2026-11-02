@@ -346,21 +346,13 @@ jobs:
           permission-pull-requests: write
           permission-checks: write
 
-      - name: Checkout trusted publisher
-        id: publisher-checkout
-        if: ${{ !cancelled() && steps.review-context.outputs.context_digest != '' }}
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          path: publisher
-          persist-credentials: false
-          sparse-checkout: scripts
-
       # 可信发布入口负责验证、组装、发布和保存报告；组装成功后即记录可恢复状态。
       - name: Publish review
         id: publish-review
-        if: ${{ !cancelled() && steps.publisher-checkout.outcome == 'success' && steps.review-context.outputs.context_digest != '' }}
+        if: ${{ !cancelled() && steps.review-context.outputs.context_digest != '' }}
+        uses: actions/github-script@v9.0.0
         env:
+          REVIEW_PUBLISHER_ARCHIVE: ${{ steps.review-context.outputs.publisher_archive }}
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
           PULL_NUMBER: ${{ inputs.pull_number }}
@@ -388,7 +380,18 @@ jobs:
           REVIEW_INPUT_TOKENS: ${{ steps.pi-review.outputs.input_tokens }}
           REVIEW_OUTPUT_TOKENS: ${{ steps.pi-review.outputs.output_tokens }}
           REVIEW_COST: ${{ steps.pi-review.outputs.cost }}
-        run: node publisher/scripts/publish-review-run.ts
+        with:
+          # 启动器只用默认只读 token；签发发布 token 失败时也要先保存可恢复范围。
+          github-token: ${{ github.token }}
+          script: |
+            // 只执行准备步骤输出中的固定控制面代码，不读取 Agent 可改写的本地脚本。
+            const fs = require('node:fs'), path = require('node:path');
+            const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'review-publisher-'));
+            require('node:child_process').execFileSync('tar', ['-xzf', '-', '-C', directory], {
+              input: Buffer.from(process.env.REVIEW_PUBLISHER_ARCHIVE, 'base64'),
+            });
+            const { main } = await import(require('node:url').pathToFileURL(path.join(directory, 'scripts/publish-review-run.ts')).href);
+            await main();
 
       # 每轮只归档一次：发布成功保存完成工作区，失败或取消仍保存可恢复范围及发布报告。
       - name: Archive review workspace

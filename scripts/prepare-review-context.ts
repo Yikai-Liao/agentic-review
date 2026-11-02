@@ -66,6 +66,13 @@ export async function main() {
   if (snapshot.repository !== inputs.repository || snapshot.pullNumber !== inputs.pull_number) throw new Error('PR snapshot does not match dispatch inputs');
   const workspace = required('GITHUB_WORKSPACE');
   const temporary = required('RUNNER_TEMP');
+  const control = fileURLToPath(new URL('../', import.meta.url));
+  // 固定控制面版本的发布器由 Runner 保存为步骤输出；Agent 后续不能替换它。
+  // 在持久化请求前交付，后续输入准备失败时仍可由该发布器保存恢复范围。
+  const { stdout: publisher } = await exec('git', ['-C', control, 'archive', '--format=tar.gz', required('GITHUB_SHA'), 'scripts', 'package.json'], {
+    encoding: 'buffer',
+  });
+  await appendFile(required('GITHUB_OUTPUT'), `publisher_archive=${publisher.toString('base64')}\n`);
   const target = path.join(workspace, 'review-target');
   const base = path.join(workspace, 'review-base');
   const draft = path.join(workspace, 'review-workspace');
@@ -117,7 +124,7 @@ export async function main() {
   const currentDiscussion = await discussion;
   if (currentDiscussion.status === 'rejected') throw currentDiscussion.reason;
   await prepareReviewInput(snapshot, currentDiscussion.value);
-  const prompt = await loadReviewPrompt(fileURLToPath(new URL('../', import.meta.url)));
+  const prompt = await loadReviewPrompt(control);
   const delimiter = `REVIEW_PROMPT_${crypto.randomUUID()}`;
   await appendFile(required('GITHUB_OUTPUT'), [
     `previous_workspace=${checkpoint ? previousAudit : ''}`, `previous_request_workspace=${previous ? previousRequest : ''}`,

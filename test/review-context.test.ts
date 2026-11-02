@@ -118,7 +118,8 @@ if(args[0]==='run' && args[1]==='download') {
   const outputs = path.join(directory, 'outputs');
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 'target-readonly', CONTROL_TOKEN: 'control-readonly',
     GITHUB_WORKSPACE: workspace, RUNNER_TEMP: temporary, GITHUB_REPOSITORY: 'control/review', GITHUB_SERVER_URL: `file://${path.join(directory, 'git')}`,
-    GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputs, GITHUB_API_URL: api, GITHUB_GRAPHQL_URL: `${api}/graphql`,
+    GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_SHA: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    GITHUB_OUTPUT: outputs, GITHUB_API_URL: api, GITHUB_GRAPHQL_URL: `${api}/graphql`,
     REVIEW_REPOSITORY: 'owner/repo', REVIEW_REPOSITORY_ID: '1', REVIEW_PULL_NUMBER: '7', REVIEW_TRIGGER_SOURCE: source,
     REVIEW_COMMENT_ID: source === 'automatic' ? '' : '456', REVIEW_COMMENT_ROOT_ID: source === 'thread' ? '123' : source === 'automatic' ? '' : '456', REVIEW_COMMENT_BODY: '请继续审查',
     REVIEW_SNAPSHOT_PATH: snapshot, REVIEW_APP_SLUG: 'review-app', FIXTURE_SOURCE: source, FIXTURE_AUDIT: previous, FIXTURE_REQUESTED: requested };
@@ -146,6 +147,13 @@ for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`完�
   const metadata = materials.find((material: { title: string }) => material.title === 'Untrusted PR metadata');
   assert.match(await readFile(metadata.path, 'utf8'), /冻结标题/);
   const output = await readFile(f.outputs, 'utf8');
+  const publisher = output.match(/^publisher_archive=(.+)$/m)?.[1];
+  assert.ok(publisher);
+  // Linux 的单个环境字符串上限为 128 KiB，真实发布载荷须可由 Runner 传给后续 Action。
+  assert.ok(Buffer.byteLength(`REVIEW_PUBLISHER_ARCHIVE=${publisher}\0`) <= 128 * 1024);
+  assert.deepEqual(Buffer.from(publisher, 'base64'), execFileSync('git', [
+    'archive', '--format=tar.gz', f.env.GITHUB_SHA, 'scripts', 'package.json',
+  ]));
   assert.match(output, /context_digest=[0-9a-f]{64}/);
   assert.match(output, /prompt<<REVIEW_PROMPT_/);
   const config = await readFile(path.join(f.workspace, 'review-target/.git/config'), 'utf8');
@@ -157,6 +165,7 @@ test('讨论读取失败仍先固定本次请求和范围，准备入口报错�
   await assert.rejects(f.prepare({ FAIL_DISCUSSION: 'true' }), /discussion unavailable/);
   const output = await readFile(f.outputs, 'utf8');
   assert.match(output, /context_digest=[0-9a-f]{64}/);
+  assert.match(output, /^publisher_archive=.+$/m);
   assert.doesNotMatch(output, /prompt<</);
   const progress = JSON.parse(await readFile(path.join(f.workspace, 'review-workspace/review-progress.json'), 'utf8'));
   assert.deepEqual(progress.ledger.map((entry: { status: string }) => entry.status), ['pending', 'pending']);
