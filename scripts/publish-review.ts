@@ -216,34 +216,36 @@ export async function publishReview({
       if (!found) throw new Error(`${update.root_comment_id} is not a root comment in this PR`);
       return found;
     });
-    // 状态同步与证据回复互不依赖；各自失败均不阻断另一项。
-    await run(`${id} 状态同步`, [root, threads!], async () => {
-      const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
-      if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
-      const shouldResolve = update.status === 'resolved';
-      if (thread.isResolved === shouldResolve) return;
-      const mutation = shouldResolve
-        ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
-        : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
-      const response: any = await request('/graphql', {
-        method: 'POST', body: JSON.stringify({ query: mutation, variables: { thread: thread.id } }),
-      });
-      if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
-      const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
-      if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
-    });
-    await run(`${id} 证据回复`, [root], async () => {
-      const tag = marker(`${id} evidence`, update);
-      const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
-      if (replies.some(item => item.body.includes(tag))) return;
-      const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
-      if (replies.filter(item => item.body.startsWith('**Pi thread 状态更新：')).at(-1)?.body.startsWith(status)) return;
-      await request(`${route}/comments/${update.root_comment_id}/replies`, {
-        method: 'POST', body: JSON.stringify({
-          body: `${status}\n\n${update.evidence}\n\n以上为审查结论；GitHub 状态同步是否成功请查看运行报告。\n\n${footer}\n${tag}`,
-        }),
-      });
-    });
+    // 状态同步与证据回复并行；两项均结束后再汇总失败并发布最终正文。
+    await Promise.all([
+      run(`${id} 状态同步`, [root, threads!], async () => {
+        const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
+        if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
+        const shouldResolve = update.status === 'resolved';
+        if (thread.isResolved === shouldResolve) return;
+        const mutation = shouldResolve
+          ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
+          : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
+        const response: any = await request('/graphql', {
+          method: 'POST', body: JSON.stringify({ query: mutation, variables: { thread: thread.id } }),
+        });
+        if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
+        const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
+        if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
+      }),
+      run(`${id} 证据回复`, [root], async () => {
+        const tag = marker(`${id} evidence`, update);
+        const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
+        if (replies.some(item => item.body.includes(tag))) return;
+        const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
+        if (replies.filter(item => item.body.startsWith('**Pi thread 状态更新：')).at(-1)?.body.startsWith(status)) return;
+        await request(`${route}/comments/${update.root_comment_id}/replies`, {
+          method: 'POST', body: JSON.stringify({
+            body: `${status}\n\n${update.evidence}\n\n以上为审查结论；GitHub 状态同步是否成功请查看运行报告。\n\n${footer}\n${tag}`,
+          }),
+        });
+      }),
+    ]);
   }
 
   if (requestSource === 'thread') {
