@@ -27,7 +27,7 @@ workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集
 把存活候选与当前 PR 已有 inline thread 和最新回复比较，一个根因只保留一条：
 
 - 未变化的历史问题：保留工作稿中的核对结论，不生成 thread update，默认不在本轮正文逐条或按数量重报；
-- 已修复、被更强代码/API/测试契约证据推翻，或已由当前 PR 明确回复确认：`resolved`；
+- 原问题已修复、被证据推翻、所缺决定已取得，或具体代价已被明确接受：`resolved`；依据按[共同状态规则](../skills/agentic-review/references/review-state.md#状态变更需要什么证据)逐项核对；
 - 影响、成本或严重度扩大：`severity_increased`；
 - 已解决问题重新出现，或当前实现超出既有确认范围：`reintroduced`。
 
