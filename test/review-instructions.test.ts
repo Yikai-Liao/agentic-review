@@ -124,8 +124,10 @@ test('安装包及当前维护文档的本地链接闭合，运行包不依赖�
 test('中央 JSON 示例仍通过生产 schema，表达模板只由中央适配器定义', async () => {
   const result = await read('central/review-result.md');
   const examples = [...result.matchAll(/```json\n([\s\S]*?)\n```/g)];
-  assert.equal(examples.length, 4);
   const parsed = examples.map(example => parseReviewResult(example[1]));
+  assert.ok(parsed.some(example => example.request_reply !== null), '包含 thread 请求答复示例');
+  assert.ok(parsed.some(example => example.request_reply === null && example.comments.length === 0), '包含仅正文示例');
+  assert.ok(parsed.some(example => example.thread_updates.length > 0), '包含历史 thread 更新示例');
   assert.ok(parsed.some(example => example.body.startsWith('## 自动审查') && example.comments.length > 0));
   assert.ok(result.includes('## Review 正文'));
   assert.ok(result.includes('## Finding 内容'));

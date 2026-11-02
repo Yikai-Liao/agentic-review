@@ -10,7 +10,7 @@ import { test } from 'node:test';
 const exec = promisify(execFile);
 
 for (const source of ['automatic', 'pr_comment'] as const) {
-test(`${source}: model progress cannot rewrite request identity and publication still rejects incomplete coverage`, async () => {
+test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-pipeline-'));
   const writes: unknown[] = [];
   let failReview = false;
@@ -96,31 +96,33 @@ test(`${source}: model progress cannot rewrite request identity and publication 
       GITHUB_STEP_SUMMARY: path.join(directory, 'summary'), GH_TOKEN: 'test-token', GITHUB_API_URL: `http://127.0.0.1:${address.port}` };
     const publish = () => exec(process.execPath, ['scripts/publish-review.ts'], { env: publishEnv });
     const assemble = () => exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: publishEnv });
-    // 请求身份不变、只改默认范围也必须被准备阶段的摘要拦住。
-    const tampered = JSON.parse(sealedContext);
-    tampered.default_plan.ranges[0].targets = ['仅审查模型选择的文件'];
-    await chmod(contextPath, 0o600);
-    await writeFile(contextPath, JSON.stringify(tampered));
-    await assert.rejects(assemble(), /trusted preparation digest/);
-    assert.equal(writes.length, 0);
-    await writeFile(contextPath, sealedContext);
-    await chmod(contextPath, 0o400);
-    await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], {
-      env: { ...publishEnv, REVIEW_CONTEXT_DIGEST: '' },
-    }), /Missing REVIEW_CONTEXT_DIGEST/);
-    await assert.rejects(exec(process.execPath, ['scripts/publish-review-run.ts'], {
-      env: { ...publishEnv, PI_REVIEW_OUTCOME: 'failure' },
-    }), /workspace saved for recovery/);
-    assert.match(await readFile(outputPath, 'utf8'), /workspace_ready=true/);
-    assert.equal(writes.length, 0);
-    await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, PULL_NUMBER: '8' } }), /context does not match/);
-    await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, HEAD_SHA: base } }), /context does not match/);
-    await assemble();
-    await assert.rejects(publish(), /Incomplete coverage/);
-    assert.equal(writes.length, 0);
+    if (source === 'automatic') {
+      // 请求身份不变、只改默认范围也必须被准备阶段的摘要拦住。
+      const tampered = JSON.parse(sealedContext);
+      tampered.default_plan.ranges[0].targets = ['仅审查模型选择的文件'];
+      await chmod(contextPath, 0o600);
+      await writeFile(contextPath, JSON.stringify(tampered));
+      await assert.rejects(assemble(), /trusted preparation digest/);
+      assert.equal(writes.length, 0);
+      await writeFile(contextPath, sealedContext);
+      await chmod(contextPath, 0o400);
+      await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], {
+        env: { ...publishEnv, REVIEW_CONTEXT_DIGEST: '' },
+      }), /Missing REVIEW_CONTEXT_DIGEST/);
+      await assert.rejects(exec(process.execPath, ['scripts/publish-review-run.ts'], {
+        env: { ...publishEnv, PI_REVIEW_OUTCOME: 'failure' },
+      }), /workspace saved for recovery/);
+      assert.match(await readFile(outputPath, 'utf8'), /workspace_ready=true/);
+      assert.equal(writes.length, 0);
+      await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, PULL_NUMBER: '8' } }), /context does not match/);
+      await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, HEAD_SHA: base } }), /context does not match/);
+      await assemble();
+      await assert.rejects(publish(), /Incomplete coverage/);
+      assert.equal(writes.length, 0);
+      await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: '改写请求' } }));
+      await assert.rejects(assemble(), /progress fields/);
+    }
     progress.ledger[0] = { path: 'auth.ts', status: 'complete' };
-    await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: '改写请求' } }));
-    await assert.rejects(assemble(), /progress fields/);
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
@@ -137,6 +139,9 @@ test(`${source}: model progress cannot rewrite request identity and publication 
     assert.equal(published.complete_audit, source === 'automatic');
     assert.equal(published.request.text, env.REVIEW_COMMENT_BODY);
     assert.equal(await readFile(contextPath, 'utf8'), sealedContext);
+    // 两类请求的身份与完成状态均已验证；共享 CLI 故障链只执行一次。
+    if (source === 'pr_comment') return;
+
     // 一条 finding 失败也必须发布后续 finding 和正文，但退出失败且不能推进 checkpoint。
     await assemble();
     await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [1, 2].map(line => ({

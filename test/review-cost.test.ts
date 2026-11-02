@@ -27,7 +27,7 @@ test('发布费用直接使用 Pi Action 的统计输出', async () => {
   assert.equal(publisher.env?.REVIEW_COST, '${{ steps.pi-review.outputs.cost }}');
 });
 
-test('运行时只覆盖模型能力，保留 Pi 目录的价格与分档', async () => {
+test('运行时保留模型目录价格与分档，并启用单层有界重试', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
     await symlink(fileURLToPath(new URL('..', import.meta.url)), path.join(directory, 'control'), 'dir');
@@ -40,6 +40,8 @@ test('运行时只覆盖模型能力，保留 Pi 目录的价格与分档', asyn
         env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: runtimeHome, REVIEW_AGENT_MODEL: model, REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
       });
       const provider = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/models.json'), 'utf8')).providers.openai;
+      const settings = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/settings.json'), 'utf8'));
+      assert.deepEqual(settings.retry, { enabled: false, provider: { maxRetries: 3, maxRetryDelayMs: 120000 } });
       assert.equal(provider.models, undefined, '重新声明模型会把缺省价格设为 0');
       assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
       const override = provider.modelOverrides[model];
