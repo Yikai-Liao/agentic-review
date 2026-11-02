@@ -36,7 +36,8 @@
 
 5. 测试有效性：变化涉及测试、parameter row、assertion、snapshot、fixture、mock
    或 helper，或者生产变化使既有测试的错误判定重新可达时，按下方配置选择
-   references/levels/code/test-contracts.md 中的调查分支。
+   references/levels/code/test-contracts.md 的共同方法和 T1 证明；明确委托 T2
+   过约束时，再加载 references/levels/code/test-overconstraint.md。
 
 中央测试分支的执行范围以下列配置为准：`default` 默认调查，
 `explicit_request_only` 仅在本轮请求明确委托时调查，`excluded` 不参与中央审查。
