@@ -217,7 +217,7 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   assert.equal(checkout.with['sparse-checkout-cone-mode'], false);
   const patterns = checkout.with['sparse-checkout'].trim().split(/\r?\n/).map((line: string) => line.trim());
   const levels = ['requirements', 'architecture', 'plan', 'code'].map(level => `skills/agentic-review/references/levels/${level}.md`);
-  const codeMethods = [...['alignment', 'security', 'reliability', 'performance'].map(name => `skills/agentic-review/references/focuses/${name}.md`), 'skills/agentic-review/references/levels/code/behavior.md'];
+  const codeMethods = [...['alignment', 'security', 'reliability', 'performance'].map(name => `skills/agentic-review/references/focuses/${name}.md`), ...['behavior', 'test-contracts'].map(name => `skills/agentic-review/references/levels/code/${name}.md`)];
   const production = ['central/review-rules.md', 'skills/agentic-review/SKILL.md', ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `skills/agentic-review/references/${name}.md`), ...levels, ...codeMethods, ...['github-context', 'review-result'].map(name => `central/${name}.md`), '.github/pi-extensions/review-tools.ts', '.github/pi-extensions/review-input.ts', 'scripts/write-review-input.ts', 'scripts/publish-review.ts', 'package.json', 'pnpm-lock.yaml'];
   const maintenance = ['.agents/skills/darwin-skill/SKILL.md', 'evals/evaluate.ts', 'evals/experiments/example/notes.md', 'AGENTS.md', 'README.md'];
   for (const file of production) await f.write(file, `PRODUCTION ${file}\n`);

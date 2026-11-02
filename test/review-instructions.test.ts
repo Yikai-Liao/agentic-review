@@ -55,7 +55,7 @@ test('共同规则预载与 compaction 恢复一致，默认 code 方法直接�
   assert.deepEqual(loaded.slice(restored.length), [
     `${skill}references/levels/code.md`,
     ...['alignment', 'security', 'reliability', 'performance'].map(name => `${skill}references/focuses/${name}.md`),
-    `${skill}references/levels/code/behavior.md`,
+    ...['behavior', 'test-contracts'].map(name => `${skill}references/levels/code/${name}.md`),
   ]);
   assert.ok(!loaded.some(file => /references\/levels\/(requirements|architecture|plan)\.md|evals/.test(file)));
   for (const level of ['requirements', 'architecture', 'plan', 'code']) await read(`${skill}references/levels/${level}.md`);

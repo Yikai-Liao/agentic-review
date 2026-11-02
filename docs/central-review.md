@@ -76,7 +76,7 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`central/review-rules.md` 是 workflow 的唯一规则入口；可信 `agentic-review` 注册为 Pi Skill。[Prompt 装配器](../scripts/load-review-prompt.ts)统一加载共同规则、中央适配器和默认 code 方法。预载不改变层级选择与方法触发条件，其他所选规则按需读取；选择及来源保存到 `notes.md`，compaction 后恢复共同规则和已选层级。正文及 inline 模板由中央结果适配器提供，非代码层使用通用结论性质，不套用 P/T。
+`central/review-rules.md` 是 workflow 的唯一规则入口；可信 `agentic-review` 注册为 Pi Skill。[Prompt 装配器](../scripts/load-review-prompt.ts)统一加载共同规则、中央适配器和默认 code 方法，包含完整测试方法。预载不改变层级选择与方法触发条件，其他所选规则按需读取；选择及来源保存到 `notes.md`，compaction 后恢复共同规则和已选层级。正文及 inline 模板由中央结果适配器提供，非代码层使用通用结论性质，不套用 P/T。
 
 PR 元数据、评论、项目规则、固定区间 patch 及工作稿进入 `$REVIEW_INPUT_PATH` 的材料索引，适合预算的原文随首次 Prompt 交付，其余通过路径按需读取。`central/github-context.md` 定义固定 SHA 的调查与恢复方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
@@ -90,7 +90,7 @@ PR 元数据、评论、项目规则、固定区间 patch 及工作稿进入 `$R
 
 路径通过本地 Git 的 NUL 分隔输出读取，重命名保留两端，撤销变化和含换行的文件名也进入清单。force-push 后历史 head 不在本地时，摘要保持 `null`，完整 PR 的审查义务不变；其他 Git 读取失败明确停止。新快照仍保留 pending 与完整覆盖校验，由 Agent 根据增量、最新讨论和旧前提判断继承或重开；无法恢复原调查前提时重新读取必要代码。发布继续校验请求身份、固定范围、完整文件清单、scope 内全部完成和最终结果 schema，笔记格式或字数不作为调查充分性的机器证明。实际历史读取量、写稿轮数和端到端收益仍需上线后测量。
 
-材料以 `o200k_base` 统计 Token，并逐条保留完整原文、类别和路径。[运行时预载](../scripts/write-review-input.ts)按模型窗口、最大输出与调查空间计算预算，优先请求、规则、当前变化与有变化的讨论；当前笔记、进度和已有旧结果也参与选择。未容纳的材料继续保留索引入口，使用现有工具按需读取；不把截断文本当完整证据。
+材料以 `o200k_base` 统计 Token，并逐条保留完整原文、类别和路径。[运行时预载](../scripts/write-review-input.ts)按模型窗口、最大输出与调查空间计算预算，优先请求、规则、当前变化与有变化的讨论；当前笔记、进度、已有旧结果及完整材料索引也参与同一预算选择。已交付的索引与原文直接使用，首批调查从已知代码位置读取必要源码；补充导航时与同批源码读取合并。未容纳的材料继续保留索引入口，使用现有工具按需读取；不把截断文本当完整证据。
 
 ## 历史问题默认展示本轮变化
 
