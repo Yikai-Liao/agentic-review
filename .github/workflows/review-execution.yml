@@ -275,6 +275,7 @@ jobs:
           REVIEW_COMMENT_ID: ${{ inputs.comment_id }}
           REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
           REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
+          REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
           # compaction 后从控制面恢复规则与中央输出协议。
           REVIEW_CONTROL_PATH: ${{ github.workspace }}/control
           # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。

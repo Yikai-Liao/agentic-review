@@ -87,6 +87,10 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     await writeFile(progressPath, JSON.stringify(progress, null, 2));
     const resultPath = path.join(workspace, 'review-result.json');
     await writeFile(resultPath, JSON.stringify({ body: '已审查鉴权变化。', comments: [], thread_updates: [], request_reply: null }));
+    const usage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, totalTokens: 43230,
+      cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
+    const usagePath = path.join(workspace, 'review-usage.json');
+    await writeFile(usagePath, JSON.stringify({ turns: 1, first: usage, total: usage }));
     const publishEnv = { ...env, REPOSITORY: 'owner/repo', PULL_NUMBER: '7', BASE_SHA: base, HEAD_SHA: head,
       REVIEW_INVENTORY_DIGEST: outputs.inventory_digest, REVIEW_COMPARISON_START: outputs.comparison_start,
       REVIEW_CONTEXT_DIGEST: outputs.context_digest,
@@ -128,11 +132,16 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
     const bodyFinding = '## 自动代码审查 ⬆️\n\n问题详情：auth.ts 删除必要的权限约束，未授权请求可到达写入路径；须恢复约束并复核合法请求。';
     await writeFile(resultPath, JSON.stringify({ body: bodyFinding, comments: [], thread_updates: [], request_reply: null }));
+    await rm(usagePath);
+    await assert.rejects(publish(), /review-usage.json/);
+    assert.equal(writes.length, 0, '缺失费用分项不能发布一份看似完整的统计');
+    await writeFile(usagePath, JSON.stringify({ turns: 1, first: usage, total: usage }));
     await publish();
     assert.equal(writes.length, 1);
     assert.ok((writes[0] as { body: string }).body.includes(bodyFinding));
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
     assert.match((writes[0] as { body: string }).body, /Cost \(est\.\): \$0\.0032/);
+    assert.match((writes[0] as { body: string }).body, /首轮缓存命中 4\.6%/);
     assert.doesNotMatch((writes[0] as { body: string }).body, /\| Action v|\| 审查范围:/);
     const published = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(published.status, 'published');

@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { parse } from 'yaml';
 import { buildFooter } from '../scripts/publish-review.ts';
 import costExtension from '../.github/pi-extensions/review-cost.ts';
 import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
+import { parseReviewUsage, type ModelUsage } from '../scripts/review-usage.ts';
 
 const metadata = { runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/workspace', model: 'openai/gpt-test' };
 type Step = { id?: string; name?: string; env?: Record<string, string>; run?: string };
@@ -47,7 +49,56 @@ test('不同 Review 共享 OpenAI 缓存分组，输入、服务档位与其他 
   }
 });
 
-test('逐轮费用只记录 SDK 用量与估算，保留失败及推理分项，不输出正文', t => {
+test('固定规则在不同 commit 和后续工具回合保留独立断点，正文、角色与 implicit 缓存不变', async () => {
+  const handlers = new Map<string, Function>();
+  costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
+  const prompt = (await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)))).trim();
+  handlers.get('before_agent_start')!({ prompt });
+  const request = handlers.get('before_provider_request')!;
+  const ctx = { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } },
+    abort: () => assert.fail('正常请求不应中止') };
+  const stable = [{ role: 'developer', content: '固定系统提示' },
+    { role: 'user', content: [{ type: 'input_text', text: prompt }] }];
+  const patched: any[] = [];
+  for (const commit of ['head-one', 'head-two']) {
+    const original = { model: 'gpt-6.1-sol', input: [...stable,
+      { role: 'user', content: [{ type: 'input_text', text: `本轮材料 ${commit}` }] }],
+      tools: [{ type: 'function', name: 'read' }], store: false, reasoning: { effort: 'high' },
+      prompt_cache_options: { ttl: '30m' }, prompt_cache_key: commit };
+    const saved = structuredClone(original);
+    const result = request({ payload: original }, ctx);
+    assert.deepEqual(original, saved, '不得就地改写 SDK 的原请求');
+    assert.deepEqual(result.input[1].content[0].prompt_cache_breakpoint, { mode: 'explicit' });
+    const unmarked = structuredClone(result);
+    delete unmarked.input[1].content[0].prompt_cache_breakpoint;
+    assert.deepEqual(unmarked, { ...original, prompt_cache_key: 'agentic-review' });
+    const later = { ...original, input: [...original.input,
+      { type: 'function_call', call_id: 'call-1', name: 'read', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'call-1', output: '固定 SHA 的源码' }] };
+    const next = request({ payload: later }, ctx);
+    assert.deepEqual(next.input[1], result.input[1]);
+    assert.deepEqual(next.input.slice(2), later.input.slice(2));
+    assert.deepEqual(next.prompt_cache_options, { ttl: '30m' }, '保留默认 implicit 写入，不延长 TTL');
+    patched.push(result);
+  }
+  assert.deepEqual(patched[0].input.slice(0, 2), patched[1].input.slice(0, 2));
+  const compacted = { input: [{ role: 'user', content: [{ type: 'input_text', text: '压缩后的调查摘要' }] }] };
+  assert.deepEqual(request({ payload: compacted }, ctx), { ...compacted, prompt_cache_key: 'agentic-review' });
+  handlers.get('before_agent_start')!({ prompt });
+  let aborted = false;
+  assert.throws(() => request({ payload: compacted }, { ...ctx, abort: () => { aborted = true; } }), /Fixed review prompt is missing/);
+  assert.equal(aborted, true, 'SDK 会吞普通 hook 异常，首次缺规则必须同时中止');
+});
+
+test('逐轮费用保留失败及推理分项，保存无正文的累计与首轮统计供发布', t => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'review-usage-'));
+  const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
+  process.env.REVIEW_WORKSPACE_PATH = directory;
+  t.after(() => {
+    if (originalWorkspace === undefined) delete process.env.REVIEW_WORKSPACE_PATH;
+    else process.env.REVIEW_WORKSPACE_PATH = originalWorkspace;
+    rmSync(directory, { recursive: true, force: true });
+  });
   const handlers = new Map<string, Function>();
   costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
   const lines: unknown[][] = [];
@@ -65,6 +116,39 @@ test('逐轮费用只记录 SDK 用量与估算，保留失败及推理分项，
     assert.deepEqual(JSON.parse(value), { turn: 1, model: 'openai/gpt-6.1-sol', responseId: 'response-1', stopReason,
       tokens: { input: 30, output: 2000, reasoning: 1200, cacheRead: 500000, cacheWrite: 80000, total: 582030 }, cost });
     assert.ok(!value.includes('private'));
+  }
+  const saved = readFileSync(path.join(directory, 'review-usage.json'), 'utf8');
+  const summary = parseReviewUsage(JSON.parse(saved));
+  assert.equal(summary.turns, 2);
+  assert.equal(summary.first.cacheRead, 500000);
+  assert.equal(summary.total.cacheRead, 1000000);
+  assert.equal(summary.total.reasoning, 2400);
+  assert.equal(summary.total.cost.total, 2 * cost.total);
+  assert.ok(!saved.includes('private'));
+  turn({ turnIndex: 3, message: { role: 'assistant', provider: 'openai', model: 'gpt-6.1-sol', stopReason: 'stop',
+    usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } });
+  assert.equal(parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8'))).total.reasoning, undefined);
+});
+
+test('footer 展示首轮命中和分项费用，零输入及缺失推理保持准确', () => {
+  const first: ModelUsage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, reasoning: 0, totalTokens: 43230,
+    cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
+  const footer = buildFooter({ ...metadata, cost: 0.1505318, controlSha: 'b64df5114c7fe64a9eb7ff3361a13d36ba9305b2',
+    usage: { turns: 1, first, total: first } });
+  assert.match(footer, /首轮缓存命中 4\.6%/);
+  assert.match(footer, /缓存读取 \| 1,972 \| \$0\.0002/);
+  assert.match(footer, /缓存写入 \| 41,123 \| \$0\.1028/);
+  assert.match(footer, /Cost \(est\.\): \$0\.1505/);
+  assert.match(footer, /Rules: b64df51/);
+  assert.match(footer, /推理 Token：0，已包含在输出中/);
+  const empty: ModelUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /首轮缓存命中 无输入/);
+  assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /推理 Token：未提供/);
+  for (const value of [null, {}, { turns: 0, first, total: first },
+    { turns: 1, first, total: { ...first, cacheRead: -1 } },
+    { turns: 1, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
+    assert.throws(() => parseReviewUsage(value), /review/);
   }
 });
 
