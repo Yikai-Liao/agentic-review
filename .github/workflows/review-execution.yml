@@ -209,6 +209,14 @@ jobs:
           REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
         run: node control/scripts/prepare-review-context.ts
 
+      - name: Ensure ripgrep is available
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ripgrep
+          fi
+          rg --version
+
       # 中央规则由可信 control checkout 预载；模型覆盖保留 Pi 目录中的公开单价。
       - name: Configure Pi runtime
         env:
