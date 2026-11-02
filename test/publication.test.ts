@@ -119,6 +119,40 @@ test('发布前独立读取并行，thread 列表直接提供状态而不逐条�
   assert.equal(state.resolved.size, 2);
 });
 
+test('同一 thread 的状态与证据并行，正文等待两项结束并包含失败结果', { timeout: 5000 }, async () => {
+  const state = fixture();
+  const originalFetch = state.fetchImpl;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let bothStarted!: () => void;
+  const ready = new Promise<void>(resolve => { bothStarted = resolve; });
+  const started = new Set<string>();
+  state.fetchImpl = (async (input, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const kind = body?.query?.startsWith('mutation') ? 'state'
+      : String(input).endsWith('/comments/123/replies') ? 'evidence' : null;
+    if (kind) {
+      started.add(kind);
+      if (started.size === 2) bothStarted();
+      await gate;
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  state.fail = call => call.body?.query?.startsWith('mutation') ? new Response('unavailable', { status: 503 }) : undefined;
+  const pending = publish(state, { requestSource: 'automatic', result: {
+    ...result, comments: [], thread_updates: [result.thread_updates[0]], request_reply: null,
+  } });
+  await ready;
+  assert.equal(state.reviews.length, 0);
+  release();
+  const report = await pending;
+  assert.ok(state.comments.some(item => item.body.includes('Pi thread 状态更新')));
+  assert.equal(state.resolved.size, 0);
+  assert.equal(report.operations.find(item => item.id === 'thread 123 状态同步')?.status, 'failed');
+  assert.equal(report.operations.find(item => item.id === 'thread 123 证据回复')?.status, 'succeeded');
+  assert.match(state.reviews[0].body, /发布未全部完成：1 项/);
+});
+
 test('统一执行边界收集任意异常，只阻断声明了失败依赖的操作', async () => {
   const publication = createPublication();
   const first = await publication.run('first', [], async () => { throw '未知故障'; });
