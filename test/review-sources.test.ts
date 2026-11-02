@@ -5,6 +5,51 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { checkoutReviewTarget, prepareReviewBase } from '../scripts/prepare-review-sources.ts';
+import { runGh, type Run } from '../scripts/refresh-review-discussion.ts';
+
+for (const side of ['head', 'base'] as const) test(`仅 ${side} 含私有 LFS 文件时保留指针，不启动对象下载`, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-lfs-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const origin = path.join(directory, 'origin');
+  execFileSync('git', ['init', '-q', origin]);
+  const git = (...args: string[]) => execFileSync('git', ['-C', origin,
+    '-c', 'filter.lfs.process=', '-c', 'filter.lfs.clean=', '-c', 'filter.lfs.required=false',
+    ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
+  git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.com');
+  const pointer = `version https://git-lfs.github.com/spec/v1\noid sha256:${'a'.repeat(64)}\nsize 42\n`;
+  await writeFile(path.join(origin, '.gitattributes'), '*.bin filter=lfs diff=lfs -text\n');
+  await writeFile(path.join(origin, 'source.ts'), 'base');
+  if (side === 'base') await writeFile(path.join(origin, 'asset.bin'), pointer);
+  git('add', '.'); git('commit', '-qm', 'base');
+  const baseSha = git('rev-parse', 'HEAD');
+  await writeFile(path.join(origin, 'source.ts'), 'head');
+  if (side === 'head') await writeFile(path.join(origin, 'asset.bin'), pointer);
+  else await rm(path.join(origin, 'asset.bin'));
+  git('add', '.'); git('commit', '-qm', 'head');
+  const headSha = git('rev-parse', 'HEAD');
+
+  // 模拟 runner 系统配置中的 required LFS filter；一旦启动即记录并拒绝下载。
+  const marker = path.join(directory, 'lfs-started');
+  const filter = path.join(directory, 'lfs-filter');
+  await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, { mode: 0o755 });
+  const run: Run = (command, args) => runGh(command, [
+    '-c', `filter.lfs.process=${filter}`, '-c', `filter.lfs.smudge=${filter}`, '-c', 'filter.lfs.required=true', ...args,
+  ]);
+  const target = path.join(directory, 'target');
+  const base = path.join(directory, 'base');
+  await checkoutReviewTarget(target, origin, baseSha, headSha, run);
+  await prepareReviewBase(target, base, baseSha, run);
+  assert.equal(await readFile(path.join(target, 'source.ts'), 'utf8'), 'head');
+  assert.equal(await readFile(path.join(base, 'source.ts'), 'utf8'), 'base');
+  const pointerTree = side === 'head' ? target : base;
+  assert.equal(await readFile(path.join(pointerTree, 'asset.bin'), 'utf8'), pointer);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+
+  // 对照检出确实会触发该 filter，避免把未生效的配置当作保护。
+  await rm(path.join(pointerTree, 'asset.bin'));
+  await assert.rejects(run('git', ['-C', pointerTree, 'checkout', '--', 'asset.bin']));
+  await readFile(marker);
+});
 
 test('base 共用已下载对象；缺少固定快照时补取，保持目标版本并禁止 checkout hook', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-sources-'));
