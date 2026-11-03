@@ -221,6 +221,7 @@ jobs:
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
+          REVIEW_EXPLICIT_PROMPT_CACHE: ${{ vars.REVIEW_EXPLICIT_PROMPT_CACHE }}
           REVIEW_AGENT_BASE_URL: ${{ vars.REVIEW_AGENT_BASE_URL }}
           REVIEW_AGENT_API_KEY: ${{ secrets.REVIEW_AGENT_API_KEY }}
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
@@ -233,28 +234,32 @@ jobs:
             "retry": { "baseDelayMs": 15000 }
           }
           JSON
-          jq -n --arg model "$REVIEW_AGENT_MODEL" '{
-            providers: {
-              openai: {
-                modelOverrides: { ($model): {
-                  reasoning: true,
-                  input: ["text", "image"],
-                  contextWindow: 272000,
-                  maxTokens: 128000,
-                  thinkingLevelMap: {
-                    off: "none",
-                    minimal: null,
-                    low: "low",
-                    medium: "medium",
-                    high: "high",
-                    xhigh: "xhigh",
-                    max: "max"
-                  },
-                  compat: { supportsStrictMode: true }
-                }}
+          jq -n --arg model "$REVIEW_AGENT_MODEL" \
+            --argjson explicit_cache "${REVIEW_EXPLICIT_PROMPT_CACHE:-false}" '
+            if ($explicit_cache | type) != "boolean" then
+              error("REVIEW_EXPLICIT_PROMPT_CACHE must be true or false")
+            else {
+              providers: {
+                openai: {
+                  modelOverrides: { ($model): {
+                    reasoning: true,
+                    input: ["text", "image"],
+                    contextWindow: 272000,
+                    maxTokens: 128000,
+                    thinkingLevelMap: {
+                      off: "none",
+                      minimal: null,
+                      low: "low",
+                      medium: "medium",
+                      high: "high",
+                      xhigh: "xhigh",
+                      max: "max"
+                    },
+                    compat: { supportsStrictMode: true, supportsExplicitPromptCacheMode: $explicit_cache }
+                  }}
+                }
               }
-            }
-          }' > "$HOME/.pi/agent/models.json"
+            } end' > "$HOME/.pi/agent/models.json"
           PI_MODELS_PATH="$HOME/.pi/agent/models.json" node control/scripts/configure-review-fast-mode.ts
 
       - name: Run Pi review
