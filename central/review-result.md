@@ -6,9 +6,9 @@
 
 使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`。中央入口用 `notes.md` 保存一份工作稿，`review-progress.json` 保存文件进度，提交工具自动保存 `review-result.json` 最终结果；不另建 `review.md` 索引。工作稿作为限期、受权限保护的 Actions artifact 保留。
 
-准备阶段已经写入固定请求身份、版本、可信规则恢复入口与进度路径。`notes.md` 补充[中央入口](review-rules.md#选择审查层级)选定的层级；采用默认层级时记 `level: code`，明确覆盖默认值时补充来源。固定事实和文件进度使用已有记录。
+准备阶段已经写入固定请求身份、版本、可信规则恢复入口与进度路径。明确覆盖[中央默认层级](review-rules.md#选择审查层级)时，`notes.md` 保留选择及来源；固定事实和文件进度使用已有记录。
 
-`notes.md` 的记录粒度使用[共同工作稿规则](../skills/agentic-review/references/review-state.md#分开记录调查进度和问题状态)：只补续查缺口、非显然判断的关键前提和原文定位。覆盖状态使用 `review-progress.json`，正式 finding 的完整证明由最终 `review-result.json` 保存；无候选项的已完成调查只更新文件进度。
+`notes.md` 的记录粒度使用[共同工作稿规则](../skills/agentic-review/references/review-state.md#分开记录调查进度和问题状态)：保留调查中已取得、但公开结果未包含的支持证据、关键前提和未完成项；没有 finding 也保存必要依据。覆盖状态使用 `review-progress.json`；`review-result.json`、PR Thread、回复和 Review 正文已有的内容直接引用。
 
 笔记随调查形成，与文件进度在同一次 `bash` 或 `codemode` 调用中保存，不为将来复用另起取证、补稿或总结回合。调查完成后登记 complete；最终归纳直接使用当前上下文和已有记录。长工作稿按相关路径或符号定位读取。中央提交要求全部 scope 内覆盖完成；未完成项保持 pending，工作稿保留具体缺口，不生成假 complete。
 
