@@ -1,4 +1,5 @@
 import { rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseReviewUsage, type ModelUsage, type ReviewUsage } from '../../scripts/review-usage.ts';
 
@@ -64,6 +65,18 @@ export default function reviewCost(pi: ExtensionAPI) {
         throw new Error('Fixed review prompt is missing from the provider request');
       }
       return result;
+    }
+    if (firstRequest) {
+      // 对实际发送的固定前缀取指纹；不记录规则、源码、请求正文或凭据。
+      // 增量材料位于固定规则之后，不应改变这些指纹。
+      const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex');
+      const prefix = { model: payload.model, instructions: payload.instructions, tools: payload.tools,
+        parallel_tool_calls: payload.parallel_tool_calls, reasoning: payload.reasoning, text: payload.text,
+        service_tier: payload.service_tier, prompt_cache_key: result.prompt_cache_key, input: input.slice(0, index + 1) };
+      console.info('[review-cache-prefix]', JSON.stringify({
+        model: payload.model, prefix: digest(prefix), tools: digest(payload.tools),
+        system: digest(input.slice(0, index)), rules: digest(input[index]),
+      }));
     }
     firstRequest = false;
     const message = input[index];

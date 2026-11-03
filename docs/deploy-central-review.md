@@ -198,11 +198,22 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时通过 Ubuntu 系统包管理器安装，已有时直接复用，并执行 `rg --version` 验证。安装或验证失败会停止本轮，避免 Agent 在调查中因缺少搜索命令重试。
 
-Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：provider 层最多重试 3 次 HTTP 瞬时错误，优先遵守服务端的 `Retry-After`，单次服务端退避上限为 120 秒；会话层最多重试 3 次响应流内的瞬时失败，无服务端提示时使用 Pi 原生的 2、4、8 秒指数退避。HTTP 重试耗尽或 provider 拒绝过长等待时，中央 `review-retry` 扩展通过官方 `message_end` 钩子停止本轮，避免会话层再次复制已耗尽的 HTTP 预算。两阶段交错时，每个失败模型请求最多有 4 次会话尝试、每次最多 4 次 HTTP 尝试，即最多 16 次 HTTP 尝试。
+Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：关闭全局会话重试，只保留最多 3 次 provider 层 HTTP 重试。HTTP 层优先遵守 `Retry-After`，超过 120 秒直接失败。Pi 1.3.0 的压缩摘要会继承全局重试开关，却不经过普通回合的消息与请求钩子，因此不能开启第二层全局重试；自动压缩持续返回 HTTP 503 时最多尝试 4 次，`Retry-After: 121` 时只尝试 1 次。压缩失败由 `session_compact_failed` 钩子中止本轮，不继续普通请求。摘要的流内错误直接失败，不额外恢复。
 
-响应流内的 OpenAI TPM 限流可能只在错误正文里给出 `Please try again in …s`。扩展记录该提示，在下一次官方 `before_provider_request` 钩子中补足原生退避后的剩余等待；等待可由 Pi 的请求取消信号中止，超过 120 秒的提示直接失败，不提前重试。扩展仅替换已确认 TPM 错误中的 `/account/billing` 帮助链接，避免 Pi 1.3.0 将链接误判为账单错误；正文中的账单、配额与鉴权错误保持原有失败判断。请求发送、错误分类、会话恢复及重试计数仍由 Pi 负责，不包装 API 或重新执行整轮 Review。
+普通回合的 OpenAI 流内 TPM 限流由 `review-retry` 在官方 `agent_before_settle` 边界恢复：仅通过 `context_edit` 从后续模型输入中省略失败响应，再让 Pi 继续原会话；原始错误、已完成的回复与工具结果均保留。最多连续恢复 3 次，成功响应后重置次数。服务端给出 `Please try again in …s` 时至少等满该提示；无提示时按 2、4、8 秒退避，超过 120 秒不恢复。等待使用请求或压缩的取消信号，分别在 `before_provider_request`、`session_before_compact` 中执行；继续前若先触发压缩，摘要也不能绕过已有等待期限。`/account/billing` 帮助链接不参与错误分类，正文中的账单、配额与鉴权错误仍然终止。HTTP 耗尽与等待超限不会从会话边界恢复；普通回合与 HTTP 重试交错时最多 16 次 HTTP 尝试。请求发送与上下文重建仍由 Pi 负责，不包装 API，也不重新执行整轮 Review。
 
 `Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的发布、结果上传留出时间。重试耗尽后仍会失败并由 publisher 保留工作稿。若固定 TPM 下仍频繁限流，应减少单次输入或并发请求；增加重试次数不能提高吞吐额度。Pi 的配置与扩展接口见 [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) 和 [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md)。
+
+修改请求恢复或摘要边界后，除普通测试外，使用与 Action 对应的 SDK 做隔离验收。下面的测试只连接本机模拟 HTTP/SSE 服务，覆盖真实自动压缩、流内恢复和会话落盘，不调用模型 API，也不增加生产依赖：
+
+```bash
+pi_sdk_check_dir="$(mktemp -d)"
+npm install --prefix "$pi_sdk_check_dir" --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@1.3.0
+PI_SDK_DIRECTORY="$pi_sdk_check_dir/node_modules/@earendil-works/pi-coding-agent" pnpm exec tsx --test test/pi-runtime.integration.ts
+rm -rf "$pi_sdk_check_dir"
+```
+
+Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行将 `~/.pi/agent/sessions/` 下的原始 JSONL 归档为 `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 7 天。上传在 Agent 成功、失败或取消后执行，不依赖 Action 成功完成导出，因此导出前异常或超时也可保留已写盘部分；runner 丢失或尚未落盘的内容无法补回。日志包含系统消息、工具定义、输入、回复、工具结果及 context edits，可用于重建请求；归档不包含上层 `auth.json` 或运行时配置。首轮另记录 `[review-cache-prefix]` 的固定前缀、工具、系统消息与规则哈希，不输出正文，用于快速定位跨运行差异。当前规则与工具配置相同时，增补材料位于固定规则之后，不能改变固定断点之前的前缀。
 
 `REVIEW_FAST_MODE=true` 时，`Configure Pi runtime` 在 Agent 启动前向配置的模型网关发送一次短 Responses 请求，探测 `service_tier: "priority"`（[OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)）。响应确认 `priority`/`fast` 后，将该参数写入 Pi 的模型配置；网关或模型明确拒绝（HTTP 400/422），或响应未确认优先服务层时，本轮沿用 API 默认模式。正式 Review 直接使用 Pi 原生请求链路，不包装 fetch 或重复探测。探测的鉴权、配额、限流、网络及无关参数错误会使准备步骤失败；关闭开关时不探测，也不覆盖 API 项目自身的默认服务层设置。Fast mode 可能采用更高单价，额外的启动探测不计入 Review 主会话的 token 和费用统计。
 

@@ -227,15 +227,12 @@ jobs:
         run: |
           mkdir -p "$HOME/.pi/agent" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          # provider 层遵守 HTTP Retry-After；会话层恢复响应流内的瞬时失败。
-          # review-retry hook 阻止 HTTP 重试耗尽后再次复制 provider 重试预算。
+          # 只保留 provider 层原生 HTTP 重试，避免压缩摘要继承第二层预算。
+          # 普通回合的流内 TPM 失败由 review-retry 在公开会话边界恢复。
           cat > "$HOME/.pi/agent/settings.json" <<'JSON'
           {
             "retry": {
-              "enabled": true,
-              "maxRetries": 3,
-              "baseDelayMs": 2000,
-              "maxAgentDelayMs": 60000,
+              "enabled": false,
               "provider": {
                 "maxRetries": 3,
                 "maxRetryDelayMs": 120000
@@ -317,6 +314,8 @@ jobs:
           thinking_level: ${{ env.REVIEW_THINKING_LEVEL }}
           # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
           auto_compaction: true
+          # Action 仅在开启导出时使用落盘会话；原始 JSONL 也可保留导出前的失败记录。
+          export_session_jsonl: true
           # 允许用 JavaScript 编排现有工具，并在返回模型前筛选查询结果。
           enable_codemode: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
@@ -403,6 +402,18 @@ jobs:
             });
             const { main } = await import(require('node:url').pathToFileURL(path.join(directory, 'scripts/publish-review-run.ts')).href);
             await main();
+
+      - name: Archive Pi session
+        id: review-session
+        if: ${{ always() && steps.pi-review.outcome != 'skipped' && steps.pi-review.outcome != '' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: review-session-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # 只归档会话日志，不包含同目录上层的 auth.json 或运行时配置。
+          path: ~/.pi/agent/sessions/**/*.jsonl
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
       # 每轮只归档一次：发布成功保存完成工作区，失败或取消仍保存可恢复范围及发布报告。
       - name: Archive review workspace

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { data, Evaluator, Lexer, Parser } from '@actions/expressions';
 import { parse } from 'yaml';
 
 function readReviewWorkflow() {
@@ -14,6 +15,28 @@ function readReviewWorkflow() {
     : entrySource;
   return { source, workflow: parse(source) };
 }
+
+test('完整 Pi JSONL 在成功、失败和取消后归档，不依赖成功导出路径', () => {
+  const { workflow } = readReviewWorkflow();
+  const steps = workflow.jobs.review.steps;
+  const agent = steps.find((step: any) => step.id === 'pi-review');
+  const archive = steps.find((step: any) => step.id === 'review-session');
+  assert.equal(agent.with.export_session_jsonl, true, '开启导出使 Action 使用落盘 SessionManager');
+  assert.notEqual(agent.with.share_session, true);
+  assert.equal(archive.with.path, '~/.pi/agent/sessions/**/*.jsonl');
+  assert.equal(archive.with['include-hidden-files'], true);
+  assert.equal(archive.with['if-no-files-found'], 'error');
+  assert.equal(archive.with['retention-days'], 7);
+  assert.ok(steps.indexOf(archive) > steps.indexOf(agent));
+  const expression = archive.if.replace(/^\$\{\{|\}\}$/g, '').replace(/always\(\)/g, 'true');
+  const parsed = new Parser(new Lexer(expression).lex().tokens, ['steps'], []).parse();
+  for (const [outcome, expected] of [['success', true], ['failure', true], ['cancelled', true], ['skipped', false], ['', false]]) {
+    const context = JSON.parse(JSON.stringify({ steps: { 'pi-review': { outcome } } }), data.reviver);
+    const result = new Evaluator(parsed, context).evaluate();
+    assert.ok(result instanceof data.BooleanData);
+    assert.equal(result.value, expected, `归档条件：${outcome}`);
+  }
+});
 
 function assertAgentCredentials(workflow: any) {
   const review = workflow.jobs.review;
