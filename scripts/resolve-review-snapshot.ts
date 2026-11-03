@@ -27,8 +27,10 @@ export async function resolveReviewSnapshot(options: {
   );
   if (!response.ok) throw new Error(`Review snapshot lookup failed: ${response.status}`);
   const pr = await response.json() as { title?: string; body?: string | null; user?: { login: string }; state: string; draft: boolean;
+    merged?: boolean; merged_at?: string | null;
     base: { ref?: string; sha: string; repo: { id: number } }; head: { ref?: string; sha: string } };
-  if (pr.state !== 'open' || String(pr.base?.repo?.id) !== options.repositoryId) throw new Error('Pull request is not eligible for review');
+  if (!(pr.state === 'open' || (pr.state === 'closed' && pr.merged === true))
+    || String(pr.base?.repo?.id) !== options.repositoryId) throw new Error('Pull request is not eligible for review');
   const baseSha = pr.base.sha;
   const headSha = pr.head?.sha;
   if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(headSha)) throw new Error('Invalid review snapshot');
@@ -36,6 +38,7 @@ export async function resolveReviewSnapshot(options: {
   return {
     repository: options.repository, pullNumber: options.pullNumber, baseSha, headSha,
     metadata: { title: pr.title, body: pr.body ?? '', author: { login: pr.user?.login },
+      state: pr.state, merged: pr.merged === true, mergedAt: pr.merged_at ?? null,
       baseRefName: pr.base.ref, baseRefOid: baseSha, headRefName: pr.head.ref, headRefOid: headSha },
   } satisfies ReviewSnapshot;
 }

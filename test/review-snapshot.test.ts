@@ -8,6 +8,7 @@ const pullRequest = { title: '测试标题', body: '测试说明', user: { login
   base: { ref: 'main', sha: baseSha, repo: { id: 1 } }, head: { ref: 'feature', sha: headSha } };
 const snapshot = { repository: 'owner/repo', pullNumber: '7', baseSha, headSha,
   metadata: { title: '测试标题', body: '测试说明', author: { login: 'maintainer' },
+    state: 'open', merged: false, mergedAt: null,
     baseRefName: 'main', baseRefOid: baseSha, headRefName: 'feature', headRefOid: headSha } };
 const options = {
   repository: 'owner/repo', repositoryId: '1', pullNumber: '7', source: 'pr_comment',
@@ -32,4 +33,25 @@ test('automatic events reject superseded snapshots and mismatched repositories',
   await assert.rejects(resolveReviewSnapshot({ ...options, source: 'automatic', baseSha, headSha: 'c'.repeat(40) }), /stale/);
   await assert.rejects(resolveReviewSnapshot({ ...options, repositoryId: '2' }), /eligible/);
   assert.deepEqual(await resolveReviewSnapshot({ ...options, source: 'automatic', baseSha, headSha }), snapshot);
+});
+
+test('已合并且源分支或 fork 删除后，手动派发与评论仍按 PR 保存的 SHA 审查', async () => {
+  const mergedAt = '2026-11-03T06:53:11Z';
+  const merged = { ...pullRequest, state: 'closed', merged: true, merged_at: mergedAt,
+    head: { ref: 'deleted-feature', sha: headSha, repo: null } };
+  const expected = { ...snapshot, metadata: { ...snapshot.metadata,
+    state: 'closed', merged: true, mergedAt, headRefName: 'deleted-feature' } };
+  for (const source of ['automatic', 'pr_comment', 'thread']) {
+    const request = { ...options, source, baseSha, headSha, fetchImpl: async () => Response.json(merged) };
+    assert.deepEqual(await resolveReviewSnapshot(request), expected);
+  }
+  await assert.rejects(resolveReviewSnapshot({ ...options, source: 'automatic', baseSha, headSha: 'c'.repeat(40),
+    fetchImpl: async () => Response.json(merged) }), /stale/);
+});
+
+test('关闭但未合并的 PR 仍拒绝，不能仅凭 closed 状态放行', async () => {
+  for (const merged of [false, undefined]) {
+    await assert.rejects(resolveReviewSnapshot({ ...options,
+      fetchImpl: async () => Response.json({ ...pullRequest, state: 'closed', merged }) }), /eligible/);
+  }
 });

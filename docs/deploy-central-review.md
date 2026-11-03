@@ -42,6 +42,8 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 
 编辑评论不触发新任务；Worker 还会过滤机器人自身、引用块、代码块和 inline code 中的 mention。`REVIEW_BOT_MENTION` 必须显式填写 Review App 的实际 slug 对应的提及形式。中央 publisher 从 `actions/create-github-app-token` 的 `app-slug` 生成 `REVIEW_BOT_LOGIN=<slug>[bot]`，不要手工配置另一个 bot 登录名。评论正文会原样进入 dispatch input；所有 `workflow_dispatch` inputs 受 GitHub 的 65,535 characters 总大小限制，超限请求明确失败且不截断。不要自行按单字段或 HTTP JSON UTF-8 字节计算，详见 [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputs)。
 
+手动补跑同样接受已合并的历史 PR；关闭但未合并的 PR 仍拒绝。即使源分支或 fork 已删除，也使用 GitHub PR 保存的 base/head SHA 下载代码并审查，无须恢复分支。`automatic` 请求仍须提交与 PR 保存快照一致的 SHA；结果和 Check 留在原 PR 与原 head 上。
+
 App repository permissions 至少为：
 
 - `Contents: read and write`（GitHub GraphQL 的 review thread resolve/unresolve 所需；write 只在 Agent 结束后签发给可信发布步骤）；
