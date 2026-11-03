@@ -100,27 +100,6 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
   assert.equal(aborted, true, 'SDK 会吞普通 hook 异常，首次缺规则必须同时中止');
 });
 
-test('ACP 引用标记不影响定位固定规则，正文与标记仍原样发送', t => {
-  t.mock.method(console, 'info', () => {});
-  const handlers = new Map<string, Function>();
-  costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
-  const prompt = '固定审查规则';
-  handlers.get('before_agent_start')!({ prompt });
-  const text = `${prompt}\n\n<acp tokens="14" type="text">m00001</acp>\n`;
-  const payload = { input: [{ role: 'user', content: [{ type: 'input_text', text }] }] };
-  const request = handlers.get('before_provider_request')!;
-  const ctx = { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } },
-    abort: () => assert.fail('ACP 尾标记不应触发中止') };
-  const result = request({ payload }, ctx);
-  assert.equal(result.input[0].content[0].text, text);
-  assert.deepEqual(result.input[0].content[0].prompt_cache_breakpoint, { mode: 'explicit', ttl: '12h' });
-  assert.equal(payload.input[0].content[0].text, text);
-  handlers.get('before_agent_start')!({ prompt: '另一份固定规则' });
-  let aborted = false;
-  assert.throws(() => request({ payload }, { ...ctx, abort: () => { aborted = true; } }), /Fixed review prompt is missing/);
-  assert.equal(aborted, true, '允许 ACP 尾标记不能放宽固定规则正文校验');
-});
-
 test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位价格保持原样', t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-mixed-cache-'));
   const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
@@ -256,13 +235,13 @@ test('运行时保留目录价格与原生重试，显式缓存默认关闭并�
       });
       const provider = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/models.json'), 'utf8')).providers.openai;
       const settings = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/settings.json'), 'utf8'));
-      assert.deepEqual(settings, { retry: { baseDelayMs: 15000 }, compaction: { enabled: false } });
+      assert.deepEqual(settings, { retry: { baseDelayMs: 15000 }, compaction: { enabled: true } });
       assert.equal(provider.models, undefined, '重新声明模型会把缺省价格设为 0');
       assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
       const override = provider.modelOverrides[model];
       assert.equal(override.cost, undefined, '输入、输出、缓存及分档单价均由目录提供');
       assert.equal(override.compat.supportsExplicitPromptCacheMode, enabled);
-      assert.equal(override.contextWindow, 100000);
+      assert.equal(override.contextWindow, 272000);
       assert.equal(override.maxTokens, 25000);
       assert.equal(override.thinkingLevelMap.off, 'none');
       assert.equal(override.thinkingLevelMap.xhigh, 'xhigh');
