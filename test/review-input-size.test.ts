@@ -124,5 +124,5 @@ test('Tokenizer 依赖按可信 lockfile 缓存，并在 Agent 启动前完成�
   // Corepack 必须在可信 package.json 所在目录启动，不能由 pnpm 的 --dir 代替。
   assert.equal(steps[install]['working-directory'], 'control');
   assert.match(steps[install].run!, /^corepack pnpm install --prod --frozen-lockfile --ignore-scripts$/);
-  assert.equal(steps.filter(step => step.uses?.startsWith('actions/cache/save@')).length, 1);
+  assert.ok(steps.every((step, index) => !step.uses?.startsWith('actions/cache/save@') || index < agent));
 });

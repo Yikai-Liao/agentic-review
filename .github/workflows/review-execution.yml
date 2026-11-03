@@ -41,6 +41,7 @@ env:
   # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
   REVIEW_THINKING_LEVEL: ${{ vars.REVIEW_THINKING_LEVEL }}
   REVIEW_FAST_MODE: ${{ vars.REVIEW_FAST_MODE }}
+  BILLION_CONTEXT_PI_VERSION: 0.1.83
   # 保留操作手册使用的官方归档版本与校验值；当前 Review 不准备飞书工具。
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
@@ -217,6 +218,29 @@ jobs:
           fi
           rg --version
 
+      - name: Restore trusted Pi compression extension
+        id: pi-compression
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ runner.temp }}/review-pi-extensions
+          key: review-pi-extensions-node24-${{ runner.os }}-${{ runner.arch }}-billion-context-pi-${{ env.BILLION_CONTEXT_PI_VERSION }}
+
+      - name: Install trusted Pi compression extension
+        if: steps.pi-compression.outputs.cache-hit != 'true'
+        # 发布包已内联依赖；Pi host 由第三方 Action 提供，不再安装 peer SDK。
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/review-pi-extensions"
+          --ignore-scripts --no-audit --no-fund --no-package-lock --legacy-peer-deps
+          "billion-context-pi@$BILLION_CONTEXT_PI_VERSION"
+
+      # 与 tokenizer 缓存一样，在 Agent 启动前保存，运行中产生的状态不写回缓存。
+      - name: Save trusted Pi compression extension
+        if: steps.pi-compression.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ${{ runner.temp }}/review-pi-extensions
+          key: ${{ steps.pi-compression.outputs.cache-primary-key }}
+
       # 中央规则由可信 control checkout 预载；模型覆盖保留 Pi 目录中的公开单价。
       - name: Configure Pi runtime
         env:
@@ -231,7 +255,16 @@ jobs:
           # 使用 Pi 原生重试，仅将初始等待调为 15 秒，后续为 30、60 秒。
           cat > "$HOME/.pi/agent/settings.json" <<'JSON'
           {
-            "retry": { "baseDelayMs": 15000 }
+            "retry": { "baseDelayMs": 15000 },
+            "compaction": { "enabled": false }
+          }
+          JSON
+          # ACP 负责上下文压缩；版本升级由控制面 pin 管理，重试沿用 Pi 原生实现。
+          cat > "$HOME/.pi/acp.json" <<'JSON'
+          {
+            "autoUpdate": false,
+            "delegate": false,
+            "throttleRetry": false
           }
           JSON
           jq -n --arg model "$REVIEW_AGENT_MODEL" \
@@ -244,8 +277,9 @@ jobs:
                   modelOverrides: { ($model): {
                     reasoning: true,
                     input: ["text", "image"],
-                    contextWindow: 272000,
-                    maxTokens: 128000,
+                    contextWindow: 100000,
+                    # 与 ACP 默认的 25% 输出预留一致，输入与最大输出共用 100k 窗口。
+                    maxTokens: 25000,
                     thinkingLevelMap: {
                       off: "none",
                       minimal: null,
@@ -310,16 +344,17 @@ jobs:
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
           thinking_level: ${{ env.REVIEW_THINKING_LEVEL }}
-          # 长审查允许 compact；关键调查状态由工作稿持久化，不依赖早期上下文。
-          auto_compaction: true
+          # ACP 统一管理压缩；关键调查状态仍由工作稿持久化。
+          auto_compaction: false
           # Action 仅在开启导出时使用落盘会话；原始 JSONL 也可保留导出前的失败记录。
           export_session_jsonl: true
           # 允许用 JavaScript 编排现有工具，并在返回模型前筛选查询结果。
           enable_codemode: true
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
           load_builtin_extensions: false
-          # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
+          # 外部扩展在可信准备阶段安装并缓存，Action 只加载本地入口。
           extensions: |
+            ${{ runner.temp }}/review-pi-extensions/node_modules/billion-context-pi/dist/index.js
             control/.github/pi-extensions/review-cost.ts
             control/.github/pi-extensions/review-runtime.ts
             control/.github/pi-extensions/review-input.ts
@@ -336,6 +371,11 @@ jobs:
             set_review_scope
             submit_review
             codemode
+            compress
+            decompress
+            search_context
+            acp_status
+            acp_cache
           # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
           prompt: ${{ steps.review-context.outputs.prompt }}
 
@@ -407,8 +447,10 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-session-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
-          # 只归档会话日志，不包含同目录上层的 auth.json 或运行时配置。
-          path: ~/.pi/agent/sessions/**/*.jsonl
+          # ACP sidecar 保留压缩块；归档不包含上层 auth.json 或运行时配置。
+          path: |
+            ~/.pi/agent/sessions/**/*.jsonl
+            ~/.pi/agent/sessions/**/*.jsonl.acp.json
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7

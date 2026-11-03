@@ -47,7 +47,9 @@ export default function reviewCost(pi: ExtensionAPI) {
     const input = payload.input as Array<{ role?: string; content?: Array<{ type: string; text?: string }> }>;
     const index = Array.isArray(input) ? input.findIndex(message => message.role === 'user'
       && Array.isArray(message.content) && message.content.length === 1
-      && message.content[0].type === 'input_text' && message.content[0].text === prompt) : -1;
+      // ACP 为 user 消息附加引用标记；只在定位时去掉尾标记，发送正文保持原样。
+      && message.content[0].type === 'input_text'
+      && message.content[0].text?.replace(/\n\n<acp tokens="[^"]+" type="text">m\d+<\/acp>\n?$/, '') === prompt) : -1;
     if (index === -1) {
       // 首次必须能定位规则；长审查 compaction 后原消息可能已被移除。
       if (firstRequest) {
