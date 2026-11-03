@@ -198,9 +198,9 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时通过 Ubuntu 系统包管理器安装，已有时直接复用，并执行 `rg --version` 验证。安装或验证失败会停止本轮，避免 Agent 在调查中因缺少搜索命令重试。
 
-Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：关闭全局会话重试，只保留最多 3 次 provider 层 HTTP 重试。HTTP 层优先遵守 `Retry-After`，超过 120 秒直接失败。Pi 1.3.0 的压缩摘要会继承全局重试开关，却不经过普通回合的消息与请求钩子，因此不能开启第二层全局重试；自动压缩持续返回 HTTP 503 时最多尝试 4 次，`Retry-After: 121` 时只尝试 1 次。压缩失败由 `session_compact_failed` 钩子中止本轮，不继续普通请求。摘要的流内错误直接失败，不额外恢复。
+Review job 仅配置 Pi 原生 `retry.baseDelayMs: 15000`，使连续重试等待 15、30、60 秒；其余沿用当前 Action 内置 Pi 1.3.0 的默认设置：会话重试开启，最多 3 次，单次退避上限 60 秒，provider 层不额外重试。项目不加载自定义错误分类、等待、`context_edit` 或会话继续逻辑；普通回合及压缩摘要由 Pi 原生分类和预算处理，避免叠加两层 HTTP 预算。`review-runtime` 只保留既有的失败边界：Pi 最终报告 `session_compact_failed` 时中止本轮，不在摘要失败后继续使用旧上下文。
 
-普通回合的 OpenAI 流内 TPM 限流由 `review-retry` 在官方 `agent_before_settle` 边界恢复：仅通过 `context_edit` 从后续模型输入中省略失败响应，再让 Pi 继续原会话；原始错误、已完成的回复与工具结果均保留。最多连续恢复 3 次，成功响应后重置次数。服务端给出 `Please try again in …s` 时至少等满该提示；无提示时按 2、4、8 秒退避，超过 120 秒不恢复。等待使用请求或压缩的取消信号，分别在 `before_provider_request`、`session_before_compact` 中执行；继续前若先触发压缩，摘要也不能绕过已有等待期限。`/account/billing` 帮助链接不参与错误分类，正文中的账单、配额与鉴权错误仍然终止。HTTP 耗尽与等待超限不会从会话边界恢复；普通回合与 HTTP 重试交错时最多 16 次 HTTP 尝试。请求发送与上下文重建仍由 Pi 负责，不包装 API，也不重新执行整轮 Review。
+原生行为也有明确限制：Pi 1.3.0 按完整错误文本匹配 `billing`，因此包含 `/account/billing` 帮助链接的 TPM 错误也会被判为不可重试，当前项目不再自行改写或重新分类；隔离验收保留了这个实际失败。普通回合的原生指数等待不解析正文中的 `Please try again in …s`。provider 层的服务端等待上限默认 60 秒，超过上限的错误仍可能被原生会话或摘要预算再次尝试；不能将默认逻辑描述为一定等满正文提示。原始错误和失败结果均保留，耗尽或不可重试时不发布成功 Review。
 
 `Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的发布、结果上传留出时间。重试耗尽后仍会失败并由 publisher 保留工作稿。若固定 TPM 下仍频繁限流，应减少单次输入或并发请求；增加重试次数不能提高吞吐额度。Pi 的配置与扩展接口见 [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) 和 [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md)。
 
@@ -241,9 +241,9 @@ Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型�
 
 中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`；支持显式缓存的模型还在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，让新 commit 或其他 PR 能复用动态材料之前的相同规则前缀。请求默认使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }`，PR 材料及后续工具交互沿用短期缓存。同一请求内两个生命周期由服务端分别处理，不使用本地计时或首次写入标记。消息正文、角色和顺序保持不变；会话标头仍由 Pi 独立生成。规则在首个请求中无法定位时中止，长审查 compaction 已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
 
-显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀写入从 30 分钟改为 12 小时：写入费从普通输入的 1.25 倍变为 2.5 倍，读取价格不变；重叠前缀在单次请求内只按最长生命周期计费一次。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，依据 [OpenAI 缓存生命周期与计费说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
+显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 模型目录中的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
 
-运行日志中每个 `[review-usage]` JSON 记录一个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。Pi 1.3.0 尚未按生命周期区分 OpenAI 写入费用：扩展通过官方 `provider_stream_event` 读取 `cache_write_tokens_details.ttl_30m_tokens` 与 `ttl_12h_tokens`，校验其和与 SDK 写入总数一致，然后通过 `message_end` 返回校正后的 usage，供 Pi 持久化、Action 汇总及 footer 共同使用。校正沿用 SDK 已选择的分档和服务档位价格，只补 12h 写入相对 30m 的差额，不另建模型价格表。缺失或不一致的生命周期统计会中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。`cacheWrite12h` 保存服务端报告的长期写入 token 数；footer 展示两种生命周期的累计写入量。其余统计仍来自 Pi，不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
+运行日志中每个 `[review-usage]` JSON 记录一个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。费用直接沿用 Pi 已选择的模型目录、长上下文分档及服务档位价格，不改写消息用量或费用，也不要求中转站返回 TTL 写入明细。扩展通过 `message_end` 校验标准 Token 和费用数值；统计本身缺失或损坏时仍中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。footer 展示总缓存写入量及 SDK 估算，不展示网关未承诺的生命周期拆分。统计不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
 
 相同回合统计累计保存为工作区的 `review-usage.json`，随现有 artifact 归档。可信发布器校验数值后，在 footer 的费用分析折叠区展示回合数、首轮缓存命中率、首轮普通输入/缓存读取/缓存写入，以及累计 token 和费用分项；命中率分母是首轮普通输入、缓存读取、缓存写入之和，零输入单独说明。缺失的推理分项显示未提供，不当作零。分项只统计审查回合，总费用仍采用 Action 汇总；规则版本同时显示为控制面 SHA，便于比较。统计缺失或损坏时发布失败，不填造零值；该文件不保存会话正文，也不参与覆盖完成或请求身份判断。
 

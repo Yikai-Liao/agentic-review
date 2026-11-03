@@ -160,9 +160,6 @@ export function buildFooter({
       ['普通输入', 'input'], ['缓存读取', 'cacheRead'], ['缓存写入', 'cacheWrite'], ['输出（含推理）', 'output'],
     ] as const).map(([label, key]) => `| ${label} | ${tokens(total[key])} | ${dollars(total.cost[key])} |`), '',
     `首轮输入：普通 ${tokens(first.input)}；缓存读取 ${tokens(first.cacheRead)}；缓存写入 ${tokens(first.cacheWrite)}。`,
-    ...(total.cacheWrite12h === undefined ? [] : [
-      `缓存写入生命周期：30m ${tokens(total.cacheWrite - total.cacheWrite12h)}；12h ${tokens(total.cacheWrite12h)}。`,
-    ]),
     total.reasoning === undefined ? '推理 Token：未提供。' : `推理 Token：${tokens(total.reasoning)}，已包含在输出中。`,
     '以上为审查回合统计；总费用采用 Action 汇总。', '', '</details>', reviewMetadataEnd,
   ].join('\n');

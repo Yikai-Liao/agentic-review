@@ -100,7 +100,7 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
   assert.equal(aborted, true, 'SDK 会吞普通 hook 异常，首次缺规则必须同时中止');
 });
 
-test('混合缓存按官方写入明细校正费用，分档与服务档位沿用 SDK 价格', t => {
+test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位价格保持原样', t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-mixed-cache-'));
   const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
   process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -117,15 +117,14 @@ test('混合缓存按官方写入明细校正费用，分档与服务档位沿�
     { role: 'user', content: [{ type: 'input_text', text: '固定规则' }] },
     { role: 'user', content: [{ type: 'input_text', text: '动态材料' }] },
   ].slice(compacted ? 1 : 0) } }, { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } } });
-  const stream = handlers.get('provider_stream_event')!;
   const end = handlers.get('message_end')!;
   const turn = handlers.get('turn_end')!;
-  const ctx = { abort: () => assert.fail('有效明细不应中止') };
-  for (const [turnIndex, writes, longWrites, sdkWriteCost, expectedCost, stopReason] of [
-    [0, 4000, 3000, 0.01, 0.01834, 'toolUse'],
-    [1, 4000, 3000, 0.02, 0.03668, 'error'], // 更高分档或服务档位的目录价格。
-    [2, 0, 0, 0, 0.00084, 'stop'],
-    [3, 1000, 0, 0.0025, 0.00334, 'stop'], // compaction 后只剩动态上下文。
+  const ctx = { abort: () => assert.fail('有效标准统计不应中止') };
+  for (const [turnIndex, writes, sdkWriteCost, stopReason] of [
+    [0, 4000, 0.01, 'toolUse'],
+    [1, 4000, 0.02, 'error'], // 更高分档或服务档位的目录价格。
+    [2, 0, 0, 'stop'],
+    [3, 1000, 0.0025, 'stop'], // compaction 后只剩动态上下文。
   ] as const) {
     request(turnIndex === 3);
     const message = { role: 'assistant', provider: 'openai', model: 'gpt-6.1-sol', responseId: `resp_${turnIndex}`, stopReason,
@@ -136,32 +135,24 @@ test('混合缓存按官方写入明细校正费用，分档与服务档位沿�
       message.usage.cost.cacheRead *= 2;
       message.usage.cost.total = 0.02168;
     }
-    stream({ api: 'openai-responses', data: { type: 'response.completed', response: { id: message.responseId,
-      usage: { input_tokens_details: { cache_write_tokens: writes,
-        cache_write_tokens_details: { ttl_30m_tokens: writes - longWrites, ttl_12h_tokens: longWrites } } } } } });
-    const corrected = end({ message }, ctx).message;
-    assert.equal(corrected.usage.cacheWrite12h, longWrites);
-    assert.ok(Math.abs(corrected.usage.cost.total - expectedCost) < 1e-12);
-    assert.equal(message.usage.cost.cacheWrite, sdkWriteCost, '通过 message_end 返回替换值，不就地改写');
-    assert.deepEqual(corrected.usage.cost.input, message.usage.cost.input);
-    assert.equal(corrected.usage.cost.cacheRead, message.usage.cost.cacheRead);
-    turn({ turnIndex, message: corrected });
+    const saved = structuredClone(message);
+    assert.equal(end({ message }, ctx), undefined, '统计扩展不应替换 SDK 的消息或费用');
+    assert.deepEqual(message, saved);
+    turn({ turnIndex, message });
   }
   const saved = parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8')));
-  assert.equal(saved.first.cacheWrite12h, 3000);
-  assert.equal(saved.total.cacheWrite12h, 6000);
   assert.equal(saved.total.cacheWrite, 9000);
-  assert.ok(Math.abs(saved.total.cost.total - 0.0592) < 1e-12);
-  assert.match(buildFooter({ ...metadata, usage: saved }), /缓存写入生命周期：30m 3,000；12h 6,000/);
+  assert.ok(Math.abs(saved.total.cost.total - 0.0367) < 1e-12);
+  assert.doesNotMatch(buildFooter({ ...metadata, usage: saved }), /缓存写入生命周期/);
 
-  // 新请求不能沿用上一请求的明细；失败必须撤掉旧统计，避免发布低估费用。
+  // 标准统计本身损坏仍须中止并撤掉旧文件，不能用上一轮统计掩盖失败。
   request();
   let aborted = false;
   assert.throws(() => end({ message: { role: 'assistant', responseId: 'resp_missing',
-    usage: { totalTokens: 1, cacheWrite: 1 } } }, { abort: () => { aborted = true; } }), /cache-write lifetime usage/);
+    usage: { totalTokens: 1, cacheWrite: 1 } } }, { abort: () => { aborted = true; } }), /review token usage/);
   assert.equal(aborted, true);
   assert.throws(() => readFileSync(path.join(directory, 'review-usage.json')), { code: 'ENOENT' });
-  assert.throws(() => turn({ turnIndex: 3, message: { role: 'assistant' } }), /cache-write lifetime usage/);
+  assert.throws(() => turn({ turnIndex: 3, message: { role: 'assistant' } }), /review token usage/);
 });
 
 test('逐轮费用保留失败及推理分项，保存无正文的累计与首轮统计供发布', t => {
@@ -221,14 +212,12 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /推理 Token：未提供/);
   for (const value of [null, {}, { turns: 0, first, total: first },
     { turns: 1, first, total: { ...first, cacheRead: -1 } },
-    { turns: 1, first, total: { ...first, cacheWrite12h: first.cacheWrite + 1 } },
-    { turns: 1, first, total: { ...first, cacheWrite12h: -1 } },
     { turns: 1, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
     assert.throws(() => parseReviewUsage(value), /review/);
   }
 });
 
-test('运行时保留模型目录价格与分档，并限制原生重试次数', async () => {
+test('运行时保留模型目录价格与分档，仅调整 Pi 原生重试的初始等待', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
     await symlink(fileURLToPath(new URL('..', import.meta.url)), path.join(directory, 'control'), 'dir');
@@ -242,7 +231,7 @@ test('运行时保留模型目录价格与分档，并限制原生重试次数',
       });
       const provider = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/models.json'), 'utf8')).providers.openai;
       const settings = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/settings.json'), 'utf8'));
-      assert.deepEqual(settings.retry, { enabled: false, provider: { maxRetries: 3, maxRetryDelayMs: 120000 } });
+      assert.deepEqual(settings, { retry: { baseDelayMs: 15000 } });
       assert.equal(provider.models, undefined, '重新声明模型会把缺省价格设为 0');
       assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
       const override = provider.modelOverrides[model];
