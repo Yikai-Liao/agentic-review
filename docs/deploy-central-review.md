@@ -198,7 +198,11 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时通过 Ubuntu 系统包管理器安装，已有时直接复用，并执行 `rg --version` 验证。安装或验证失败会停止本轮，避免 Agent 在调查中因缺少搜索命令重试。
 
-Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：禁用 Agent 层重放，只保留 3 次 provider 层 HTTP 429/5xx 重试，形成单一 retry budget；provider 层优先遵循服务端的 `Retry-After`，单次服务端退避上限为 120 秒（最多 3 次等待，即 360 秒），从而不会在 provider retry exhaustion 后再次复制整轮请求。`Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的发布、结果上传留出时间。该机制只重试可识别的瞬时错误，不会把凭证、模型不存在、配额耗尽或账单错误伪装成成功；所有重试耗尽后仍会失败并由 publisher 保留工作稿。若仍频繁出现容量错误，应检查 `REVIEW_AGENT_BASE_URL` 的网关容量或切换模型/Provisioned Throughput，不能无限增加重试次数。
+Review job 在 `Configure Pi runtime` 阶段显式写入 Pi 的 `~/.pi/agent/settings.json`：provider 层最多重试 3 次 HTTP 瞬时错误，优先遵守服务端的 `Retry-After`，单次服务端退避上限为 120 秒；会话层最多重试 3 次响应流内的瞬时失败，无服务端提示时使用 Pi 原生的 2、4、8 秒指数退避。HTTP 重试耗尽或 provider 拒绝过长等待时，中央 `review-retry` 扩展通过官方 `message_end` 钩子停止本轮，避免会话层再次复制已耗尽的 HTTP 预算。两阶段交错时，每个失败模型请求最多有 4 次会话尝试、每次最多 4 次 HTTP 尝试，即最多 16 次 HTTP 尝试。
+
+响应流内的 OpenAI TPM 限流可能只在错误正文里给出 `Please try again in …s`。扩展记录该提示，在下一次官方 `before_provider_request` 钩子中补足原生退避后的剩余等待；等待可由 Pi 的请求取消信号中止，超过 120 秒的提示直接失败，不提前重试。扩展仅替换已确认 TPM 错误中的 `/account/billing` 帮助链接，避免 Pi 1.3.0 将链接误判为账单错误；正文中的账单、配额与鉴权错误保持原有失败判断。请求发送、错误分类、会话恢复及重试计数仍由 Pi 负责，不包装 API 或重新执行整轮 Review。
+
+`Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的发布、结果上传留出时间。重试耗尽后仍会失败并由 publisher 保留工作稿。若固定 TPM 下仍频繁限流，应减少单次输入或并发请求；增加重试次数不能提高吞吐额度。Pi 的配置与扩展接口见 [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) 和 [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md)。
 
 `REVIEW_FAST_MODE=true` 时，`Configure Pi runtime` 在 Agent 启动前向配置的模型网关发送一次短 Responses 请求，探测 `service_tier: "priority"`（[OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)）。响应确认 `priority`/`fast` 后，将该参数写入 Pi 的模型配置；网关或模型明确拒绝（HTTP 400/422），或响应未确认优先服务层时，本轮沿用 API 默认模式。正式 Review 直接使用 Pi 原生请求链路，不包装 fetch 或重复探测。探测的鉴权、配额、限流、网络及无关参数错误会使准备步骤失败；关闭开关时不探测，也不覆盖 API 项目自身的默认服务层设置。Fast mode 可能采用更高单价，额外的启动探测不计入 Review 主会话的 token 和费用统计。
 

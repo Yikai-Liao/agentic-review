@@ -227,14 +227,15 @@ jobs:
         run: |
           mkdir -p "$HOME/.pi/agent" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          # shaftoe action 不提供 retry input；Pi SDK 的 retry 默认值在不同
-          # 版本间可能变化，因此在受信运行时显式配置。容量错误只保留
-          # provider 层这一份 retry budget；禁用 Agent 层重放，避免每次
-          # provider retry exhaustion 又重新执行一轮 provider retries。
+          # provider 层遵守 HTTP Retry-After；会话层恢复响应流内的瞬时失败。
+          # review-retry hook 阻止 HTTP 重试耗尽后再次复制 provider 重试预算。
           cat > "$HOME/.pi/agent/settings.json" <<'JSON'
           {
             "retry": {
-              "enabled": false,
+              "enabled": true,
+              "maxRetries": 3,
+              "baseDelayMs": 2000,
+              "maxAgentDelayMs": 60000,
               "provider": {
                 "maxRetries": 3,
                 "maxRetryDelayMs": 120000
@@ -323,6 +324,7 @@ jobs:
           # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
           extensions: |
             control/.github/pi-extensions/review-cost.ts
+            control/.github/pi-extensions/review-retry.ts
             control/.github/pi-extensions/review-input.ts
             control/.github/pi-extensions/review-tools.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。

@@ -219,7 +219,7 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   }
 });
 
-test('运行时保留模型目录价格与分档，并启用单层有界重试', async () => {
+test('运行时保留模型目录价格与分档，并限制原生重试次数', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
     await symlink(fileURLToPath(new URL('..', import.meta.url)), path.join(directory, 'control'), 'dir');
@@ -233,12 +233,13 @@ test('运行时保留模型目录价格与分档，并启用单层有界重试',
       });
       const provider = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/models.json'), 'utf8')).providers.openai;
       const settings = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/settings.json'), 'utf8'));
-      assert.deepEqual(settings.retry, { enabled: false, provider: { maxRetries: 3, maxRetryDelayMs: 120000 } });
+      assert.deepEqual(settings.retry, { enabled: true, maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000,
+        provider: { maxRetries: 3, maxRetryDelayMs: 120000 } });
       assert.equal(provider.models, undefined, '重新声明模型会把缺省价格设为 0');
       assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
       const override = provider.modelOverrides[model];
       assert.equal(override.cost, undefined, '输入、输出、缓存及分档单价均由目录提供');
-      assert.equal(override.contextWindow, 500000);
+      assert.equal(override.contextWindow, 272000);
       assert.equal(override.maxTokens, 128000);
       assert.equal(override.thinkingLevelMap.off, 'none');
       assert.equal(override.thinkingLevelMap.xhigh, 'xhigh');
