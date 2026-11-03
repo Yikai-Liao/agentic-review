@@ -217,17 +217,21 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   }
 });
 
-test('运行时保留模型目录价格与分档，仅调整 Pi 原生重试的初始等待', async () => {
+test('运行时保留目录价格与原生重试，显式缓存默认关闭并由仓库变量控制', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
     await symlink(fileURLToPath(new URL('..', import.meta.url)), path.join(directory, 'control'), 'dir');
     const workflow = parse(await readFile(workflowPath, 'utf8')) as Workflow;
     const runtime = workflow.jobs.review.steps.find(step => step.name === 'Configure Pi runtime')!;
-    for (const model of ['gpt-6-luna', 'gpt-6.1-sol']) {
-      const runtimeHome = path.join(directory, model);
+    assert.equal(runtime.env?.REVIEW_EXPLICIT_PROMPT_CACHE, '${{ vars.REVIEW_EXPLICIT_PROMPT_CACHE }}');
+    for (const [model, setting, enabled] of [
+      ['gpt-6-luna', undefined, false], ['gpt-6.1-sol', 'false', false], ['gpt-6.1-sol', 'true', true],
+    ] as const) {
+      const runtimeHome = path.join(directory, `${model}-${setting ?? 'default'}`);
       execFileSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', runtime.run!.replaceAll('$HOME', '$REVIEW_RUNTIME_HOME')], {
         cwd: directory,
-        env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: runtimeHome, REVIEW_AGENT_MODEL: model, REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
+        env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: runtimeHome, REVIEW_AGENT_MODEL: model,
+          REVIEW_EXPLICIT_PROMPT_CACHE: setting, REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
       });
       const provider = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/models.json'), 'utf8')).providers.openai;
       const settings = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/settings.json'), 'utf8'));
@@ -236,11 +240,20 @@ test('运行时保留模型目录价格与分档，仅调整 Pi 原生重试的�
       assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
       const override = provider.modelOverrides[model];
       assert.equal(override.cost, undefined, '输入、输出、缓存及分档单价均由目录提供');
+      assert.equal(override.compat.supportsExplicitPromptCacheMode, enabled);
       assert.equal(override.contextWindow, 272000);
       assert.equal(override.maxTokens, 128000);
       assert.equal(override.thinkingLevelMap.off, 'none');
       assert.equal(override.thinkingLevelMap.xhigh, 'xhigh');
       await assert.rejects(access(path.join(runtimeHome, '.pi/agent/skills/agentic-review')));
+    }
+    for (const setting of ['yes', '1', 'null', '"true"']) {
+      assert.throws(() => execFileSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', runtime.run!.replaceAll('$HOME', '$REVIEW_RUNTIME_HOME')], {
+        cwd: directory, stdio: 'ignore',
+        env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: path.join(directory, 'invalid'),
+          REVIEW_AGENT_MODEL: 'gpt-6.1-sol', REVIEW_EXPLICIT_PROMPT_CACHE: setting,
+          REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
+      }), /Command failed/, '非法配置必须使准备阶段失败');
     }
     const prompt = await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)));
     assert.ok(prompt.includes(await readFile(new URL('../skills/agentic-review/SKILL.md', import.meta.url), 'utf8')));

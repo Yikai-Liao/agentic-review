@@ -239,7 +239,9 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型目录公开单价计算的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时通过 `modelOverrides` 调整窗口等设置，继承目录中的输入、输出、缓存和分档价格；该金额不代表网关账单、折扣或税费。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
 
-中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`；支持显式缓存的模型还在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，让新 commit 或其他 PR 能复用动态材料之前的相同规则前缀。请求默认使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }`，PR 材料及后续工具交互沿用短期缓存。同一请求内两个生命周期由服务端分别处理，不使用本地计时或首次写入标记。消息正文、角色和顺序保持不变；会话标头仍由 Pi 独立生成。规则在首个请求中无法定位时中止，长审查 compaction 已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
+中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`。仓库 Actions Variable `REVIEW_EXPLICIT_PROMPT_CACHE` 控制显式缓存：未设置或 `false` 时关闭，普通自动缓存由 Pi 和中转站处理；仅在确认当前网关和模型支持后设为 `true`。变量通过 workflow 环境映射到 Pi 的 `compat.supportsExplicitPromptCacheMode`，覆盖模型目录对官方服务的能力声明；非法布尔配置会使准备步骤失败。`supportsLongCacheRetention` 控制长期保留参数，不能替代此开关关闭显式断点。
+
+开启后，在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，并使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }` 给动态材料缓存。关闭时不加入这两类请求参数。消息正文、角色和顺序保持不变；会话标头仍由 Pi 独立生成。开启时若首个请求无法定位固定规则则中止，长审查 compaction 已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
 
 显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 模型目录中的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
 
