@@ -271,7 +271,7 @@ async function dispatchReview(
     };
   } else {
     const commentPayload = payload as CommentPayload;
-    // Comment events have no immutable PR snapshot. The workflow resolves the current open PR after it enters the queue.
+    // 评论事件不固定 SHA；排队后由 workflow 解析打开或已合并 PR 的当前快照。
     inputs = commentDispatchInput(commentPayload, event, '', '');
   }
   await githubFetch(`/repos/${config.controlFullName}/actions/workflows/agentic-review.yml/dispatches`, {

@@ -23,7 +23,9 @@ Review App `pull_request`、`issue_comment` 和 `pull_request_review_comment` we
 
 Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 去重、用 Dispatcher App 触发中央 workflow。它不执行目标代码，也不持有模型或 Review App 凭证。
 
-接受的自动事件是 draft 和普通 PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`、`converted_to_draft`。新建的 PR 普通评论由 `issue_comment.created` 触发，inline thread 回复由 `pull_request_review_comment.created` 触发；Worker 只保留 PR 上、正文含有效 bot mention 的人类评论。评论编辑不重新触发，引用块、代码块和 inline code 中的 mention 不触发，重复 delivery 按 delivery ID 去重。`workflow_dispatch` 的自动请求携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 会再次校验 PR 当前仍是同一个 open 快照；自动事件排队后快照变化会显式失败。draft PR 同样会创建和更新 Check 及发布 Review，但 draft 状态本身仍由 GitHub 阻止合并。评论请求没有 SHA，workflow 实际开始时读取当前 base/head 并固定本轮快照。
+接受的自动事件是 draft 和普通 PR 的 `opened`、`reopened`、`synchronize`、`ready_for_review`、`converted_to_draft`。新建的 PR 普通评论由 `issue_comment.created` 触发，inline thread 回复由 `pull_request_review_comment.created` 触发；Worker 只保留 PR 上、正文含有效 bot mention 的人类评论。评论编辑不重新触发，引用块、代码块和 inline code 中的 mention 不触发，重复 delivery 按 delivery ID 去重。`workflow_dispatch` 的自动请求携带 `repository`、`repository_id`、`pull_number`、`base_sha` 和 `head_sha`，中央 workflow 校验目标 PR 已打开或已合并，并核对固定快照；排队后快照变化仍显式失败。关闭但未合并的 PR 不接受审查。draft PR 同样会创建和更新 Check 及发布 Review，但 draft 状态本身仍由 GitHub 阻止合并。评论请求没有 SHA，workflow 实际开始时读取 PR 保存的 base/head 并固定本轮快照。
+
+已合并的历史 PR 可通过手动派发或评论请求补审。代码仍按 PR 保存的 base/head SHA 获取，不依赖源分支名或源 fork 是否存在；审查原始 PR 快照，不替换为合并提交或目标分支最新版本。PR 状态、是否已合并和合并时间同时交付给 Agent。结果继续在原 PR 发布 Review、finding 和 thread 更新，Check 绑定原 head SHA。
 
 同一 PR 的自动请求先在入口合并待处理候选，显式评论请求分别保留；进入执行层后，Review 和 publish 共享串行槽位，不同 PR 可以并行。两个并发层的具体行为见[自动请求合并与发布顺序](#自动请求合并与发布顺序)。
 

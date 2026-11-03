@@ -7,6 +7,43 @@ import { test } from 'node:test';
 import { checkoutReviewTarget, prepareReviewBase } from '../scripts/prepare-review-sources.ts';
 import { runGh, type Run } from '../scripts/refresh-review-discussion.ts';
 
+test('已合并且源分支删除后，仍检出原始 PR 快照而非合并提交或最新分支', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-merged-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const origin = path.join(directory, 'origin');
+  execFileSync('git', ['init', '-q', '-b', 'main', origin]);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
+  git(origin, 'config', 'user.name', 'Test');
+  git(origin, 'config', 'user.email', 'test@example.com');
+  await writeFile(path.join(origin, 'file.ts'), 'base\n');
+  git(origin, 'add', '.'); git(origin, 'commit', '-qm', 'base');
+  const baseSha = git(origin, 'rev-parse', 'HEAD');
+  git(origin, 'checkout', '-qb', 'feature');
+  await writeFile(path.join(origin, 'file.ts'), 'PR head\n');
+  git(origin, 'commit', '-qam', 'feature');
+  const headSha = git(origin, 'rev-parse', 'HEAD');
+  // GitHub 保留 PR 引用，源分支删除不等于删除 PR 中的提交。
+  git(origin, 'update-ref', 'refs/pull/7/head', headSha);
+  git(origin, 'checkout', '-q', 'main');
+  git(origin, 'merge', '--squash', 'feature'); git(origin, 'commit', '-qm', 'squash merge');
+  const mergeSha = git(origin, 'rev-parse', 'HEAD');
+  git(origin, 'branch', '-D', 'feature');
+  await writeFile(path.join(origin, 'file.ts'), 'later change\n');
+  git(origin, 'commit', '-qam', 'later change');
+  assert.throws(() => git(origin, 'show-ref', '--verify', 'refs/heads/feature'));
+
+  const target = path.join(directory, 'target');
+  const base = path.join(directory, 'base');
+  await checkoutReviewTarget(target, origin, baseSha, headSha);
+  await prepareReviewBase(target, base, baseSha);
+  assert.equal(git(target, 'rev-parse', 'HEAD'), headSha);
+  assert.notEqual(headSha, mergeSha);
+  assert.equal(await readFile(path.join(target, 'file.ts'), 'utf8'), 'PR head\n');
+  assert.equal(await readFile(path.join(base, 'file.ts'), 'utf8'), 'base\n');
+  assert.equal(git(target, 'merge-base', baseSha, headSha), baseSha);
+  assert.equal(git(target, 'diff', '--name-only', `${baseSha}...${headSha}`), 'file.ts');
+});
+
 for (const side of ['head', 'base'] as const) test(`仅 ${side} 含私有 LFS 文件时保留指针，不启动对象下载`, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-lfs-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
