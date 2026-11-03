@@ -92,7 +92,8 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
   assert.deepEqual(prefixes[0], prefixes[1], '新 commit 与增补材料不得改变实际固定前缀的指纹');
   assert.ok(!JSON.stringify(prefixes).includes('固定系统提示'), '诊断不得记录正文');
   const compacted = { input: [{ role: 'user', content: [{ type: 'input_text', text: '压缩后的调查摘要' }] }] };
-  assert.deepEqual(request({ payload: compacted }, ctx), { ...compacted, prompt_cache_key: 'agentic-review' });
+  assert.deepEqual(request({ payload: compacted }, ctx), { ...compacted, prompt_cache_key: 'agentic-review',
+    prompt_cache_options: { mode: 'implicit', ttl: '30m' } }, '压缩移除固定规则后仍须显式请求短期缓存');
   handlers.get('before_agent_start')!({ prompt });
   let aborted = false;
   assert.throws(() => request({ payload: compacted }, { ...ctx, abort: () => { aborted = true; } }), /Fixed review prompt is missing/);

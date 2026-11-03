@@ -51,9 +51,11 @@ export default function reviewCost(pi: ExtensionAPI) {
     lifetimeAccounting = false;
     if (ctx.model?.api !== 'openai-responses') return;
     const payload = event.payload as Record<string, unknown>;
-    const result = { ...payload, prompt_cache_key: 'agentic-review' };
+    const result: Record<string, unknown> = { ...payload, prompt_cache_key: 'agentic-review' };
     if (!ctx.model.compat?.supportsExplicitPromptCacheMode) return result;
     lifetimeAccounting = true;
+    // compaction 移除固定规则后仍需短期缓存参数，与生命周期统计保持同一契约。
+    result.prompt_cache_options = { mode: 'implicit', ttl: '30m' };
     const input = payload.input as Array<{ role?: string; content?: Array<{ type: string; text?: string }> }>;
     const index = Array.isArray(input) ? input.findIndex(message => message.role === 'user'
       && Array.isArray(message.content) && message.content.length === 1
@@ -82,7 +84,7 @@ export default function reviewCost(pi: ExtensionAPI) {
     const message = input[index];
     // 新模型只给最新消息写 implicit 缓存；固定规则需要独立断点。
     // 仅固定前缀保留 12h；动态材料和后续工具交互继续使用 30m implicit 缓存。
-    return { ...result, prompt_cache_options: { mode: 'implicit', ttl: '30m' },
+    return { ...result,
       input: input.map((item, position) => position === index
         ? { ...message, content: [{ ...message.content![0], prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' } }] }
         : item) };
@@ -107,7 +109,11 @@ export default function reviewCost(pi: ExtensionAPI) {
         || !Number.isSafeInteger(writes.ttl_12h_tokens) || writes.ttl_12h_tokens < 0
         || writes.ttl_30m_tokens + writes.ttl_12h_tokens !== message.usage.cacheWrite
         || details?.cache_write_tokens !== message.usage.cacheWrite) {
-        throw new Error('Missing or invalid OpenAI cache-write lifetime usage');
+        throw new Error(`Missing or invalid OpenAI cache-write lifetime usage: ${JSON.stringify({
+          responseId: message.responseId, usageResponseId: responseUsage?.id,
+          cacheWrite: message.usage.cacheWrite, reportedCacheWrite: details?.cache_write_tokens,
+          ttl30m: writes?.ttl_30m_tokens, ttl12h: writes?.ttl_12h_tokens,
+        })}`);
       }
       const usage = structuredClone(message.usage);
       usage.cacheWrite12h = writes.ttl_12h_tokens;
