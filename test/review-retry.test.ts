@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 import { parse } from 'yaml';
 import reviewRetry, { maxServerRetryDelayMs, maxStreamRetries } from '../.github/pi-extensions/review-retry.ts';
 
@@ -77,9 +78,14 @@ test('无等待提示时采用有上限的 2、4、8 秒退避，成功后重置
   const hooks = fixture();
   for (const delay of [2000, 4000, 8000]) {
     assert.ok(hooks.settle(failed(tpm))?.continue);
-    const request = hooks.request();
-    t.mock.timers.tick(delay);
+    let completed = false;
+    const request = hooks.request().then(() => { completed = true; });
+    t.mock.timers.tick(delay - 1);
+    await setImmediate(); // 让已经到期的 Promise 完成，避免提前结束被微任务顺序掩盖。
+    assert.equal(completed, false, `${delay}ms 退避不得提前完成`);
+    t.mock.timers.tick(1);
     await request;
+    assert.equal(completed, true, `${delay}ms 到期后应完成`);
   }
   assert.equal(hooks.settle(failed(tpm)), undefined);
   hooks.end({ role: 'assistant', stopReason: 'toolUse' });
