@@ -227,17 +227,10 @@ jobs:
         run: |
           mkdir -p "$HOME/.pi/agent" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          # 只保留 provider 层原生 HTTP 重试，避免压缩摘要继承第二层预算。
-          # 普通回合的流内 TPM 失败由 review-retry 在公开会话边界恢复。
+          # 使用 Pi 原生重试，仅将初始等待调为 15 秒，后续为 30、60 秒。
           cat > "$HOME/.pi/agent/settings.json" <<'JSON'
           {
-            "retry": {
-              "enabled": false,
-              "provider": {
-                "maxRetries": 3,
-                "maxRetryDelayMs": 120000
-              }
-            }
+            "retry": { "baseDelayMs": 15000 }
           }
           JSON
           jq -n --arg model "$REVIEW_AGENT_MODEL" '{
@@ -323,7 +316,7 @@ jobs:
           # 只加载中央仓库随 checkout 提供的可信提交工具，不在 Review 关键路径安装外部扩展。
           extensions: |
             control/.github/pi-extensions/review-cost.ts
-            control/.github/pi-extensions/review-retry.ts
+            control/.github/pi-extensions/review-runtime.ts
             control/.github/pi-extensions/review-input.ts
             control/.github/pi-extensions/review-tools.ts
           # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。

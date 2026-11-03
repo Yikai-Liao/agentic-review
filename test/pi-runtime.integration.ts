@@ -17,7 +17,11 @@ const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager,
 const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
 const settings = JSON.parse(workflow.jobs.review.steps.find((step: any) => step.name === 'Configure Pi runtime').run
   .match(/settings\.json" <<'JSON'\n([\s\S]*?)\nJSON/)[1]);
-const extension = fileURLToPath(new URL('../.github/pi-extensions/review-retry.ts', import.meta.url));
+assert.deepEqual(SettingsManager.inMemory(settings).getRetrySettings(), {
+  enabled: true, maxRetries: 3, baseDelayMs: 15000, maxAgentDelayMs: 60000,
+});
+const extension = fileURLToPath(new URL('../.github/pi-extensions/review-runtime.ts', import.meta.url));
+assert.ok(workflow.jobs.review.steps.find((step: any) => step.id === 'pi-review').with.extensions.includes('control/.github/pi-extensions/review-runtime.ts'));
 const tpm = 'Rate limit reached for gpt-test on tokens per min (TPM): Limit 1000000, Used 808641, Requested 269328.';
 
 function stream(response: ServerResponse, error?: string) {
@@ -57,7 +61,8 @@ async function run(compact: boolean, reply: (response: ServerResponse, attempt: 
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
       }
     }
-    const settingsManager = SettingsManager.inMemory({ ...settings, cacheWarming: 'off',
+    // 验收缩短时间尺度；生产配置在上方独立核对，重试仍完全由 SDK 执行。
+    const settingsManager = SettingsManager.inMemory({ ...settings, retry: { ...settings.retry, baseDelayMs: 20 }, cacheWarming: 'off',
       compaction: { enabled: compact, reserveTokens: 512, keepRecentTokens: 1 } });
     const agentDir = path.join(directory, 'agent');
     const loader = new DefaultResourceLoader({ cwd: directory, agentDir, settingsManager,
@@ -81,36 +86,51 @@ async function run(compact: boolean, reply: (response: ServerResponse, attempt: 
   }
 }
 
-for (const [name, retryAfter, expected] of [['持续 HTTP 503', '0.001', 4], ['Retry-After: 121', '121', 1]] as const) {
-  test(`实际自动压缩：${name} 不复制预算或提前重发`, async () => {
+for (const [name, retryAfter] of [['持续 HTTP 503', '0.001'], ['Retry-After: 121', '121']] as const) {
+  test(`实际自动压缩：${name} 使用 Pi 默认预算，最终失败后中止 Review`, async () => {
     await run(true, response => {
       response.writeHead(503, { 'content-type': 'application/json', 'retry-after': retryAfter });
       response.end(JSON.stringify({ error: { type: 'server_error', message: 'Temporary service unavailable' } }));
     }, ({ requests, events }) => {
-      assert.equal(requests.length, expected);
+      assert.equal(requests.length, 4);
       assert.ok(requests.every(request => JSON.stringify(request.body).includes('context summarization assistant')));
       assert.ok(events.some(event => event.type === 'compaction_start' && event.reason === 'threshold'));
-      assert.equal(events.filter(event => event.type === 'summarization_retry_scheduled').length, 0);
+      assert.deepEqual(events.filter(event => event.type === 'summarization_retry_scheduled').map(event => event.delayMs), [20, 40, 80]);
       assert.ok(events.some(event => event.type === 'agent_settled' && event.aborted), '压缩失败必须中止 Review');
     });
   });
 }
 
-test('实际普通回合：带账单帮助链接的流内 TPM 错误等满提示后原样继续', async () => {
-  await run(false, (response, attempt) => stream(response, attempt === 1
-    ? `${tpm} Please try again in 0.08s. See https://platform.openai.com/account/billing.` : undefined),
+test('实际普通回合：Pi 原生重试按配置指数等待并原样继续', async () => {
+  const hints = [0.08, 0.01, 0.005];
+  await run(false, (response, attempt) => stream(response, attempt <= hints.length
+    ? `${tpm} Please try again in ${hints[attempt - 1]}s.` : undefined),
   ({ requests, events, session, sessionLog }) => {
-    assert.equal(requests.length, 2);
-    assert.ok(requests[1].time - requests[0].time >= 75);
-    assert.deepEqual(requests[1].body.input, requests[0].body.input);
-    assert.equal(events.filter(event => event.type === 'entry_appended' && event.entry.type === 'context_edit').length, 1);
+    assert.equal(requests.length, 4);
+    for (const [index, minimum] of [[1, 15], [2, 35], [3, 75]]) {
+      assert.ok(requests[index].time - requests[index - 1].time >= minimum, `第 ${index} 次恢复不得缩短指数退避`);
+      assert.deepEqual(requests[index].body.input, requests[0].body.input);
+    }
+    assert.deepEqual(events.filter(event => event.type === 'auto_retry_start').map(event => event.delayMs), [20, 40, 80]);
+    assert.equal(events.filter(event => event.type === 'entry_appended' && event.entry.type === 'context_edit').length, 3);
     assert.equal(session.agent.state.messages.at(-1).stopReason, 'stop');
     assert.ok(sessionLog.some(entry => entry.type === 'message' && entry.message.stopReason === 'error'));
     assert.ok(sessionLog.some(entry => entry.type === 'context_edit'), '归档须保留省略失败消息的原始记录');
   });
 });
 
-test('实际自动压缩：固定规则被移除后保留 30m 缓存参数并继续校正费用', async () => {
+test('实际错误：Pi 默认把 billing 帮助链接归为不可重试，保留原始失败', async () => {
+  const error = `${tpm} Please try again in 7.296s. You can increase your rate limit at https://platform.openai.com/account/billing.`;
+  await run(false, response => stream(response, error), ({ requests, events, session, sessionLog }) => {
+    assert.equal(requests.length, 1, '原生分类的限制必须如实保留，不能伪造恢复成功');
+    assert.ok(!events.some(event => event.type === 'auto_retry_start'));
+    const providerError = `rate_limit_exceeded: ${error}`;
+    assert.equal(session.agent.state.messages.at(-1).errorMessage, providerError);
+    assert.ok(sessionLog.some(entry => entry.message?.errorMessage === providerError));
+  });
+});
+
+test('实际自动压缩：中转站没有 TTL 用量字段时仍保留缓存参数并沿用 SDK 费用', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-review-cache-'));
   const previousWorkspace = process.env.REVIEW_WORKSPACE_PATH;
   process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -125,15 +145,13 @@ test('实际自动压缩：固定规则被移除后保留 30m 缓存参数并继
       : { type: 'message', id: `msg_${attempt}`, role: 'assistant',
         content: [{ type: 'output_text', text: attempt === 2 ? 'Review evidence summarized.' : 'Review complete.' }] };
     const writes = attempt === 1 ? 1700 : 90;
-    const longWrites = attempt === 1 ? 1000 : 0;
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.write(`data: ${JSON.stringify({ type: 'response.output_item.done', output_index: 0, item })}\n\n`);
     response.end(`data: ${JSON.stringify({ type: 'response.completed', response: {
       id: `resp_${attempt}`, status: 'completed', output: [item], usage: {
         input_tokens: attempt === 1 ? 1800 : 100, output_tokens: attempt === 1 ? 10 : 1,
         total_tokens: attempt === 1 ? 1810 : 101,
-        input_tokens_details: { cached_tokens: 0, cache_write_tokens: writes,
-          cache_write_tokens_details: { ttl_30m_tokens: writes - longWrites, ttl_12h_tokens: longWrites } },
+        input_tokens_details: { cached_tokens: 0, cache_write_tokens: writes },
       },
     } })}\n\n`);
   });
@@ -175,13 +193,12 @@ test('实际自动压缩：固定规则被移除后保留 30m 缓存参数并继
     assert.ok(!events.some(event => event.type === 'extension_error'));
     const usage = JSON.parse(await readFile(path.join(directory, 'review-usage.json'), 'utf8'));
     assert.equal(usage.turns, 2);
-    assert.equal(usage.first.cacheWrite12h, 1000);
-    assert.equal(usage.total.cacheWrite12h, 1000);
     assert.equal(usage.total.cacheWrite, 1790);
-    assert.ok(Math.abs(usage.total.cost.total - 0.0036195) < 1e-12);
+    assert.ok(Math.abs(usage.total.cost.total - 0.0023695) < 1e-12);
     const sessionLog = (await readFile(manager.getSessionFile(), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.ok(sessionLog.some(entry => entry.type === 'compaction'));
-    assert.equal(sessionLog.at(-1).message.usage.cacheWrite12h, 0, '压缩后的校正统计仍须写入原生会话');
+    assert.equal(sessionLog.at(-1).message.usage.cacheWrite, 90);
+    assert.ok(Math.abs(sessionLog.at(-1).message.usage.cost.total - 0.0001245) < 1e-12);
   } finally {
     session?.dispose();
     server.closeAllConnections();

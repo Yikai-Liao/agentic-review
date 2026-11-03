@@ -6,7 +6,6 @@ export type ModelUsage = {
   output: number;
   cacheRead: number;
   cacheWrite: number;
-  cacheWrite12h?: number;
   reasoning?: number;
   totalTokens: number;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
@@ -24,10 +23,6 @@ export function parseReviewUsage(value: unknown): ReviewUsage {
     }
     if (usage.reasoning !== undefined && (!Number.isSafeInteger(usage.reasoning) || usage.reasoning < 0 || usage.reasoning > usage.output)) {
       throw new Error('Invalid review reasoning usage');
-    }
-    if (usage.cacheWrite12h !== undefined && (!Number.isSafeInteger(usage.cacheWrite12h)
-      || usage.cacheWrite12h < 0 || usage.cacheWrite12h > usage.cacheWrite)) {
-      throw new Error('Invalid review cache-write lifetime usage');
     }
     for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const) {
       if (!Number.isFinite(usage.cost?.[key]) || usage.cost[key] < 0) throw new Error('Invalid review usage cost');
