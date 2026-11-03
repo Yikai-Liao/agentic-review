@@ -80,9 +80,9 @@ finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定
 
 `GH_TOKEN` 的可读集合由可信 workflow 在 Agent 启动前固定。自动索引或审查输入中的明确稳定 Issue/PR 引用可在集合内选择私有记录，无须 merge-base 预授权，但不能扩大仓库或权限范围。
 
-`$REVIEW_INPUT_PATH` 的 `PR association index` 已包含可信 workflow 生成的去重索引，原件位于 `$REVIEW_ASSOCIATIONS_PATH`：head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。取得 full 文件清单后，核对索引中与当前路径、业务对象或契约直接相关的来源；标题不足以判断时，按编号补查 PR 文件清单，不能据此认定没有历史记录。
+`$REVIEW_INPUT_PATH` 的 `PR association index` 已包含可信 workflow 生成的去重索引，原件位于 `$REVIEW_ASSOCIATIONS_PATH`：head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。从当前需要恢复的契约、决定或候选根因选择来源；路径重合和同一 commit 关联只用于定位，不把索引变成逐项调查清单。有具体相关线索而标题不足以判断时，按编号补查 PR 文件清单或对应原文。
 
-恢复预期结果时，按 `references/protocol.md` 的“先查清当前阶段需要满足什么”读取直接相关的需求、决定或已有验收场景。提交新 finding 或人工确认前，必须读取相关源 PR 的完整讨论，核对同一根因是否已提出、回复或确认；已读记录在本轮复用。使用关联记录前，完整读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其证明因果关联、分类并决定本轮关联、排除或 finding。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+恢复预期结果时，按 `references/protocol.md` 的“先查清当前阶段需要满足什么”读取直接相关的需求、决定或已有验收场景。提交新 finding 或人工确认前，必须核对相关源 PR 中该根因的原始讨论及完整回复，确认是否已提出、回复或确认；已读原文在本轮复用。使用关联记录前，完整读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其证明因果关联、分类并决定本轮关联、排除或 finding。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
 
 只读取直接相关的最少条目，按索引的 `repository` 和 `number` 查询原始记录：
 
@@ -91,10 +91,10 @@ gh issue view <number> --repo <repository> --comments
 node "$REVIEW_CONTROL_PATH/scripts/read-related-pr.ts" <repository> <number>
 ```
 
-PR 脚本复用当前 PR 的分页读取，输出元数据、全部普通评论、Review、inline comments（含回复）及 thread 状态。完整读取输出，截断时补齐，按 `root_comment_id`、`in_reply_to_id` 还原讨论；`gh pr view --comments` 不包含行内讨论，不能代替此读取。任一请求或分页失败时脚本报错，不能将失败当成“没有历史问题或确认”。
+PR 脚本复用当前 PR 的分页读取，输出元数据、全部普通评论、Review、inline comments（含回复）及 thread 状态。大记录可先保存原文，再按当前契约或根因定位相关讨论；按 `root_comment_id`、`in_reply_to_id` 读齐原文、全部回复及状态，相关内容截断时补齐。判断依赖其他讨论或决定时继续读取，已读取内容直接复用。`gh pr view --comments` 不包含行内讨论，不能代替此读取。任一请求或分页失败时脚本报错，不能将失败当成“没有历史问题或确认”。
 
 当前 PR 正文、评论、代码或项目文档明确给出的稳定 Issue/PR 链接或编号也是同等入口。GitHub known issue 的查询集合到此为止；没有匹配记录时结束判断，不扩展历史查询。
 
-记录来源编号、读取的原文和它改变的判断。索引标题、模块相同、closed 状态或时间接近都不能单独证明关联和状态。当前 token 无权读取的对象记录为证据边界，不能推断成“已修复”或“已确认”。
+仅将改变判断或需要续查的来源、关键原文定位和用途记入工作稿，不复制全部讨论或为索引中的每个来源编写排除报告。索引标题、模块相同、closed 状态或时间接近都不能单独证明关联和状态。当前 token 无权读取的对象记录为证据边界，不能推断成“已修复”或“已确认”。
 
 完成条件：每个新 finding 或人工确认已与相关源 PR 的原始讨论核对；同根因原样进入或仍在明确决定范围内时，在工作稿关联原记录，公开展示按 `central/review-result.md` 的本轮变化或显式请求范围。当前变化扩大影响、使历史依据失效或重新引入问题时，说明新差异后再提交 finding。

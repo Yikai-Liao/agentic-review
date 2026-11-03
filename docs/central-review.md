@@ -78,15 +78,15 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 
 不加载 shaftoe action 的 GitHub 查询工具，因为它们会继承中央仓库 context；目标 PR、CI 和日志统一通过只读 `gh --repo "$REVIEW_REPOSITORY"` 查询。
 
-`central/review-rules.md` 是 workflow 的唯一规则入口；可信 `agentic-review` 注册为 Pi Skill。[Prompt 装配器](../scripts/load-review-prompt.ts)统一加载共同规则、中央适配器和默认 code 方法，包含完整测试方法。预载不改变层级选择与方法触发条件，其他所选规则按需读取；选择及来源保存到 `notes.md`，compaction 后恢复共同规则和已选层级。正文及 inline 模板由中央结果适配器提供，非代码层使用通用结论性质，不套用 P/T。
+`central/review-rules.md` 是 workflow 的唯一规则入口；可信 `agentic-review` 注册为 Pi Skill。[Prompt 装配器](../scripts/load-review-prompt.ts)统一加载共同规则、中央适配器和默认 code 方法，包含完整测试方法。预载不改变层级选择与方法触发条件，其他所选规则按需读取；明确覆盖默认层级时将选择及来源保存到 `notes.md`，compaction 后据此恢复。正文及 inline 模板由中央结果适配器提供，非代码层使用通用结论性质，不套用 P/T。
 
 PR 元数据、评论、项目规则、固定区间 patch 及工作稿进入 `$REVIEW_INPUT_PATH` 的材料索引，适合预算的原文随首次 Prompt 交付，其余通过路径按需读取。`central/github-context.md` 定义固定 SHA 的调查与恢复方式，并接入关联索引和 GitHub known issue；`central/review-result.md` 定义工作稿、thread 更新和唯一提交。`GH_TOKEN` 是 Token A，所以 Agent 可以对当前仓库及同 owner 的关联仓库执行只读 `gh` 查询，但不能评论、合并、修改仓库或 workflow。Agent 不得执行目标仓库脚本、安装依赖、测试、构建或任意非审查外部请求。
 
 ## 工作稿准备与增量恢复清单
 
-中央只维护文件进度、一份工作稿和最终结果。`review-progress.json` 的每个 ledger 条目只有路径和状态；无候选项完成必要调查后标记 `complete`，不生成逐项无问题证明或未触发专项说明。`notes.md` 保存层级、必要来源、疑点及排除理由、未完成调查和续读位置；正式 finding 的完整证明保存到最终结果，不在工作稿复制。中央不要求 Batch 文件、ID、关联或完成批次清单；通用 Skill 的分段方法保持可用，中央持久化格式由中央结果协议决定。
+中央只维护文件进度、一份工作稿和最终结果。`review-progress.json` 的每个 ledger 条目只有路径和状态；`notes.md` 保存调查中已取得、但公开结果未包含的支持证据、关键前提、排除理由与未完成缺口，没有 finding 也保留必要依据。按共同机制合写，与进度在同一次调用中保存；Thread、回复、Review 正文和最终结果已有的内容直接复用，不复制第二份，也不为交接另起补证或总结回合。通用 Skill 也使用单份工作稿，中央持久化格式由中央结果协议决定。
 
-准备阶段为首次审查创建 `notes.md`，写入固定请求身份、版本、可信规则恢复入口和文件进度路径；原始请求与默认计划通过 `$REVIEW_CONTEXT_PATH` 引用，避免复制长请求。初始化索引由固定事实 JSON 块和空调查区组成，Agent 只补充必要的调查信息，不从初始化文件获得“已完成”或无问题结论。已有工作稿和上一轮结果参考迁移到本轮，恢复不需要逐个拼接 Batch 文件。
+准备阶段为首次审查创建 `notes.md`，写入固定请求身份、版本、可信规则恢复入口和文件进度路径；原始请求与默认计划通过 `$REVIEW_CONTEXT_PATH` 引用，避免复制长请求。初始化索引由固定事实 JSON 块和空调查区组成，Agent 只补充必要的调查信息，不从初始化文件获得“已完成”或无问题结论。已有工作稿和上一轮结果参考迁移到本轮。
 
 恢复清单的 `pending_files` 列出本轮待调查文件，已延续的完成项留在 `review-progress.json`；`changed_paths` 是上一工作稿 head 到当前固定 head 的路径差分，包含已从 full 清单消失的撤销路径。模型从这些变化和最新讨论出发追踪间接影响，按需重开旧完成项。`same_base` 提示基线是否改变；缺少历史或未知差分用 `null`，与已确认空增量区分。
 
