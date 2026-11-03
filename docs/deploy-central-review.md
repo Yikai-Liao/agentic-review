@@ -200,7 +200,23 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时通过 Ubuntu 系统包管理器安装，已有时直接复用，并执行 `rg --version` 验证。安装或验证失败会停止本轮，避免 Agent 在调查中因缺少搜索命令重试。
 
-Review job 仅配置 Pi 原生 `retry.baseDelayMs: 15000`，使连续重试等待 15、30、60 秒；其余沿用当前 Action 内置 Pi 1.3.0 的默认设置：会话重试开启，最多 3 次，单次退避上限 60 秒，provider 层不额外重试。项目不加载自定义错误分类、等待、`context_edit` 或会话继续逻辑；普通回合及压缩摘要由 Pi 原生分类和预算处理，避免叠加两层 HTTP 预算。`review-runtime` 只保留既有的失败边界：Pi 最终报告 `session_compact_failed` 时中止本轮，不在摘要失败后继续使用旧上下文。
+Review job 的请求重试配置仅调整 Pi 原生 `retry.baseDelayMs: 15000`，使连续重试等待 15、30、60 秒；其余沿用当前 Action 内置 Pi 1.3.0 的默认设置：会话重试开启，最多 3 次，单次退避上限 60 秒，provider 层不额外重试。压缩扩展的 `throttleRetry` 关闭，不叠加额外的限流重试。`review-runtime` 保留 `session_compact_failed` 时中止本轮的边界；中央会话的原生自动压缩已关闭，由下面的 ACP 扩展管理上下文。
+
+中央会话使用上游为 Pi 提供的进程内扩展 [`billion-context-pi`](https://github.com/ranxianglei/billion-context-pi)，版本由 workflow 的 `BILLION_CONTEXT_PI_VERSION` 固定，当前为 `0.1.83`。第三方 Action `shaftoe/pi-coding-agent-action@v2.30.1` 提供 Pi host；发布包已内联其余依赖，因此可信准备步骤使用 `npm install --legacy-peer-deps --ignore-scripts` 单独安装到 `$RUNNER_TEMP/review-pi-extensions`，不向本仓库 `package.json` 或 lockfile 添加插件，也不重复安装 peer SDK。Action 的 `extensions` 输入加载这个目录中的 `dist/index.js`，`loaded_tools` 白名单包含 `compress`、`decompress`、`search_context`、`acp_status` 和 `acp_cache`。
+
+插件安装目录通过 `actions/cache` 按版本、Node 24、runner OS 和架构缓存；命中时跳过 npm 安装。缓存只在 Agent 启动前保存，不保存会话、密钥或运行中产生的状态。`~/.pi/acp.json` 关闭插件自动更新和内置 delegation；Pi settings 的 `compaction.enabled` 与 Action 的 `auto_compaction` 均为 `false`，避免两套压缩同时运行。插件由模型选择范围并撰写摘要，不再走原生全会话摘要。首次安装或升级仍需下载发布包；本地独立 npm 缓存测得冷安装约 0.98 秒，已有 npm 缓存时约 0.31 秒，本地缓存包解压约 0.014 秒。这些数值不含 GitHub 缓存服务的网络开销。
+
+中央模型配置将 `contextWindow` 限制为 `100000`，输入与输出共用这个窗口；`maxTokens` 为 `25000`，与 ACP 默认的 25% 输出预留一致。扩展直接读取该模型窗口进行上下文管理，启动材料预载也按同一窗口计算预算。
+
+修改接入时，直接执行第三方 Action 的发布产物做隔离验收。以下测试使用 workflow 的实际扩展列表、工具白名单和配置，仅连接本机模拟 Responses 服务，覆盖显式缓存开关、实际压缩及 sidecar 落盘；无需模型密钥，也不访问 GitHub 写接口：
+
+```bash
+pi_action_check_dir="$(mktemp -d)"
+git clone --depth=1 --branch v2.30.1 https://github.com/shaftoe/pi-coding-agent-action.git "$pi_action_check_dir/action"
+npm install --prefix "$pi_action_check_dir/extensions" --ignore-scripts --no-audit --no-fund --no-package-lock --legacy-peer-deps billion-context-pi@0.1.83
+PI_ACTION_DIRECTORY="$pi_action_check_dir/action" PI_COMPRESSION_DIRECTORY="$pi_action_check_dir/extensions" pnpm exec tsx --test test/pi-compression.integration.ts
+rm -rf "$pi_action_check_dir"
+```
 
 原生行为也有明确限制：Pi 1.3.0 按完整错误文本匹配 `billing`，因此包含 `/account/billing` 帮助链接的 TPM 错误也会被判为不可重试，当前项目不再自行改写或重新分类；隔离验收保留了这个实际失败。普通回合的原生指数等待不解析正文中的 `Please try again in …s`。provider 层的服务端等待上限默认 60 秒，超过上限的错误仍可能被原生会话或摘要预算再次尝试；不能将默认逻辑描述为一定等满正文提示。原始错误和失败结果均保留，耗尽或不可重试时不发布成功 Review。
 
@@ -215,7 +231,7 @@ PI_SDK_DIRECTORY="$pi_sdk_check_dir/node_modules/@earendil-works/pi-coding-agent
 rm -rf "$pi_sdk_check_dir"
 ```
 
-Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行将 `~/.pi/agent/sessions/` 下的原始 JSONL 归档为 `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 7 天。上传在 Agent 成功、失败或取消后执行，不依赖 Action 成功完成导出，因此导出前异常或超时也可保留已写盘部分；runner 丢失或尚未落盘的内容无法补回。日志包含系统消息、工具定义、输入、回复、工具结果及 context edits，可用于重建请求；归档不包含上层 `auth.json` 或运行时配置。首轮另记录 `[review-cache-prefix]` 的固定前缀、工具、系统消息与规则哈希，不输出正文，用于快速定位跨运行差异。当前规则与工具配置相同时，增补材料位于固定规则之后，不能改变固定断点之前的前缀。
+Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行将 `~/.pi/agent/sessions/` 下的原始 JSONL 和对应的 `.jsonl.acp.json` 压缩状态归档为 `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 7 天。上传在 Agent 成功、失败或取消后执行，不依赖 Action 成功完成导出，因此导出前异常或超时也可保留已写盘部分；runner 丢失或尚未落盘的内容无法补回。日志包含系统消息、工具定义、输入、回复、工具结果及 context edits；ACP sidecar 保存压缩块，两者结合用于重建上下文。归档不包含上层 `auth.json` 或运行时配置。首轮另记录 `[review-cache-prefix]` 的固定前缀、工具、系统消息与规则哈希，不输出正文，用于快速定位跨运行差异。当前规则与工具配置相同时，增补材料位于固定规则之后，不能改变固定断点之前的前缀。
 
 `REVIEW_FAST_MODE=true` 时，`Configure Pi runtime` 在 Agent 启动前向配置的模型网关发送一次短 Responses 请求，探测 `service_tier: "priority"`（[OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)）。响应确认 `priority`/`fast` 后，将该参数写入 Pi 的模型配置；网关或模型明确拒绝（HTTP 400/422），或响应未确认优先服务层时，本轮沿用 API 默认模式。正式 Review 直接使用 Pi 原生请求链路，不包装 fetch 或重复探测。探测的鉴权、配额、限流、网络及无关参数错误会使准备步骤失败；关闭开关时不探测，也不覆盖 API 项目自身的默认服务层设置。Fast mode 可能采用更高单价，额外的启动探测不计入 Review 主会话的 token 和费用统计。
 
@@ -243,7 +259,7 @@ Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型�
 
 中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`。仓库 Actions Variable `REVIEW_EXPLICIT_PROMPT_CACHE` 控制显式缓存：未设置或 `false` 时关闭，普通自动缓存由 Pi 和中转站处理；仅在确认当前网关和模型支持后设为 `true`。变量通过 workflow 环境映射到 Pi 的 `compat.supportsExplicitPromptCacheMode`，覆盖模型目录对官方服务的能力声明；非法布尔配置会使准备步骤失败。`supportsLongCacheRetention` 控制长期保留参数，不能替代此开关关闭显式断点。
 
-开启后，在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，并使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }` 给动态材料缓存。关闭时不加入这两类请求参数。消息正文、角色和顺序保持不变；会话标头仍由 Pi 独立生成。开启时若首个请求无法定位固定规则则中止，长审查 compaction 已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
+开启后，在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，并使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }` 给动态材料缓存。关闭时不加入这两类请求参数。缓存扩展只在定位固定规则时忽略 ACP 附加的引用尾标记；发送时保留完整消息正文、角色和顺序，会话标头仍由 Pi 独立生成。开启时若首个请求无法定位固定规则则中止，长审查压缩已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
 
 显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 模型目录中的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
 
