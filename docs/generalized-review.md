@@ -28,15 +28,15 @@
 |---|---|
 | `SKILL.md` | 通用入口、code 层和中央 prompt 的显式调用范围 |
 | `workspace.md` | 共享 review-state/evidence-access；中央布局、完整提交门槛及归纳读取规则在 central/review-result |
-| `delegation.md` | review-state：授权、已有工具、至少两个独立 batch、单层委派与单写者；子任务不查询私有记忆 |
+| `delegation.md` | review-state：授权、已有工具、独立职责、单层委派与单写者；子任务不查询私有记忆 |
 | `target-selection.md` | levels/code/target-selection，保留本地范围及重命名/复制两端路径 |
 | `known-issues.md` | 按需保留为关联记录处理入口：原文、因果关联、内容分类与当前 Review 去重；关闭证据引用 review-state，最终披露引用 findings，平台查询边界仍在中央适配器 |
 | `evidence.md` | protocol、findings、levels/code/behavior；代码现实路径与生产影响证明不以通用口号替代 |
 | `performance.md` | focuses/performance，保留代码成本证明，并扩展需求目标、架构容量和计划验证的跨层方法 |
-| `test-contracts.md` | levels/code/test-contracts 保存共同盘点、分组与 T1 证明；test-overconstraint、test-economics 分别按需加载合法变化证明和独立检测能力/删除证明 |
+| `test-contracts.md` | levels/code/test-contracts 保存共同范围核对、行为调查与 T1 证明；test-overconstraint、test-economics 分别按需加载合法变化证明和独立检测能力/删除证明 |
 | `findings.md` | 共享成立/去重/历史披露、code 的 P/T 特化；中央正文和 Alert/inline 模板完整迁到 central/review-result |
 
-`[agentic-review-worker]` 不再是必须识别的入口字符串。委派任务须明确“只调查指定 batch”、固定版本、证据、规则和输出边界；该改变不授予额外权限，不开放递归委派。当前中央 workflow 不加载 delegation 工具，本次泛化不引入多 Agent 运行时。
+`[agentic-review-worker]` 不再是必须识别的入口字符串。委派任务使用明确的职责范围，复用已交付的规则和原文，交回实际覆盖与必要判断；主审直接采用结果并组织报告。该改变不授予额外权限，不开放递归委派。当前中央 workflow 不加载 delegation 工具，本次清理不引入多 Agent 运行时。
 
 独立依据不再单纯要求时间早于变更：代码/测试不能互相自证，但按调用方来源规则生效的即时业务决定可以改变预期。业务确认不能升级执行/发布权限。原代码门槛中的私有记忆限制、项目 `.agentic-review.md`、复制两端、可信输出恢复及提交前刷新已明确归属，而非默认为无需保留。
 
@@ -45,7 +45,7 @@
 - 本地支持四层和额外专项，不默认强制加载全部规则或创建中央式多文件工作稿。调用方可使用通用结论，不限于代码 P/T；不能把新性质冒充旧标签。
 - 通用方法默认静态。隔离实验仅在调用方明确授权且环境边界成立时可执行；**中央服务仍禁止运行目标代码、安装依赖、修复或直接发布**。
 - 新 code 方法使用同一套证据与状态协议，不再调用旧完整入口。原生产行为和测试证明以及高风险确认要求由 code 特化承接，性能证明由横向性能视角在代码层承接。
-- 中央用一份 `notes.md` 保存必要调查，文件进度单独保存，正式 finding 证明留在最终结果；无候选项只登记覆盖完成，无须书面证明。不要求 Batch 文件、ID 或关联；完整 scope 覆盖、最新讨论、状态判断及唯一提交继续保留。
+- 中央用一份 `notes.md` 保存必要调查，文件进度单独保存，正式 finding 证明留在最终结果；无候选项只登记覆盖完成，无须书面证明。完整 scope 覆盖、最新讨论、状态判断及唯一提交继续保留。
 - 发布器、JSON schema、token 权限、GitHub thread 操作和部署路由保持统一。非代码结论在现有 Markdown 正文或合法行内位置表达，使用共享问题性质，不静默挤入 P/T；无法定位有效 diff 行时在正文保留完整 finding。
 
 ## 验证记录与部署
