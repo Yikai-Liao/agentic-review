@@ -49,7 +49,11 @@ test('不同 Review 共享 OpenAI 缓存分组，输入、服务档位与其他 
   }
 });
 
-test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m implicit 缓存', async () => {
+test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m implicit 缓存', async t => {
+  const prefixes: unknown[] = [];
+  t.mock.method(console, 'info', (label: unknown, json: unknown) => {
+    if (label === '[review-cache-prefix]' && typeof json === 'string') prefixes.push(JSON.parse(json));
+  });
   const handlers = new Map<string, Function>();
   costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
   const prompt = (await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)))).trim();
@@ -61,6 +65,7 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
     { role: 'user', content: [{ type: 'input_text', text: prompt }] }];
   const patched: any[] = [];
   for (const commit of ['head-one', 'head-two']) {
+    handlers.get('before_agent_start')!({ prompt });
     const original = { model: 'gpt-6.1-sol', input: [...stable,
       { role: 'user', content: [{ type: 'input_text', text: `本轮材料 ${commit}` }] }],
       tools: [{ type: 'function', name: 'read' }], store: false, reasoning: { effort: 'high' },
@@ -83,6 +88,9 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
     patched.push(result);
   }
   assert.deepEqual(patched[0].input.slice(0, 2), patched[1].input.slice(0, 2));
+  assert.equal(prefixes.length, 2);
+  assert.deepEqual(prefixes[0], prefixes[1], '新 commit 与增补材料不得改变实际固定前缀的指纹');
+  assert.ok(!JSON.stringify(prefixes).includes('固定系统提示'), '诊断不得记录正文');
   const compacted = { input: [{ role: 'user', content: [{ type: 'input_text', text: '压缩后的调查摘要' }] }] };
   assert.deepEqual(request({ payload: compacted }, ctx), { ...compacted, prompt_cache_key: 'agentic-review' });
   handlers.get('before_agent_start')!({ prompt });
@@ -219,7 +227,7 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   }
 });
 
-test('运行时保留模型目录价格与分档，并启用单层有界重试', async () => {
+test('运行时保留模型目录价格与分档，并限制原生重试次数', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
     await symlink(fileURLToPath(new URL('..', import.meta.url)), path.join(directory, 'control'), 'dir');
@@ -238,7 +246,7 @@ test('运行时保留模型目录价格与分档，并启用单层有界重试',
       assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
       const override = provider.modelOverrides[model];
       assert.equal(override.cost, undefined, '输入、输出、缓存及分档单价均由目录提供');
-      assert.equal(override.contextWindow, 500000);
+      assert.equal(override.contextWindow, 272000);
       assert.equal(override.maxTokens, 128000);
       assert.equal(override.thinkingLevelMap.off, 'none');
       assert.equal(override.thinkingLevelMap.xhigh, 'xhigh');

@@ -421,9 +421,10 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.equal(shouldRun('review-workspace'), true);
   steps['review-workspace'].outcome = 'success';
   assert.equal(shouldRun('diagnostic-workspace'), false);
-  // 正常运行只归档一次；发布失败或取消也保留可恢复工作区及其中的发布报告。
-  assert.equal(execution.filter((step: { id: string; uses?: string; if?: string }) =>
-    step.uses?.startsWith('actions/upload-artifact@') && (!step.if || shouldRun(step.id))).length, 1);
+  // 可恢复工作区正常运行只归档一次；原始 Pi session 独立归档，不参与范围恢复。
+  assert.equal(execution.filter((step: { id: string; uses?: string; if?: string; with?: { path?: string } }) =>
+    step.uses?.startsWith('actions/upload-artifact@') && step.with?.path === '${{ github.workspace }}/review-workspace'
+    && (!step.if || shouldRun(step.id))).length, 1);
   const archive = execution.find((step: { id?: string }) => step.id === 'review-workspace');
   const prefix = archive.with.name.match(/^\$\{\{ (.+?) \}\}/)[1];
   for (const outcome of ['success', 'failure', 'cancelled', 'skipped']) {
