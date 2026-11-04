@@ -25,6 +25,7 @@ test('完整 Pi JSONL 在成功、失败和取消后归档，不依赖成功导�
   assert.notEqual(agent.with.share_session, true);
   assert.deepEqual(archive.with.path.trim().split('\n'), [
     '~/.pi/agent/sessions/**/*.jsonl',
+    '~/.pi/agent/sessions/**/pi-fold-evidence/**',
   ]);
   assert.equal(archive.with['include-hidden-files'], true);
   assert.equal(archive.with['if-no-files-found'], 'error');

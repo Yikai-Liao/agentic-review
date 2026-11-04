@@ -41,6 +41,7 @@ env:
   # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
   REVIEW_THINKING_LEVEL: ${{ vars.REVIEW_THINKING_LEVEL }}
   REVIEW_FAST_MODE: ${{ vars.REVIEW_FAST_MODE }}
+  PI_FOLD_VERSION: 4.3.0
   # 保留操作手册使用的官方归档版本与校验值；当前 Review 不准备飞书工具。
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
@@ -217,6 +218,29 @@ jobs:
           fi
           rg --version
 
+      - name: Restore trusted Pi fold extension
+        id: pi-fold
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ runner.temp }}/review-pi-extensions
+          key: review-pi-extensions-node24-${{ runner.os }}-${{ runner.arch }}-pi-fold-${{ env.PI_FOLD_VERSION }}
+
+      - name: Install trusted Pi fold extension
+        if: steps.pi-fold.outputs.cache-hit != 'true'
+        # 发布包没有运行时依赖；Pi host 由第三方 Action 提供，不再安装 peer SDK。
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/review-pi-extensions"
+          --ignore-scripts --no-audit --no-fund --no-package-lock --legacy-peer-deps
+          "pi-fold@$PI_FOLD_VERSION"
+
+      # 与 tokenizer 缓存一样，在 Agent 启动前保存，运行中产生的状态不写回缓存。
+      - name: Save trusted Pi fold extension
+        if: steps.pi-fold.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ${{ runner.temp }}/review-pi-extensions
+          key: ${{ steps.pi-fold.outputs.cache-primary-key }}
+
       # 中央规则由可信 control checkout 预载；模型覆盖保留 Pi 目录中的公开单价。
       - name: Configure Pi runtime
         env:
@@ -312,7 +336,8 @@ jobs:
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
           # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
           thinking_level: ${{ env.REVIEW_THINKING_LEVEL }}
-          # 使用 Pi 原生自动压缩，调查证据由工作稿持久化。
+          # pi-fold 在窗口达到 80% 时把旧上下文折叠成确定性摘要，不调用模型；
+          # 原生自动压缩保留在下层，只在折叠后仍溢出时兜底。调查证据由工作稿持久化。
           auto_compaction: true
           # Action 仅在开启导出时使用落盘会话；原始 JSONL 也可保留导出前的失败记录。
           export_session_jsonl: true
@@ -321,7 +346,9 @@ jobs:
           # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
           load_builtin_extensions: false
           # 外部扩展在可信准备阶段安装并缓存，Action 只加载本地入口。
+          # pi-fold 的 pi_fold_context 工具不进入 loaded_tools，折叠全部自动进行，模型不调度上下文。
           extensions: |
+            ${{ runner.temp }}/review-pi-extensions/node_modules/pi-fold/extensions/index.js
             control/.github/pi-extensions/review-cost.ts
             control/.github/pi-extensions/review-runtime.ts
             control/.github/pi-extensions/review-input.ts
@@ -409,9 +436,11 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-session-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
-          # 原始会话包含原生 compaction 记录；归档不包含 auth.json 或运行时配置。
+          # 原始会话包含折叠与原生 compaction 记录；pi-fold-evidence 保存被截断工具结果的原文，
+          # 供重建折叠前的调查过程。归档不包含 auth.json 或运行时配置。
           path: |
             ~/.pi/agent/sessions/**/*.jsonl
+            ~/.pi/agent/sessions/**/pi-fold-evidence/**
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
