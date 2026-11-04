@@ -59,7 +59,7 @@ function parseAssociation(value: unknown, kind: 'pull request' | 'issue'): Assoc
   };
 }
 
-async function request(
+export async function request(
   graphql: string,
   token: string,
   query: string,

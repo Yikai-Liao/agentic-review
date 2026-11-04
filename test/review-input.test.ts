@@ -34,12 +34,17 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
       REVIEW_CONTEXT_PATH: path.join(directory, 'review-context.json'),
       REVIEW_INPUT_PATH: path.join(directory, 'input.md'),
       REVIEW_ASSOCIATIONS_PATH: path.join(directory, 'associations.json'),
+      REVIEW_ATTRIBUTION_PATH: path.join(directory, 'attribution.json'),
     });
     const associations = {
       pull_requests: [{ repository: 'owner/repo', number: 59, title: '源 PR', url: 'https://github.com/owner/repo/pull/59' }],
       issues: [],
     };
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
+    const sourcePullRequest = { number: 59, title: '源 PR', url: 'https://github.com/owner/repo/pull/59' };
+    writeFileSync(process.env.REVIEW_ATTRIBUTION_PATH!, JSON.stringify({
+      reviewed: ['src/billing.ts'], composition: [{ path: 'src/auth.ts', pull_requests: [sourcePullRequest] }], pull_requests: [sourcePullRequest],
+    }));
     writeFileSync(path.join(base, '.agentic-review.md'), '默认按 code 层审查。');
     writeFileSync(path.join(head, '.agentic-review.md'), '设计文档按 architecture 层审查。');
     writeFileSync(path.join(head, 'AGENTS.md'), '项目约束：开发计划按 plan 层审查。');
@@ -49,7 +54,7 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     writeFileSync(path.join(base, 'src/AGENTS.md'), '目录旧规则：接口错误统一分类。');
     const initialRequest = buildReviewRequest({ repository: 'owner/repo', pullNumber: 60,
       baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '20', text: '只看鉴权' });
-    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: initialRequest }));
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: initialRequest, source_reviewed: ['src/billing.ts'] }));
     writeFileSync(path.join(directory, 'review-progress.json'), JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'pending' }] }));
     const run = async (command: string, args: string[]) => {
       if (command === 'git') return args.includes('--name-only') ? 'src/auth.ts\0' : 'diff --git a/src/auth.ts b/src/auth.ts\n+auth change\n';
@@ -66,6 +71,10 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     const index = input.split('## PR association index\n\n')[1].split('\n\n## ')[0];
     assert.deepEqual(JSON.parse(index), associations);
     assert.ok(input.includes('只看鉴权'));
+    const attributionSection = JSON.parse(input.split('## Source review attribution\n\n')[1].split('\n\n## ')[0]);
+    assert.equal(attributionSection.source_reviewed_files, 1);
+    assert.deepEqual(attributionSection.composition_files, [{ path: 'src/auth.ts', pull_requests: [sourcePullRequest] }]);
+    assert.ok(!input.split('## Review request\n\n')[1].split('\n\n## ')[0].includes('source_reviewed'));
     assert.ok(input.includes('项目约束'));
     assert.ok(input.includes('## Base .agentic-review.md\n\n默认按 code 层审查。'));
     assert.ok(input.includes('## Head .agentic-review.md\n\n设计文档按 architecture 层审查。'));
@@ -110,7 +119,7 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     assert.ok(baseline.fingerprints.inline_comments['1']);
     // 首次显式请求与完整 PR 使用同一 merge-base 区间，只生成一份 patch。
     const prRequest = { ...initialRequest, source: 'pr_comment', comment_id: '3', root_comment_id: '3' };
-    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: prRequest,
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: prRequest, source_reviewed: ['src/billing.ts'],
       default_plan: { ranges: [{ comparison_start: prRequest.comparison_start, comparison_end: prRequest.head_sha }] } }));
     let patchReads = 0;
     await main(async (command, args) => {
@@ -122,7 +131,7 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     assert.equal(patchReads, 1);
     assert.equal(patches.length, 1);
     assert.equal(patches[0].use, 'changes');
-    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: initialRequest }));
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: initialRequest, source_reviewed: ['src/billing.ts'] }));
     // 历史快照未变化只降低默认预载优先级；新增回复或编辑仍以完整 thread 交付。
     const history = path.join(directory, 'history');
     mkdirSync(history);
@@ -197,7 +206,7 @@ test('启动材料按语义索引并保留讨论基线、项目规则和固定�
     const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 60,
       baseSha, headSha: oldHead, runId: '10' });
     writeFileSync(path.join(previous, 'review-coverage.json'), JSON.stringify(initialReviewCoverage(request)));
-    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { ...request, head_sha: newHead, run_id: '11' } }));
+    writeFileSync(process.env.REVIEW_CONTEXT_PATH!, JSON.stringify({ request: { ...request, head_sha: newHead, run_id: '11' }, source_reviewed: [] }));
     writeFileSync(process.env.REVIEW_ASSOCIATIONS_PATH!, JSON.stringify(associations));
     process.env.REVIEW_PREVIOUS_WORKSPACE_PATH = previous;
     await main(run);

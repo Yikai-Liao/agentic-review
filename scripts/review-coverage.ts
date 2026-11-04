@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildReviewRequest, validateReviewScope, validateReviewRanges, type ReviewCoverage } from './review-request.ts';
 
-export type CoverageEntry = { path: string; status: 'pending' | 'complete' | 'out_of_scope' };
+export type CoverageEntry = { path: string; status: 'pending' | 'complete' | 'out_of_scope' | 'source_reviewed' };
 const record = (value: unknown): value is Record<string, any> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const relative = (value: string) => value.length > 0 && !path.posix.isAbsolute(value) && !value.split('/').some((part) => part === '..' || part === '.');
 
@@ -36,7 +36,7 @@ export function parseReviewCoverage(value: unknown): ReviewCoverage {
   if ((value.status === 'draft' || value.status === 'published') && !value.scope) throw new Error('Missing coverage scope');
   if (value.complete_audit && (value.status !== 'published' || r.source !== 'automatic' || value.scope?.mode !== 'full')) throw new Error('Invalid complete audit');
   if (!Array.isArray(value.ledger) || value.ledger.some((entry: unknown) => !record(entry) || typeof entry.path !== 'string' || !relative(entry.path)
-    || !['pending', 'complete', 'out_of_scope'].includes(entry.status))) throw new Error('Invalid coverage ledger');
+    || !['pending', 'complete', 'out_of_scope', 'source_reviewed'].includes(entry.status))) throw new Error('Invalid coverage ledger');
   if (new Set(value.ledger.map((entry: CoverageEntry) => entry.path)).size !== value.ledger.length) throw new Error('Duplicate coverage path');
   const coverage: ReviewCoverage = {
     request: rebuilt, status: value.status, complete_audit: value.complete_audit, updated_at: value.updated_at,
@@ -63,6 +63,10 @@ export function parseReviewProgress(context: unknown, progress: unknown): Review
     ...progress.scope,
     kind: context.request.source === 'thread' ? 'thread' : 'pr',
   };
+  // 来源已审条目由可信准备阶段写入上下文；模型既不能新增也不能改写它们。
+  if (!Array.isArray(context.source_reviewed) || context.source_reviewed.some((file: unknown) => typeof file !== 'string')) throw new Error('Invalid trusted source attribution');
+  const reviewed = new Set<string>(context.source_reviewed);
+  if (!Array.isArray(progress.ledger) || progress.ledger.some((entry: any) => record(entry) && (entry.status === 'source_reviewed') !== reviewed.has(entry.path))) throw new Error('Source-reviewed entries must match the trusted attribution');
   return parseReviewCoverage({
     request: context.request,
     default_plan: context.default_plan,
@@ -81,7 +85,7 @@ export function pendingCoverage(coverage: ReviewCoverage, expectedDigest: string
   if (!/^[0-9a-f]{64}$/.test(expectedDigest) || inventoryDigest(coverage.ledger.map((entry) => entry.path)) !== expectedDigest) throw new Error('Coverage does not match trusted change inventory');
   const scope = coverage.scope;
   return coverage.ledger
-    .filter((entry) => entry.status !== 'complete' && !(entry.status === 'out_of_scope' && scope.mode !== 'full'))
+    .filter((entry) => entry.status !== 'complete' && entry.status !== 'source_reviewed' && !(entry.status === 'out_of_scope' && scope.mode !== 'full'))
     .map((entry) => entry.path);
 }
 

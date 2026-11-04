@@ -104,6 +104,33 @@ test('resume preserves the index and completed files while reopening the request
   }
 });
 
+test('thread 请求延续上一轮的来源已审文件，只重开被讨论的文件', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'review-thread-source-'));
+  try {
+    const previousPath = path.join(directory, 'previous');
+    const workspace = path.join(directory, 'current');
+    mkdirSync(previousPath);
+    mkdirSync(workspace);
+    const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 7,
+      baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
+    const ranges = [{ targets: ['complete pull request'], comparison_start: request.base_sha, comparison_end: request.head_sha }];
+    const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published',
+      scope: { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '', ranges },
+      ledger: [{ path: 'auth.ts', status: 'source_reviewed' }, { path: 'billing.ts', status: 'source_reviewed' }, { path: 'cache.ts', status: 'complete' }] };
+    writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
+    const progress: ReviewProgress = { scope: { mode: 'focused', rationale: '复核当前 thread', explicit_text: '', ranges },
+      ledger: previous.ledger.map((entry) => ({ path: entry.path, status: 'pending' })) };
+    writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify(progress));
+    const context = { request: { ...request, run_id: '11', source: 'thread' as const, comment_id: '2', root_comment_id: '1' } };
+    const manifest = prepareReviewWorkspace({ workspace, context, previousPath, threadPath: 'auth.ts' });
+    assert.deepEqual(manifest.pending_files, ['auth.ts']);
+    const restored = JSON.parse(readFileSync(manifest.paths.progress, 'utf8'));
+    assert.deepEqual(restored.ledger.map((entry: any) => entry.status), ['pending', 'complete', 'complete']);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('一份工作稿和上一轮结果足以恢复调查，新快照仍保持待核定', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-notes-'));
   try {
@@ -167,7 +194,7 @@ test('automatic 增量延续未改完成项，新变化待审，间接影响可�
       ledger: files.map(file => ({ path: file, status: 'pending' })),
     }));
     reset();
-    writeFileSync(contextPath, JSON.stringify({ request: current }));
+    writeFileSync(contextPath, JSON.stringify({ request: current, source_reviewed: [] }));
     const manifest = prepareReviewWorkspace({ workspace, previousPath, context: { request: current },
       readChanges: () => ['auth.ts', 'new.ts'] });
     assert.deepEqual(manifest.pending_files, ['auth.ts', 'new.ts']);
