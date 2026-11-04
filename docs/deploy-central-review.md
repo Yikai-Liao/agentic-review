@@ -202,7 +202,7 @@ Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时�
 
 Review job 使用 Pi 原生重试：`retry.baseDelayMs: 15000`，连续重试等待 15、30、60 秒，其余沿用当前 Action 内置 Pi 1.3.0 默认设置。中央模型窗口为 `272000`，输入与输出共用，单次输出上限为 `25000`。启动材料预载按同一窗口计算预算。
 
-上下文由 [`pi-fold`](https://github.com/shaneconner/fold) 管理，版本固定在 workflow 的 `PI_FOLD_VERSION`，在 Agent 启动前安装并按版本缓存。窗口达到 80% 时，它把最早完成的工具批次折叠成由代码生成的简短摘要，原文仍保存在会话 JSONL 中；整轮审查是同一个未结束的 user 回合，pi-fold 把该回合的首条 user 消息（启动 Prompt 与预载规则）视为不可折叠，预载的审查材料也保持原文；集成测试用约 100KB 的 Prompt 连续提交多次折叠，最后一次请求仍包含完整规则。折叠不调用模型，因此不会出现原生压缩那样耗时的摘要请求：PR #129 的自审曾在 256K 触发原生压缩，摘要请求运行 58 秒后失败，整轮作废。pi-fold 会把超过 16KB 的 `read` 结果截成前 16KB，完整内容写入会话目录下的 `pi-fold-evidence/`，模型可按路径继续读取；bash 输出只在 Pi 自身已截断时才另存。这一截断不可关闭；历史 134 个 session 中，超过 16KB 的 `read` 只有 18 次，Review 主要通过 bash 读取代码。
+上下文由 [`pi-fold`](https://github.com/shaneconner/fold) 管理，版本固定在 workflow 的 `PI_FOLD_VERSION`，在 Agent 启动前安装并按版本缓存。窗口达到 80% 时，它把最早完成的工具批次折叠成由代码生成的简短摘要，原文仍保存在会话 JSONL 中；整轮审查是同一个未结束的 user 回合，pi-fold 把该回合的首条 user 消息（启动 Prompt 与预载规则）视为不可折叠；集成测试用约 100KB 的 Prompt 连续提交多次折叠，最后一次请求仍包含完整 Prompt。预载审查材料是否可被折叠没有单独验证。折叠不调用模型，因此不会出现原生压缩那样耗时的摘要请求：PR #129 的自审曾在 256K 触发原生压缩，摘要请求运行 58 秒后失败，整轮作废。pi-fold 会把超过 16KB 的 `read` 结果截成前 16KB，完整内容写入会话目录下的 `pi-fold-evidence/`，模型可按路径继续读取；bash 输出只在 Pi 自身已截断时才另存。这一截断不可关闭；历史 134 个 session 中，超过 16KB 的 `read` 只有 18 次，Review 主要通过 bash 读取代码。
 
 Pi settings 的 `compaction.enabled` 与 Action 的 `auto_compaction` 仍为 `true`：pi-fold 会先于阈值压缩折叠，原生压缩只在折叠后仍溢出时兜底。`review-runtime` 在原生压缩失败时先输出失败原因，再中止本轮。
 
