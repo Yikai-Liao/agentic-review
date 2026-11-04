@@ -210,7 +210,7 @@ Pi settings 的 `compaction.enabled` 与 Action 的 `auto_compaction` 仍为 `tr
 
 原生行为也有明确限制：Pi 1.3.0 按完整错误文本匹配 `billing`，因此包含 `/account/billing` 帮助链接的 TPM 错误也会被判为不可重试，当前项目不再自行改写或重新分类；隔离验收保留了这个实际失败。普通回合的原生指数等待不解析正文中的 `Please try again in …s`。provider 层的服务端等待上限默认 60 秒，超过上限的错误仍可能被原生会话或摘要预算再次尝试；不能将默认逻辑描述为一定等满正文提示。原始错误和失败结果均保留，耗尽或不可重试时不发布成功 Review。
 
-`Run Pi review` 步骤最多运行 60 分钟，review job 最多运行 75 分钟，为审查前的准备和审查后的发布、结果上传留出时间。重试耗尽后仍会失败并由 publisher 保留工作稿。若固定 TPM 下仍频繁限流，应减少单次输入或并发请求；增加重试次数不能提高吞吐额度。Pi 的配置与扩展接口见 [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) 和 [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md)。
+Agent 的时间预算为 9 分钟（`REVIEW_TIME_BUDGET_SECONDS=540`），`Run Pi review` 步骤最多运行 15 分钟，review job 最多运行 30 分钟，为预算之外的模型调用收尾、审查前的准备和审查后的发布、结果上传留出时间。重试耗尽后仍会失败并由 publisher 保留工作稿。若固定 TPM 下仍频繁限流，应减少单次输入或并发请求；增加重试次数不能提高吞吐额度。Pi 的配置与扩展接口见 [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) 和 [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md)。
 
 修改请求恢复或摘要边界后，除普通测试外，使用与 Action 对应的 SDK 做隔离验收。下面的测试只连接本机模拟 HTTP/SSE 服务，覆盖真实自动压缩、流内恢复和会话落盘，不调用模型 API，也不增加生产依赖：
 

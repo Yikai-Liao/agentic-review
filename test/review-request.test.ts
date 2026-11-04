@@ -40,6 +40,14 @@ test('resumes failed scope and compares failed head to new head', () => {
   assert.equal(plan.inherited_from_run, '20:1');
 });
 
+test('keeps partially published scope as an obligation on a new head', () => {
+  const partial = { ...previous('published'), ledger: [{ path: 'auth.ts', status: 'pending' as const }] };
+  const plan = prepareDefaultReviewPlan(request('pr_comment', head), partial, () => true);
+  assert.equal(plan.reason, 'resume_failed_scope');
+  assert.deepEqual(plan.ranges[0]?.targets, ['auth']);
+  assert.equal(plan.ranges.at(-1)!.comparison_start, oldHead);
+});
+
 test('thread default does not inherit PR scope history', () => {
   const plan = prepareDefaultReviewPlan(request('thread'), previous('published'), () => true);
   assert.equal(plan.reason, 'thread_default');

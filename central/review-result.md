@@ -10,15 +10,15 @@
 
 `notes.md` 的记录粒度使用[共同工作稿规则](../skills/agentic-review/references/review-state.md#分开记录调查进度和问题状态)：保留调查中已取得、但公开结果未包含的支持证据、关键前提和未完成项；没有 finding 也保存必要依据。覆盖状态使用 `review-progress.json`；`review-result.json`、PR Thread、回复和 Review 正文已有的内容直接引用。
 
-笔记随调查形成，与文件进度在同一次 `bash` 或 `codemode` 调用中保存，不为将来复用另起取证、补稿或总结回合。调查完成后登记 complete；最终归纳直接使用当前上下文和已有记录。长工作稿按相关路径或符号定位读取。中央提交要求全部 scope 内覆盖完成；未完成项保持 pending，工作稿保留具体缺口，不生成假 complete。
+笔记随调查形成，与文件进度在同一次 `bash` 或 `codemode` 调用中保存，不为将来复用另起取证、补稿或总结回合。调查完成后登记 complete；最终归纳直接使用当前上下文和已有记录。长工作稿按相关路径或符号定位读取。按风险从高到低调查：认证授权、数据写入与迁移、公共契约、并发与状态，再到测试、文档和生成物。收到收尾通知前，`submit_review` 要求全部 scope 内覆盖完成，不得以范围大为由提前结束；收到收尾通知后，未完成项保持 pending，不生成假 complete，直接提交已审部分的结论，发布器据文件进度列出未审查文件。
 
 准备阶段已记录默认 scope。调查前对照本轮请求核定；显式请求改变范围时调用 `set_review_scope` 更新 `mode`、`ranges`、`rationale` 和 `explicit_text`，否则直接使用默认值。每个区间包含比较起止 SHA 和足以恢复范围的 targets；保留默认计划中的全部义务，只有显式限定时才缩小范围。最新实际 scope 是下一轮恢复范围的唯一来源。
 
 workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；首次调查和重开项完成必要调查后登记为 `{"path":"src/example.ts","status":"complete"}`，继承完成项保持原状态。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope`，full 范围不允许排除条目。文件进度是唯一的覆盖状态，不另建工作稿完成清单。
 
-可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失、scope 内条目全部完成；任一不满足就失败。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 使用完整 PR 的 `full` scope，完整覆盖由可信历史完成项和本轮调查共同构成。
+可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失；scope 内仍有 pending 时照常发布已审部分，并据文件进度列出全部未审查文件，该轮不形成完整 audit。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 使用完整 PR 的 `full` scope，完整覆盖由可信历史完成项和本轮调查共同构成。
 
-输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一快照恢复已完成状态；automatic 接入同 base、当前历史中的可信完整 audit 后，未直接变化的完成项也默认延续。直接变化、新增和历史未完成项保留 `pending`；当前 thread 对应文件以及每次 `pr_comment` 请求的范围内文件仍按请求复核。
+输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一快照恢复已完成状态；automatic 接入同 base、当前历史中的可信完整 audit 后，未直接变化的完成项也默认延续。上一轮只发布了部分结论时，评论请求同样延续已完成项：同一快照只审查剩余文件，新提交只重开直接变化的文件。直接变化、新增和历史未完成项保留 `pending`；当前 thread 对应文件以及每次 `pr_comment` 请求的范围内文件仍按请求复核。
 
 按 `central/github-context.md` 先调查增量，沿新变化和相关旧记录中的依赖前提定位影响；契约、调用方、保护、状态前提或相关讨论改变时，将对应完成项重开为 pending，局部更新受影响的判断和反证，保留其余证据。其余历史完成项直接继承，不因笔记简短或未写无问题依据而重查；缺少依据确实妨碍本轮影响判断或疑点核验时，只补查相关部分。scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
 
@@ -222,6 +222,6 @@ Alert 与标题：
 
 最后将第 4 节的完整结果对象直接传给 `submit_review`。
 
-`submit_review` 先校验结果对象、本轮 scope 和覆盖完成条件，通过后自动写出 `$REVIEW_WORKSPACE_PATH/review-result.json` 并封存同一内容。失败返回 `queued: false` 和具体错误，按错误修正参数或进度后重试；失败不会返回完成。返回 `queued: true` / `Review queued for trusted publication.` 即本轮完成，立即结束 Agent 回合，不再调查、编辑、调用任何工具或再次提交。最终聊天回复只需简短确认，不重复输出 JSON。
+`submit_review` 先校验结果对象、本轮 scope 和覆盖状态（收尾通知前要求全部完成，之后接受保留 pending 的部分结论），通过后自动写出 `$REVIEW_WORKSPACE_PATH/review-result.json` 并封存同一内容。失败返回 `queued: false` 和具体错误，按错误修正参数或进度后重试；失败不会返回完成。返回 `queued: true` / `Review queued for trusted publication.` 即本轮完成，立即结束 Agent 回合，不再调查、编辑、调用任何工具或再次提交。最终聊天回复只需简短确认，不重复输出 JSON。
 
-后续发布由可信 publisher 完成：封存的请求身份、schema、scope 和覆盖完成证据是全部写入的前置条件；通过后将正文、新 finding、请求回复及历史 thread 操作分别发布。单项失败只阻断依赖它的操作，其余继续；thread 写入仍需校验当前 PR 归属。发布器追加运行元数据与实际执行说明，汇总成功、失败和因前置失败未执行的操作；未全部成功时保留失败状态，不推进完整 audit checkpoint。Agent 只提交审查判断，不推断 GitHub 写入已经成功，也不通过其他工具发布。
+后续发布由可信 publisher 完成：封存的请求身份、schema、scope 和文件进度清单是全部写入的前置条件，覆盖不完整时在正文前加可信的未审查文件提示，Check 为 action_required；通过后将正文、新 finding、请求回复及历史 thread 操作分别发布。单项失败只阻断依赖它的操作，其余继续；thread 写入仍需校验当前 PR 归属。发布器追加运行元数据与实际执行说明，汇总成功、失败和因前置失败未执行的操作；未全部成功时保留失败状态，不推进完整 audit checkpoint。Agent 只提交审查判断，不推断 GitHub 写入已经成功，也不通过其他工具发布。

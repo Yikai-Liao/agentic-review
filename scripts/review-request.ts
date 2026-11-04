@@ -157,7 +157,8 @@ export function prepareDefaultReviewPlan(
     kind: 'pr', mode: scope.mode, ranges: structuredClone(scope.ranges), inherited_from_run: inherited,
     reason: 'reopen_unchanged_scope', previous_status: previous.status,
   };
-  const failed = previous.status !== 'published';
+  // 部分发布的旧范围仍有未审文件，与失败一样保留为本轮义务。
+  const failed = previous.status !== 'published' || previous.ledger.some((entry) => entry.status === 'pending');
   const incremental = previous.request.base_sha === request.base_sha && usable(previous.request.head_sha, request.head_sha);
   const current = incremental
     ? range(['all changes in comparison interval and direct impact'], previous.request.head_sha)
@@ -205,7 +206,7 @@ export function validateReviewScope(scope: ReviewScope, request: ReviewRequest):
 }
 
 export async function main() {
-  const { inventoryDigest, parseReviewCoverage, validateCoverageCompletion } = await import('./review-coverage.ts');
+  const { inventoryDigest, parseReviewCoverage, pendingCoverage } = await import('./review-coverage.ts');
   const contextPath = process.env.REVIEW_CONTEXT_PATH;
   const progressPath = process.env.REVIEW_PROGRESS_PATH;
   if (!contextPath || !path.isAbsolute(contextPath) || !progressPath) throw new Error('Missing review context or progress path');
@@ -232,7 +233,8 @@ export async function main() {
         || previous.request.source !== process.env.REVIEW_PREVIOUS_SOURCE) throw new Error('Previous coverage does not match selected artifact');
       if (process.env.REVIEW_PREVIOUS_PUBLISHED === 'true') {
         if (previous.status !== 'published') throw new Error('Completion artifact is not published');
-        await validateCoverageCompletion(previous, inventoryDigest(previous.ledger.map((entry) => entry.path)));
+        // 已发布工作稿可能是时间预算内的部分结论；这里只核对其结构，未审文件由默认计划继续承接。
+        pendingCoverage(previous, inventoryDigest(previous.ledger.map((entry) => entry.path)));
       } else {
         previous = { ...previous, status: previous.scope ? 'draft' : 'requested', complete_audit: false };
       }

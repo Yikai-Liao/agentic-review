@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { publishReview } from '../scripts/publish-review.ts';
+import { coverageNotice, publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
 const result: ReviewResult = {
@@ -370,6 +370,19 @@ test('局部 thread 请求重跑更新旧回复中的失败说明，不重复回
 });
 
 
+test('部分覆盖只回复 thread 时，未审文件列在回复中；同时发布正文时只列在正文', async () => {
+  const notice = coverageNotice(['auth.ts'], 3);
+  const replyOnly = fixture();
+  await publish(replyOnly, { threadReplyOnly: true, coverageNotice: notice, result: { ...result, comments: [] } });
+  assert.equal(replyOnly.reviews.length, 0);
+  assert.ok(replyOnly.comments.find(item => item.body.includes('已按请求重新核对。')).body.includes('- `auth.ts`'));
+  const both = fixture();
+  await publish(both, { threadReplyOnly: true, coverageNotice: notice, result });
+  assert.ok(both.reviews[0].body.includes('- `auth.ts`'));
+  assert.ok(!both.comments.find(item => item.body.includes('已按请求重新核对。')).body.includes('- `auth.ts`'));
+});
+
+
 test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成功', async () => {
   const workflow = readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const execution = parse(workflow).jobs.review.steps;
@@ -436,16 +449,21 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   const completion = workflow.split('      - name: Complete Agentic Review check')[1];
   assert.match(completion, /REVIEW_JOB_STATUS: \$\{\{ job.status \}\}/);
   const script = completion.split('          script: |\n')[1].split('\n').map(line => line.slice(12)).join('\n');
-  async function conclusion(jobStatus: string, publicationOutcome = 'success', agentOutcome = 'success', archiveOutcome = 'success') {
-    let payload: any;
+  let payload: any;
+  async function conclusion(jobStatus: string, publicationOutcome = 'success', agentOutcome = 'success', archiveOutcome = 'success', pending = '0') {
     await runInNewContext(`(async () => { ${script} })()`, {
       process: { env: { REPOSITORY: 'owner/repo', CHECK_ID: '1', PI_REVIEW_OUTCOME: agentOutcome,
-        PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: archiveOutcome, REVIEW_JOB_STATUS: jobStatus } },
+        PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: archiveOutcome, REVIEW_JOB_STATUS: jobStatus,
+        COVERAGE_PENDING: pending, COVERAGE_TOTAL: '5' } },
       github: { rest: { checks: { update: async (value: any) => { payload = value; } } } },
     });
     return payload.conclusion;
   }
   assert.equal(await conclusion('success'), 'success');
+  // 部分覆盖已发布但仍阻止合并；缺失覆盖统计不能当作完整。
+  assert.equal(await conclusion('success', 'success', 'success', 'success', '2'), 'action_required');
+  assert.match(payload.output.summary, /已审查 3\/5 个文件/);
+  assert.equal(await conclusion('success', 'success', 'success', 'success', ''), 'failure');
   assert.equal(await conclusion('failure'), 'failure');
   assert.equal(await conclusion('success', 'failure'), 'failure');
   assert.equal(await conclusion('success', 'success', 'success', 'failure'), 'failure');

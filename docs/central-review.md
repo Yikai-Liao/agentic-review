@@ -33,7 +33,7 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 评论请求的审查范围由原文驱动并单独持久化：显式自然语言范围优先于 thread 隐含范围，thread 隐含范围优先于 PR 默认规则。普通 PR 评论重新调查最近一次 PR 级请求的实际范围；无变化也要重新审查并给出当前证据，有变化要审查新增变化和直接影响并补齐此前失败或未完成的覆盖。thread 默认调查当前问题和直接影响，原文明确要求全 PR 时才扩大，且不继承 PR 级范围历史。限定范围可以限制本轮覆盖；关注点只改变调查优先级。完整 diff 仍用于上下文和确认新增 inline 位置；限定范围内读取直接影响上下文不能声称完成全 PR，full diff 之外的位置不能伪造 inline finding。
 
-准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前写入本地上下文，其 SHA-256 摘要由 Runner 保存为准备步骤输出；模型只更新 `review-progress.json` 中的 scope 决策和文件进度。Agent 结束后的发布步骤先按可信摘要校验同一份上下文内容，再核对 workflow 输入并组装 `review-coverage.json`；本地上下文变化或摘要缺失均阻断发布。未完成覆盖也保存为范围历史，完成且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
+准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前写入本地上下文，其 SHA-256 摘要由 Runner 保存为准备步骤输出；模型只更新 `review-progress.json` 中的 scope 决策和文件进度。Agent 结束后的发布步骤先按可信摘要校验同一份上下文内容，再核对 workflow 输入并组装 `review-coverage.json`；本地上下文变化或摘要缺失均阻断发布。未完成覆盖也保存为范围历史（含时间预算内发布的部分结论），完整覆盖且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`，并将索引写入 Agent 必读的 Review 输入。Agent 按 [中央关联读取流程](../central/github-context.md#4-恢复契约或复核候选时读取关联记录) 核对相关来源；恢复契约时按需读取原始记录，提交新 finding 或人工确认前必须核对相关源 PR 的完整讨论。`read-related-pr.ts` 复用当前 PR 的分页逻辑，包含普通评论、Review、行内评论和回复及 thread 状态，避免遗漏历史决定。没有关联入口时不扩展查询；索引本身不证明条目相关，也不构成业务授权、修复或验收证据。
 
@@ -63,6 +63,12 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 
 Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给 Agent 结束后的可信发布步骤。
 
+### 时间预算与部分结论
+
+`review-tools` 扩展在 `agent_start` 开始计时，预算由 workflow 的 `REVIEW_TIME_BUDGET_SECONDS`（540 秒）给出，Agent 不能自行宣布用尽。前 6 分钟为调查阶段：模型未提交就想结束时，扩展经 `agent_before_settle` 要求继续，`submit_review` 拒绝仍有 pending 的提交。第 6 分钟进入收尾阶段：通知模型停止新调查、刷新讨论并归纳已审部分，此后 `submit_review` 接受保留 pending 的部分结论。第 9 分钟起，`tool_call` 拦截除 `submit_review` 外的全部工具；此时仍不提交，只再提醒一次，之后 Agent 如实结束，发布器报告没有 `submit_review` 结果，Check 为 failure。Pi 步骤的 15 分钟超时只兜住卡死的工具调用。
+
+部分结论由可信代码标示：发布器按 `review-progress.json` 的文件进度，在 Review 正文前加入已覆盖比例和全部未审查文件，不依赖模型自述。完整性只来自文件进度：存在未审查文件时 `complete_audit` 保持 false，不成为 audit checkpoint，Check 结论为 `action_required`（与 failure 同样阻止 required check，但表明结论已发布、只是覆盖不全），只有全部覆盖才是 success。评论请求会继承已发布部分的完成项：同一快照只审查剩余文件；有新提交时，base 不变且路径差分可读的前提下，只有直接变化的文件与原有未审文件需要审查，差分未知时整个范围重新待审。只回复 thread 的局部请求没有 Review 正文，未审查文件列在 thread 回复中。automatic 运行不继承部分结论的进度；评论请求续审的结论不会更新该提交的 `/audit` Check，它只由推送新提交或重新运行自动审查重新评定。
+
 ## Agent 工具
 
 当前中央 Review 暂停飞书取证与判断，不下载或恢复 CLI archive、不安装 Lark CLI，也不读取 `lark-review` Environment 或注入 UAT。输入中的飞书文档、Wiki 和多维表格链接只作来源标识，不请求链接，也不因未读取资料新增缺证据告警或人工确认 finding。
@@ -90,7 +96,7 @@ PR 元数据、评论、项目规则、固定区间 patch 及工作稿进入 `$R
 
 恢复清单的 `pending_files` 列出本轮待调查文件，已延续的完成项留在 `review-progress.json`；`changed_paths` 是上一工作稿 head 到当前固定 head 的路径差分，包含已从 full 清单消失的撤销路径。模型从这些变化和最新讨论出发追踪间接影响，按需重开旧完成项。`same_base` 提示基线是否改变；缺少历史或未知差分用 `null`，与已确认空增量区分。
 
-路径通过本地 Git 的 NUL 分隔输出读取，重命名保留两端，撤销变化和含换行的文件名也进入清单。force-push 后历史 head 不在本地时，摘要保持 `null`，完整 PR 的审查义务不变；其他 Git 读取失败明确停止。新快照仍保留 pending 与完整覆盖校验，由 Agent 根据增量、最新讨论和旧前提判断继承或重开；无法恢复原调查前提时重新读取必要代码。发布继续校验请求身份、固定范围、完整文件清单、scope 内全部完成和最终结果 schema，笔记格式或字数不作为调查充分性的机器证明。实际历史读取量、写稿轮数和端到端收益仍需上线后测量。
+路径通过本地 Git 的 NUL 分隔输出读取，重命名保留两端，撤销变化和含换行的文件名也进入清单。force-push 后历史 head 不在本地时，摘要保持 `null`，完整 PR 的审查义务不变；其他 Git 读取失败明确停止。新快照仍保留 pending 与完整覆盖校验，由 Agent 根据增量、最新讨论和旧前提判断继承或重开；无法恢复原调查前提时重新读取必要代码。发布继续校验请求身份、固定范围、完整文件清单和最终结果 schema；scope 内仍有未审文件时按部分结论发布并列出，不形成完整 audit；笔记格式或字数不作为调查充分性的机器证明。实际历史读取量、写稿轮数和端到端收益仍需上线后测量。
 
 材料以 `o200k_base` 统计 Token，并逐条保留完整原文、类别和路径。[运行时预载](../scripts/write-review-input.ts)按模型窗口、最大输出与调查空间计算预算，优先请求、规则、当前变化与有变化的讨论；当前笔记、进度、已有旧结果及完整材料索引也参与同一预算选择。已交付的索引与原文直接使用，首批调查从已知代码位置读取必要源码；补充导航时与同批源码读取合并。未容纳的材料继续保留索引入口，使用现有工具按需读取；不把截断文本当完整证据。
 

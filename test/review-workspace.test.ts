@@ -66,6 +66,26 @@ test('resume preserves the index and completed files while reopening the request
     const repeated = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
     assert.equal(repeated.pending_files.length, 7);
 
+    // 上一轮在时间预算内只发布了部分结论：同一快照的评论请求只接着审查未审文件。
+    const partial = { ...previous, ledger: previous.ledger.map((entry, index) => index < 2 ? { ...entry, status: 'pending' as const } : entry) };
+    writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(partial));
+    reset();
+    const continued = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
+    assert.deepEqual(continued.pending_files, ['auth.ts', 'billing.ts']);
+    // 部分发布后出现新提交：已发布部分中未直接变化的文件仍算完成，直接变化的文件重新待审。
+    reset();
+    const advanced = prepareReviewWorkspace({ workspace,
+      context: { request: { ...context.request, source: 'pr_comment', head_sha: 'c'.repeat(40) } }, previousPath,
+      readChanges: () => ['cache.ts'] });
+    assert.deepEqual(advanced.pending_files, ['auth.ts', 'billing.ts', 'cache.ts']);
+    // 差分未知时不能把旧完成项当作仍然有效。
+    reset();
+    const unknown = prepareReviewWorkspace({ workspace,
+      context: { request: { ...context.request, source: 'pr_comment', head_sha: 'c'.repeat(40) } }, previousPath,
+      readChanges: () => null });
+    assert.equal(unknown.pending_files.length, 7);
+    writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
+
     // 上次失败也不免除新 PR 评论的复核义务；相同范围的排除项仍保留。
     previous.status = 'draft';
     previous.request = { ...previous.request, source: 'pr_comment', comment_id: '1', root_comment_id: '1' };
