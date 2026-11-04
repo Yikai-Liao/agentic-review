@@ -24,9 +24,11 @@ const foldPackage = JSON.parse(await readFile(path.join(foldDirectory, 'node_mod
 assert.equal(foldPackage.version, workflow.env.PI_FOLD_VERSION);
 const configure = steps.find((step: any) => step.name === 'Configure Pi runtime').run;
 
-// 每次 bash 返回约 45KB 原文（低于 Pi 的 50KB/2000 行截断），约 18 次后超过 272K 窗口的 80%，
-// 迫使 pi-fold 在中途提交折叠。
-const READS = 24;
+// 每次 bash 返回约 45KB 原文（低于 Pi 的 50KB/2000 行截断），约 18 次后超过 272K 窗口的 80%；
+// 70 次读取使 pi-fold 多次提交折叠，规则 Prompt 要在多次折叠后仍保持原文。
+const READS = 70;
+// 约 100KB，与中央规则 Prompt 同一量级；Action 经环境变量传入，单项上限 128KB。
+const PROMPT = `逐份核对证据。\n${'RULE_LINE 固定规则正文。\n'.repeat(3000)}`;
 const evidence = (index: number) => `EVIDENCE_${index}: verify resource ownership before reading data.\n`.repeat(700);
 
 test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型摘要，审查继续完成', async () => {
@@ -75,14 +77,14 @@ test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型�
     await writeFile(path.join(directory, 'summary'), '');
     writeReviewInput(path.join(directory, 'input.json'), []);
     const { stdout, stderr } = await promisify(execFile)(process.execPath, [path.join(actionDirectory, 'dist/index.js')], {
-      cwd: directory, timeout: 120000, maxBuffer: 16 * 1024 * 1024,
+      cwd: directory, timeout: 300000, maxBuffer: 16 * 1024 * 1024,
       env: {
         PATH: process.env.PATH, HOME: directory, CI: 'true', PI_OFFLINE: '1',
         GITHUB_WORKSPACE: directory, RUNNER_TEMP: directory, GITHUB_REPOSITORY: 'example/review',
         GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_EVENT_PATH: path.join(directory, 'event.json'),
         GITHUB_API_URL: origin, GITHUB_OUTPUT: path.join(directory, 'outputs'), GITHUB_STEP_SUMMARY: path.join(directory, 'summary'),
         INPUT_GITHUB_TOKEN: 'local-test-token', INPUT_PROVIDER: 'openai', INPUT_MODEL: 'gpt-test', INPUT_TOKEN: 'local-test-key',
-        INPUT_BASE_URL: `${origin}/v1`, INPUT_THINKING_LEVEL: 'off', INPUT_PROMPT: '逐份核对证据。',
+        INPUT_BASE_URL: `${origin}/v1`, INPUT_THINKING_LEVEL: 'off', INPUT_PROMPT: PROMPT,
         INPUT_EXTENSIONS: agent.with.extensions.replaceAll('${{ runner.temp }}', directory),
         INPUT_LOADED_TOOLS: agent.with.loaded_tools, INPUT_LOAD_BUILTIN_EXTENSIONS: String(agent.with.load_builtin_extensions),
         INPUT_ENABLE_CODEMODE: String(agent.with.enable_codemode), INPUT_AUTO_COMPACTION: String(agent.with.auto_compaction),
@@ -109,8 +111,9 @@ test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型�
     assert.ok(!last.includes(raw(1)), '最早的证据原文应已折叠出窗口');
     assert.ok(last.includes(raw(READS)), '最近的证据保持原文');
     assert.ok(last.length / 4 < 272000 * 0.8, '折叠后的请求回到阈值以下');
-    // 规则随启动 Prompt 和预载材料进入窗口；折叠只处理已完成的工具批次，不能带走它们。
-    assert.ok(last.includes('逐份核对证据。'), '启动 Prompt 保持原文');
+    assert.ok(sizes.filter((size, index) => index > 0 && size < sizes[index - 1] / 2).length >= 3, `应连续提交多次折叠：${sizes.join(' ')}`);
+    // 整轮审查是同一个未结束的 user 回合；pi-fold 不折叠该回合的首条消息，也不折叠预载材料。
+    assert.ok(last.includes('RULE_LINE 固定规则正文。') && last.includes('逐份核对证据。'), '多次折叠后启动 Prompt 保持原文');
     assert.ok(last.includes('# 审查材料'), '预载审查材料保持原文');
     const files = await readdir(path.join(directory, '.pi/agent/sessions'), { recursive: true });
     const session = files.find(file => file.endsWith('.jsonl'));
