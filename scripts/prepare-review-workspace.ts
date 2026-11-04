@@ -42,9 +42,10 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
     const previousEntries = new Map(previous.ledger.map((entry) => [entry.path, entry]));
     for (const entry of progress.ledger) {
       const old = previousEntries.get(entry.path);
-      // 来源已审条目由本轮可信上下文决定，历史状态只延续到待审条目上。
+      // 本轮来源已审条目由可信上下文决定，历史状态只延续到待审条目上；
+      // 上一轮的来源已审条目与完成项同等延续，thread 请求不做归因也不会把它们重新变成待审。
       if (!old || entry.path === threadPath || entry.status !== 'pending') continue;
-      if (old.status === 'complete' && (!repeatPrScope || resumePartial)
+      if ((old.status === 'complete' || old.status === 'source_reviewed') && (!repeatPrScope || resumePartial)
         && (sameSnapshot || (carryUnchanged && !changed.has(entry.path)))) {
         entry.status = 'complete';
       } else if (sameSnapshot && old.status === 'out_of_scope' && sameScope && progress.scope?.mode !== 'full') {
