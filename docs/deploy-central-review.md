@@ -200,9 +200,13 @@ Agent 可按审查需要读取明确提及的链接，继续读取相关且有�
 
 Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时通过 Ubuntu 系统包管理器安装，已有时直接复用，并执行 `rg --version` 验证。安装或验证失败会停止本轮，避免 Agent 在调查中因缺少搜索命令重试。
 
-Review job 使用 Pi 原生重试与上下文管理：`retry.baseDelayMs: 15000`，连续重试等待 15、30、60 秒，其余沿用当前 Action 内置 Pi 1.3.0 默认设置。Pi settings 的 `compaction.enabled` 与 Action 的 `auto_compaction` 均为 `true`，只保留原生自动压缩；`review-runtime` 在原生压缩失败时中止本轮。中央模型窗口为 `272000`，输入与输出共用，单次输出上限为 `25000`。启动材料预载按同一窗口计算预算。
+Review job 使用 Pi 原生重试：`retry.baseDelayMs: 15000`，连续重试等待 15、30、60 秒，其余沿用当前 Action 内置 Pi 1.3.0 默认设置。中央模型窗口为 `272000`，输入与输出共用，单次输出上限为 `25000`。启动材料预载按同一窗口计算预算。
 
-中央 workflow 不再安装或加载 `billion-context-pi`，也不提供模型自行调用的压缩、解压或上下文搜索工具。前端 PR #483 的 3 文件变化曾产生 74 个回合、21 次手动压缩和反复规则恢复，形成明显耗时回退。可信规则仍直接预载；只有当前步骤所需的正文确已丢失时才补读，调查完成后直接刷新讨论并提交。
+上下文由 [`pi-fold`](https://github.com/shaneconner/fold) 管理，版本固定在 workflow 的 `PI_FOLD_VERSION`，在 Agent 启动前安装并按版本缓存。窗口达到 80% 时，它把最早完成的工具批次折叠成由代码生成的简短摘要，原文仍保存在会话 JSONL 中；启动 Prompt 和预载规则不参与折叠。折叠不调用模型，因此不会出现原生压缩那样耗时的摘要请求：PR #129 的自审曾在 256K 触发原生压缩，摘要请求运行 58 秒后失败，整轮作废。pi-fold 会把超过 16KB 的 `read` 结果截成前 16KB，完整内容写入会话目录下的 `pi-fold-evidence/`，模型可按路径继续读取；bash 输出只在 Pi 自身已截断时才另存。这一截断不可关闭；历史 134 个 session 中，超过 16KB 的 `read` 只有 18 次，Review 主要通过 bash 读取代码。
+
+Pi settings 的 `compaction.enabled` 与 Action 的 `auto_compaction` 仍为 `true`：pi-fold 会先于阈值压缩折叠，原生压缩只在折叠后仍溢出时兜底。`review-runtime` 在原生压缩失败时先输出失败原因，再中止本轮。
+
+中央 workflow 不提供模型自行调用的压缩、解压或上下文搜索工具；pi-fold 自带的 `pi_fold_context` 也不加入 `loaded_tools`。此前的 `billion-context-pi` 让模型自行调度压缩，前端 PR #483 的 3 文件变化曾产生 74 个回合、21 次手动压缩和反复规则恢复，形成明显耗时回退。可信规则仍直接预载；只有当前步骤所需的正文确已丢失时才补读，调查完成后直接刷新讨论并提交。
 
 原生行为也有明确限制：Pi 1.3.0 按完整错误文本匹配 `billing`，因此包含 `/account/billing` 帮助链接的 TPM 错误也会被判为不可重试，当前项目不再自行改写或重新分类；隔离验收保留了这个实际失败。普通回合的原生指数等待不解析正文中的 `Please try again in …s`。provider 层的服务端等待上限默认 60 秒，超过上限的错误仍可能被原生会话或摘要预算再次尝试；不能将默认逻辑描述为一定等满正文提示。原始错误和失败结果均保留，耗尽或不可重试时不发布成功 Review。
 
@@ -217,7 +221,17 @@ PI_SDK_DIRECTORY="$pi_sdk_check_dir/node_modules/@earendil-works/pi-coding-agent
 rm -rf "$pi_sdk_check_dir"
 ```
 
-Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行将 `~/.pi/agent/sessions/` 下的原始 JSONL（含原生 compaction 记录）归档为 `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 7 天。上传在 Agent 成功、失败或取消后执行，不依赖 Action 成功完成导出，因此导出前异常或超时也可保留已写盘部分；runner 丢失或尚未落盘的内容无法补回。日志包含系统消息、工具定义、输入、回复、工具结果和原生压缩记录，用于重建调查过程。归档不包含上层 `auth.json` 或运行时配置。首轮另记录 `[review-cache-prefix]` 的固定前缀、工具、系统消息与规则哈希，不输出正文，用于快速定位跨运行差异。当前规则与工具配置相同时，增补材料位于固定规则之后，不能改变固定断点之前的前缀。
+修改 pi-fold 版本、扩展加载顺序或窗口配置后，用 Action 发布产物验证真实加载、折叠和会话落盘。测试让模拟模型连续读取证据把窗口推过阈值，确认发生一次折叠、没有摘要请求、启动 Prompt 与预载材料仍在窗口中：
+
+```bash
+pi_fold_check_dir="$(mktemp -d)"
+git clone --depth=1 --branch v2.30.1 https://github.com/shaftoe/pi-coding-agent-action.git "$pi_fold_check_dir/action"
+npm install --prefix "$pi_fold_check_dir/extensions" --ignore-scripts --no-audit --no-fund --no-package-lock --legacy-peer-deps pi-fold@4.3.0
+PI_ACTION_DIRECTORY="$pi_fold_check_dir/action" PI_FOLD_DIRECTORY="$pi_fold_check_dir/extensions" pnpm exec tsx --test test/pi-fold.integration.ts
+rm -rf "$pi_fold_check_dir"
+```
+
+Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行将 `~/.pi/agent/sessions/` 下的原始 JSONL（含折叠与原生 compaction 记录）及 `pi-fold-evidence/` 归档为 `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 7 天。上传在 Agent 成功、失败或取消后执行，不依赖 Action 成功完成导出，因此导出前异常或超时也可保留已写盘部分；runner 丢失或尚未落盘的内容无法补回。日志包含系统消息、工具定义、输入、回复、工具结果和原生压缩记录，用于重建调查过程。归档不包含上层 `auth.json` 或运行时配置。首轮另记录 `[review-cache-prefix]` 的固定前缀、工具、系统消息与规则哈希，不输出正文，用于快速定位跨运行差异。当前规则与工具配置相同时，增补材料位于固定规则之后，不能改变固定断点之前的前缀。
 
 `REVIEW_FAST_MODE=true` 时，`Configure Pi runtime` 在 Agent 启动前向配置的模型网关发送一次短 Responses 请求，探测 `service_tier: "priority"`（[OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)）。响应确认 `priority`/`fast` 后，将该参数写入 Pi 的模型配置；网关或模型明确拒绝（HTTP 400/422），或响应未确认优先服务层时，本轮沿用 API 默认模式。正式 Review 直接使用 Pi 原生请求链路，不包装 fetch 或重复探测。探测的鉴权、配额、限流、网络及无关参数错误会使准备步骤失败；关闭开关时不探测，也不覆盖 API 项目自身的默认服务层设置。Fast mode 可能采用更高单价，额外的启动探测不计入 Review 主会话的 token 和费用统计。
 
