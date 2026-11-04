@@ -436,16 +436,21 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   const completion = workflow.split('      - name: Complete Agentic Review check')[1];
   assert.match(completion, /REVIEW_JOB_STATUS: \$\{\{ job.status \}\}/);
   const script = completion.split('          script: |\n')[1].split('\n').map(line => line.slice(12)).join('\n');
-  async function conclusion(jobStatus: string, publicationOutcome = 'success', agentOutcome = 'success', archiveOutcome = 'success') {
-    let payload: any;
+  let payload: any;
+  async function conclusion(jobStatus: string, publicationOutcome = 'success', agentOutcome = 'success', archiveOutcome = 'success', pending = '0') {
     await runInNewContext(`(async () => { ${script} })()`, {
       process: { env: { REPOSITORY: 'owner/repo', CHECK_ID: '1', PI_REVIEW_OUTCOME: agentOutcome,
-        PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: archiveOutcome, REVIEW_JOB_STATUS: jobStatus } },
+        PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: archiveOutcome, REVIEW_JOB_STATUS: jobStatus,
+        COVERAGE_PENDING: pending, COVERAGE_TOTAL: '5' } },
       github: { rest: { checks: { update: async (value: any) => { payload = value; } } } },
     });
     return payload.conclusion;
   }
   assert.equal(await conclusion('success'), 'success');
+  // 部分覆盖已发布但仍阻止合并；缺失覆盖统计不能当作完整。
+  assert.equal(await conclusion('success', 'success', 'success', 'success', '2'), 'action_required');
+  assert.match(payload.output.summary, /已审查 3\/5 个文件/);
+  assert.equal(await conclusion('success', 'success', 'success', 'success', ''), 'failure');
   assert.equal(await conclusion('failure'), 'failure');
   assert.equal(await conclusion('success', 'failure'), 'failure');
   assert.equal(await conclusion('success', 'success', 'success', 'failure'), 'failure');

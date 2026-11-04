@@ -54,7 +54,7 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 30
     steps:
       - name: Validate dispatch inputs
         id: target
@@ -266,7 +266,8 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
-        timeout-minutes: 60
+        # Agent 预算由 review-tools 扩展执行；步骤超时只兜住单个卡死的工具调用。
+        timeout-minutes: 15
         uses: shaftoe/pi-coding-agent-action@v2.30.1
         env:
           # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
@@ -294,6 +295,8 @@ jobs:
           REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
           REVIEW_PROGRESS_PATH: ${{ github.workspace }}/review-workspace/review-progress.json
           REVIEW_INVENTORY_DIGEST: ${{ steps.review-context.outputs.inventory_digest }}
+          # 9 分钟调查预算：最后 3 分钟收尾，到期后只允许提交已审部分。
+          REVIEW_TIME_BUDGET_SECONDS: 540
           # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.review-context.outputs.previous_workspace }}
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.review-context.outputs.previous_request_workspace }}
@@ -449,16 +452,27 @@ jobs:
           PI_REVIEW_OUTCOME: ${{ steps.pi-review.outcome }}
           PUBLISH_REVIEW_OUTCOME: ${{ steps.publish-review.outcome }}
           COMPLETION_WORKSPACE_OUTCOME: ${{ steps.review-workspace.outcome }}
+          COVERAGE_PENDING: ${{ steps.publish-review.outputs.coverage_pending }}
+          COVERAGE_TOTAL: ${{ steps.publish-review.outputs.coverage_total }}
           REVIEW_JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
+            // 发布成功必然写出覆盖统计；缺失时不能当作已全部覆盖。
+            const pending = process.env.COVERAGE_PENDING === '' ? NaN : Number(process.env.COVERAGE_PENDING);
+            const total = Number(process.env.COVERAGE_TOTAL);
+            const delivered = process.env.REVIEW_JOB_STATUS === 'success' && process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success';
+            // 部分覆盖已如实发布，但未审文件不能放行合并：action_required 与 failure 一样阻止 required check。
             const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled' || process.env.REVIEW_JOB_STATUS === 'cancelled'
               ? 'cancelled'
-              : process.env.REVIEW_JOB_STATUS === 'success' && process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success'
-                ? 'success'
-                : 'failure';
+              : !delivered || !(pending >= 0) ? 'failure' : pending > 0 ? 'action_required' : 'success';
+            const outputs = {
+              success: ['Agentic Review 已完成', '审查已完成。'],
+              action_required: ['Agentic Review 部分完成', `时间预算内已审查 ${total - pending}/${total} 个文件，结论已发布；其余 ${pending} 个文件尚未审查，清单见 Review 正文。评论请求继续审查后，会在同一提交上接着审查剩余文件；完成前当前提交保持不可合并。`],
+              cancelled: ['Agentic Review 已取消', '该审查已取消，当前提交保持不可合并。'],
+              failure: ['Agentic Review 执行失败', '审查或发布未全部完成；部分结果可能已经发布。失败明细见 Actions 运行摘要和 publication report，当前提交保持不可合并。'],
+            };
             await github.rest.checks.update({
               owner,
               repo,
@@ -466,16 +480,5 @@ jobs:
               status: 'completed',
               conclusion,
               completed_at: new Date().toISOString(),
-              output: {
-                title: conclusion === 'success'
-                  ? 'Agentic Review 已完成'
-                  : conclusion === 'cancelled'
-                    ? 'Agentic Review 已取消'
-                    : 'Agentic Review 执行失败',
-                summary: conclusion === 'success'
-                  ? '审查已完成。'
-                  : conclusion === 'cancelled'
-                    ? '该审查已取消，当前提交保持不可合并。'
-                    : '审查或发布未全部完成；部分结果可能已经发布。失败明细见 Actions 运行摘要和 publication report，当前提交保持不可合并。',
-              },
+              output: { title: outputs[conclusion][0], summary: outputs[conclusion][1] },
             });

@@ -34,12 +34,14 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
   // 可信完整 audit 的未改完成项默认延续；Agent 沿新变化和讨论重开间接受影响的项。
   const continueAudit = context.request.source === 'automatic' && previous?.complete_audit
     && sameBase && changedPaths !== null;
+  // 上一轮在时间预算内只发布了部分结论时，同一快照的评论请求接着审查剩余文件，不重审已发布部分。
+  const resumePartial = previous?.status === 'published' && previous.ledger.some((entry) => entry.status === 'pending');
   if (previous && previousPath) {
     const previousEntries = new Map(previous.ledger.map((entry) => [entry.path, entry]));
     for (const entry of progress.ledger) {
       const old = previousEntries.get(entry.path);
       if (!old || entry.path === threadPath) continue;
-      if (old.status === 'complete' && !repeatPrScope
+      if (old.status === 'complete' && (!repeatPrScope || resumePartial)
         && (sameSnapshot || (continueAudit && !changed.has(entry.path)))) {
         entry.status = 'complete';
       } else if (sameSnapshot && old.status === 'out_of_scope' && sameScope && progress.scope?.mode !== 'full') {

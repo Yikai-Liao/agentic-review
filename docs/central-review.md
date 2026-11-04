@@ -33,7 +33,7 @@ Worker 只做四件事：验证签名、过滤非目标事件、按 delivery ID 
 
 评论请求的审查范围由原文驱动并单独持久化：显式自然语言范围优先于 thread 隐含范围，thread 隐含范围优先于 PR 默认规则。普通 PR 评论重新调查最近一次 PR 级请求的实际范围；无变化也要重新审查并给出当前证据，有变化要审查新增变化和直接影响并补齐此前失败或未完成的覆盖。thread 默认调查当前问题和直接影响，原文明确要求全 PR 时才扩大，且不继承 PR 级范围历史。限定范围可以限制本轮覆盖；关注点只改变调查优先级。完整 diff 仍用于上下文和确认新增 inline 位置；限定范围内读取直接影响上下文不能声称完成全 PR，full diff 之外的位置不能伪造 inline finding。
 
-准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前写入本地上下文，其 SHA-256 摘要由 Runner 保存为准备步骤输出；模型只更新 `review-progress.json` 中的 scope 决策和文件进度。Agent 结束后的发布步骤先按可信摘要校验同一份上下文内容，再核对 workflow 输入并组装 `review-coverage.json`；本地上下文变化或摘要缺失均阻断发布。未完成覆盖也保存为范围历史，完成且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
+准备阶段记录默认 scope；显式请求改变范围时，Agent 通过 `set_review_scope` 更新 `mode`、`ranges`（每个区间的 targets 和比较起止 SHA）、判断依据及原文。请求类型由可信代码决定，最终 JSON 不搬运 scope ID。请求和默认计划在 Agent 启动前写入本地上下文，其 SHA-256 摘要由 Runner 保存为准备步骤输出；模型只更新 `review-progress.json` 中的 scope 决策和文件进度。Agent 结束后的发布步骤先按可信摘要校验同一份上下文内容，再核对 workflow 输入并组装 `review-coverage.json`；本地上下文变化或摘要缺失均阻断发布。未完成覆盖也保存为范围历史（含时间预算内发布的部分结论），完整覆盖且成功发布后才生成完整 `audit` checkpoint。普通 PR 请求按控制仓库 artifact 的 repository ID、PR、source、run、attempt 查找最近 PR 级请求工作稿，排除 thread、原始模型 draft 和当前运行；历史工作稿只读，真实无历史、过期和接口错误保持不同结论。
 
 可信 workflow 还会生成一个去重 JSON 索引，只列当前 head-only commits 关联的其他 PR 和当前 PR 的 `closingIssuesReferences`，并将索引写入 Agent 必读的 Review 输入。Agent 按 [中央关联读取流程](../central/github-context.md#4-恢复契约或复核候选时读取关联记录) 核对相关来源；恢复契约时按需读取原始记录，提交新 finding 或人工确认前必须核对相关源 PR 的完整讨论。`read-related-pr.ts` 复用当前 PR 的分页逻辑，包含普通评论、Review、行内评论和回复及 thread 状态，避免遗漏历史决定。没有关联入口时不扩展查询；索引本身不证明条目相关，也不构成业务授权、修复或验收证据。
 
@@ -62,6 +62,12 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 `publish-review-run.ts` 统一验证、组装和发布。准备入口写出请求摘要后，即使后续输入装配失败，可信发布入口仍可组装可恢复范围；Agent 未成功完成时不发布 Review。组装成功后通过步骤输出登记 `workspace_ready`，后续发布失败或取消仍归档该范围。正常路径只归档一次：发布成功使用 `review-completed-workspace`，否则使用 `review-workspace`，包含已有的发布报告；归档失败仍使 Check 失败。原始诊断稿只供排查。目标代码只 checkout 一次，base 工作树共用 Git 对象，两个工作树创建时均禁用 checkout hook。
 
 Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给 Agent 结束后的可信发布步骤。
+
+### 时间预算与部分结论
+
+`review-tools` 扩展在 `agent_start` 开始计时，预算由 workflow 的 `REVIEW_TIME_BUDGET_SECONDS`（540 秒）给出，Agent 不能自行宣布用尽。前 6 分钟为调查阶段：模型未提交就想结束时，扩展经 `agent_before_settle` 要求继续，`submit_review` 拒绝仍有 pending 的提交。第 6 分钟进入收尾阶段：通知模型停止新调查、刷新讨论并归纳已审部分，此后 `submit_review` 接受保留 pending 的部分结论。第 9 分钟起，`tool_call` 拦截除 `submit_review` 外的全部工具；此时仍不提交，只再提醒一次，之后 Agent 如实结束，发布器报告没有 `submit_review` 结果，Check 为 failure。Pi 步骤的 15 分钟超时只兜住卡死的工具调用。
+
+部分结论由可信代码标示：发布器按 `review-progress.json` 的文件进度，在 Review 正文前加入已覆盖比例和全部未审查文件，不依赖模型自述。完整性只来自文件进度：存在未审查文件时 `complete_audit` 保持 false，不成为 audit checkpoint，Check 结论为 `action_required`（与 failure 同样阻止 required check，但表明结论已发布、只是覆盖不全），只有全部覆盖才是 success。同一快照上的评论请求会继承已发布部分的完成项，只审查剩余文件；新提交上则把旧范围的未审文件与增量一起承接。automatic 运行尚不继承部分结论的进度。
 
 ## Agent 工具
 

@@ -2,8 +2,14 @@ import { open, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parseReviewResult, type ReviewResult } from '../../scripts/review-result.ts';
-import { readReviewProgress, validateCoverageCompletion } from '../../scripts/review-coverage.ts';
+import { pendingCoverage, readReviewProgress } from '../../scripts/review-coverage.ts';
+import { budgetMessages, reviewBudgetSeconds, reviewPhase } from '../../scripts/review-budget.ts';
 import { persistReviewProgress, validateReviewScope, type ReviewScopeDecision } from '../../scripts/review-request.ts';
+
+type BoundaryResult = {
+  entries: Array<{ type: 'custom_message'; customType: string; content: string; display: boolean }>;
+  continue: true;
+} | undefined;
 
 type ExtensionAPI = {
   registerTool(tool: {
@@ -11,10 +17,51 @@ type ExtensionAPI = {
     [key: string]: unknown;
     execute: (...args: any[]) => Promise<unknown>;
   }): void;
+  on(event: 'agent_start', handler: () => void): void;
+  on(event: 'turn_end' | 'agent_before_settle', handler: (event: { outcome: string }) => BoundaryResult): void;
+  on(event: 'tool_call', handler: (event: { toolName: string }) => { block: true; reason: string } | undefined): void;
 };
 
-export default function reviewTools(pi: ExtensionAPI) {
+const notice = (content: string): BoundaryResult => ({
+  entries: [{ type: 'custom_message', customType: 'review-budget', content, display: false }],
+  continue: true,
+});
+
+export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
   let submitted = false;
+  // 计时从 Agent 启动开始；预算只由可信扩展判断，模型不能自行宣布用尽。
+  const budget = reviewBudgetSeconds(process.env.REVIEW_TIME_BUDGET_SECONDS);
+  let startedAt: number | undefined;
+  let wrapUpSent = false;
+  let submitNowSent = false;
+  const phase = () => reviewPhase(startedAt, now(), budget);
+
+  pi.on('agent_start', () => { startedAt ??= now(); });
+
+  pi.on('turn_end', () => {
+    if (submitted || wrapUpSent || phase() === 'investigate') return undefined;
+    wrapUpSent = true;
+    return notice(budgetMessages.wrapUp);
+  });
+
+  // 模型未提交就要结束时：预算内继续调查；预算用尽后只再提醒一次提交，仍不提交则如实失败。
+  pi.on('agent_before_settle', (event) => {
+    if (submitted || event.outcome !== 'completed') return undefined;
+    const current = phase();
+    if (current === 'investigate') return notice(budgetMessages.continue);
+    if (current === 'wrap_up') {
+      wrapUpSent = true;
+      return notice(budgetMessages.wrapUp);
+    }
+    if (submitNowSent) return undefined;
+    submitNowSent = true;
+    return notice(budgetMessages.submitNow);
+  });
+
+  pi.on('tool_call', (event) => {
+    if (submitted || event.toolName === 'submit_review' || phase() !== 'submit_only') return undefined;
+    return { block: true, reason: budgetMessages.submitNow };
+  });
 
   pi.registerTool({
     name: 'set_review_scope',
@@ -66,7 +113,7 @@ export default function reviewTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: 'submit_review',
     label: '提交 Review',
-    description: '直接接收审查结果，校验后保存工作稿副本并封存，交给可信发布器。失败时按具体错误修正参数后重试；queued: true 即本轮完成。',
+    description: '直接接收审查结果，校验后保存工作稿副本并封存，交给可信发布器。收尾通知前要求完整覆盖；收尾后接受保留 pending 的部分结论。失败时按具体错误修正参数后重试；queued: true 即本轮完成。',
     parameters: {
       type: 'object',
       properties: {
@@ -123,7 +170,11 @@ export default function reviewTools(pi: ExtensionAPI) {
         if (!contextPath || !progressPath) throw new Error('Review context or progress path is unavailable');
         const coverage = await readReviewProgress(contextPath, progressPath);
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
-        await validateCoverageCompletion(coverage, process.env.REVIEW_INVENTORY_DIGEST ?? '');
+        const pending = pendingCoverage(coverage, process.env.REVIEW_INVENTORY_DIGEST ?? '');
+        // 收尾前只接受完整覆盖，避免模型以范围大为由提前交出部分结论。
+        if (pending.length && phase() === 'investigate') {
+          throw new Error(`Incomplete coverage: ${pending.length} files pending, e.g. ${pending[0]}. The time budget has not reached wrap-up; continue the investigation.`);
+        }
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
         // 先独占创建封存文件，失败的并发调用不能覆盖工作稿副本。
         const sealed = await open(resultPath, 'wx', 0o600);

@@ -11,6 +11,7 @@ import { inventoryDigest } from '../scripts/review-coverage.ts';
 import { buildReviewRequest } from '../scripts/review-request.ts';
 import { parseReviewResult } from '../scripts/review-result.ts';
 
+process.env.REVIEW_TIME_BUDGET_SECONDS = '540';
 const headSha = 'b'.repeat(40);
 async function assertSubmissionFailed(response: Promise<any>, error: RegExp) {
   const failure = await response;
@@ -53,7 +54,7 @@ test('submit_review 直接接收结果对象，保存工作稿副本并封存一
     process.env.REVIEW_RESULT_PATH = resultPath;
     await configureProgress(directory);
     let tool: any;
-    reviewTools({ registerTool: (definition) => { tool = definition; } });
+    reviewTools({ on: () => {}, registerTool: (definition) => { tool = definition; } });
 
     const response = await tool.execute('call', result);
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
@@ -82,7 +83,7 @@ test('范围与提交只需要模型判断和文件进度，不搬运请求身�
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     const tools = new Map<string, any>();
-    reviewTools({ registerTool: (definition) => tools.set(definition.name, definition) });
+    reviewTools({ on: () => {}, registerTool: (definition) => tools.set(definition.name, definition) });
     const summary = { body: '总结', comments: [], thread_updates: [], request_reply: null };
     await assertSubmissionFailed(tools.get('submit_review').execute('call', summary), /scope must be recorded/);
     await tools.get('set_review_scope').execute('call', {
@@ -116,7 +117,7 @@ test('automatic reviews cannot record a focused partial scope', async () => {
     await configureProgress(directory);
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     let scopeTool: any;
-    reviewTools({ registerTool: (definition) => { if (definition.name === 'set_review_scope') scopeTool = definition; } });
+    reviewTools({ on: () => {}, registerTool: (definition) => { if (definition.name === 'set_review_scope') scopeTool = definition; } });
     await assert.rejects(scopeTool.execute('call', { mode: 'focused', rationale: '只看一个文件。', explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40)  }]}), /complete PR scope/);
   } finally {
     process.env = originalEnv;
@@ -135,7 +136,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
     process.env.REVIEW_RESULT_PATH = resultPath;
     await configureProgress(directory);
     let tool: any;
-    reviewTools({ registerTool: (definition) => { tool = definition; } });
+    reviewTools({ on: () => {}, registerTool: (definition) => { tool = definition; } });
 
     const invalidResults: Array<[unknown, RegExp]> = [
       [null, /Invalid review result/],
@@ -176,7 +177,7 @@ test('submit_review 不接受文件路径，不把外部文件内容当作结果
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     await configureProgress(directory);
     let tool: any;
-    reviewTools({ registerTool: (definition) => { tool = definition; } });
+    reviewTools({ on: () => {}, registerTool: (definition) => { tool = definition; } });
     await assertSubmissionFailed(tool.execute('call', { path: outside }), /Invalid review result fields/);
     await assert.rejects(readFile(process.env.REVIEW_RESULT_PATH!), { code: 'ENOENT' });
   } finally {
@@ -195,7 +196,7 @@ test('thread 请求必须提供答复，修正后可以提交', async () => {
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     let tool: any;
-    reviewTools({ registerTool: (definition) => { tool = definition; } });
+    reviewTools({ on: () => {}, registerTool: (definition) => { tool = definition; } });
     await assertSubmissionFailed(tool.execute('call', result), /does not match request source/);
     const response = await tool.execute('call', { ...result, request_reply: { body: '已复核并更新该问题的状态。' } });
     assert.equal(response.details.queued, true);
@@ -217,7 +218,7 @@ test('封存写入失败不能返回完成，修复后可重试且不能覆盖�
     process.env.REVIEW_RESULT_PATH = sealed;
     await configureProgress(directory);
     const tools = new Map<string, any>();
-    reviewTools({ registerTool: definition => tools.set(definition.name, definition) });
+    reviewTools({ on: () => {}, registerTool: definition => tools.set(definition.name, definition) });
     const submit = tools.get('submit_review');
     await assertSubmissionFailed(submit.execute('call', result), /EEXIST/);
     await rm(sealed, { recursive: true });
@@ -225,7 +226,7 @@ test('封存写入失败不能返回完成，修复后可重试且不能覆盖�
     await assert.rejects(tools.get('set_review_scope').execute('call', {}), /already submitted/);
 
     // 新扩展实例也不能覆盖已封存的结果。
-    reviewTools({ registerTool: definition => tools.set(definition.name, definition) });
+    reviewTools({ on: () => {}, registerTool: definition => tools.set(definition.name, definition) });
     await assertSubmissionFailed(tools.get('submit_review').execute('call', { ...result, body: '另一份结果' }), /EEXIST/);
     assert.deepEqual(parseReviewResult(await readFile(sealed, 'utf8')), result);
     assert.deepEqual(parseReviewResult(await readFile(path.join(workspace, 'review-result.json'), 'utf8')), result);
@@ -247,7 +248,7 @@ test('并发提交不同结果时，只有成功封存的调用能保存工作�
     await configureProgress(directory);
     const submitters: any[] = [];
     for (let i = 0; i < 2; i++) {
-      reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submitters.push(definition); } });
+      reviewTools({ on: () => {}, registerTool: definition => { if (definition.name === 'submit_review') submitters.push(definition); } });
     }
     const results = [result, { ...result, body: '另一份结果' }];
     const responses = await Promise.all(submitters.map((tool, i) => tool.execute(`call-${i}`, results[i])));
@@ -277,7 +278,7 @@ test('工作稿副本写入失败时撤销封存占位，修复后可重试', as
     process.env.REVIEW_RESULT_PATH = sealed;
     await configureProgress(directory);
     let submit: any;
-    reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
+    reviewTools({ on: () => {}, registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
     await assertSubmissionFailed(submit.execute('call', result), /EISDIR/);
     await assert.rejects(readFile(sealed), { code: 'ENOENT' });
     await rm(saved, { recursive: true });
@@ -300,7 +301,7 @@ test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) =
     process.env.REVIEW_RESULT_PATH = sealed;
     await configureProgress(directory);
     let submit: any;
-    reviewTools({ registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
+    reviewTools({ on: () => {}, registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
 
     // 用真实文件完成写入，只在该句柄关闭时注入故障。
     const probe = await open(path.join(directory, 'probe'), 'wx');
@@ -324,6 +325,66 @@ test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) =
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('时间预算由扩展执行：预算内拒绝提前结束和部分提交，收尾后接受部分结论', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-budget-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = path.join(directory, 'review-result.json');
+    await configureProgress(directory);
+    const progress = JSON.parse(await readFile(process.env.REVIEW_PROGRESS_PATH!, 'utf8'));
+    progress.ledger[0].status = 'pending';
+    await writeFile(process.env.REVIEW_PROGRESS_PATH!, JSON.stringify(progress));
+    let clock = 0;
+    const handlers = new Map<string, (event?: any) => any>();
+    let submit: any;
+    reviewTools({ on: (event: string, handler: any) => handlers.set(event, handler),
+      registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } }, () => clock);
+    const settle = () => handlers.get('agent_before_settle')!({ outcome: 'completed' });
+    const turnEnd = () => handlers.get('turn_end')!({ outcome: 'completed' });
+    const call = (toolName: string) => handlers.get('tool_call')!({ toolName });
+    handlers.get('agent_start')!();
+
+    // 调查阶段：不能自行结束，也不能以部分覆盖提交。
+    clock = 359_000;
+    assert.equal(turnEnd(), undefined);
+    assert.match(settle().entries[0].content, /不能以范围大、时间不足或未完成为由结束/);
+    await assertSubmissionFailed(submit.execute('call', result), /1 files pending.*continue the investigation/);
+
+    // 收尾阶段：只通知一次，未提交就结束时再次要求收尾，并接受部分结论。
+    clock = 360_000;
+    assert.match(turnEnd().entries[0].content, /时间预算已进入收尾阶段/);
+    assert.equal(turnEnd(), undefined);
+    assert.match(settle().entries[0].content, /时间预算已进入收尾阶段/);
+    assert.equal(call('bash'), undefined);
+
+    // 到期后只允许提交；仍不提交时只再提醒一次，随后如实结束。
+    clock = 540_000;
+    assert.match(call('bash').reason, /除 `submit_review` 外的工具都会被拒绝/);
+    assert.equal(call('submit_review'), undefined);
+    assert.match(settle().entries[0].content, /时间预算已用尽/);
+    assert.equal(settle(), undefined);
+    assert.deepEqual((await submit.execute('call', result)).details, { queued: true });
+    assert.equal(call('bash'), undefined);
+    assert.equal(settle(), undefined);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('时间预算必须显式配置且大于收尾预留', async () => {
+  const { reviewBudgetSeconds, reviewPhase } = await import('../scripts/review-budget.ts');
+  for (const value of [undefined, '', '180', '600.5', 'abc']) assert.throws(() => reviewBudgetSeconds(value), /REVIEW_TIME_BUDGET_SECONDS/);
+  assert.equal(reviewBudgetSeconds('540'), 540);
+  assert.equal(reviewPhase(undefined, 10_000_000, 540), 'investigate');
+  assert.equal(reviewPhase(0, 359_999, 540), 'investigate');
+  assert.equal(reviewPhase(0, 360_000, 540), 'wrap_up');
+  assert.equal(reviewPhase(0, 540_000, 540), 'submit_only');
 });
 
 test('页脚展示费用估算，省略 Action 版本与审查范围', () => {

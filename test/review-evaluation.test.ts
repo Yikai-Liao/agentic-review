@@ -238,8 +238,11 @@ test('production sparse checkout and actual prompt loader exclude maintenance sk
   assert.ok(!prompt.includes('DARWIN_MAINTENANCE_SENTINEL'));
 });
 
-test('中央 workflow 为一小时审查及准备收尾预留时间', async () => {
+test('中央 workflow 由扩展执行 9 分钟审查预算，步骤超时只兜住卡死', async () => {
   const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
-  assert.equal(workflow.jobs.review['timeout-minutes'], 75);
-  assert.equal(workflow.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review')['timeout-minutes'], 60);
+  const pi = workflow.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
+  assert.equal(pi.env.REVIEW_TIME_BUDGET_SECONDS, 540);
+  assert.ok(pi['timeout-minutes'] * 60 > pi.env.REVIEW_TIME_BUDGET_SECONDS);
+  assert.equal(pi['timeout-minutes'], 15);
+  assert.equal(workflow.jobs.review['timeout-minutes'], 30);
 });

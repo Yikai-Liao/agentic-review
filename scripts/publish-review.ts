@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createPublication, finishPublication, publicationSummary } from './publication.ts';
-import { parseReviewCoverage, validateCoverageCompletion } from './review-coverage.ts';
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { parseReviewCoverage, pendingCoverage } from './review-coverage.ts';
+import { access, appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
 import { parseReviewUsage, reviewMetadataStart, reviewMetadataEnd, type ReviewUsage } from './review-usage.ts';
@@ -33,6 +33,7 @@ type PublishOptions = {
   requestCommentId?: string;
   requestRootCommentId?: string;
   threadReplyOnly?: boolean;
+  coverageNotice?: string;
   fetchImpl?: typeof fetch;
   publication?: ReturnType<typeof createPublication>;
 };
@@ -179,6 +180,7 @@ export async function publishReview({
   requestCommentId = '',
   requestRootCommentId = '',
   threadReplyOnly = false,
+  coverageNotice = '',
   fetchImpl = fetch,
   publication = createPublication(),
 }: PublishOptions) {
@@ -296,7 +298,7 @@ export async function publishReview({
     const review = await run('Review 正文', [reviews!], async () => {
       const tag = marker('summary', result);
       const existing = reviews!.value!.find(item => isBot(item) && item.body.includes(tag));
-      const body = `${tag}\n${notice()}\n\n${result.body}\n\n---\n\n${footer}`;
+      const body = `${tag}\n${notice()}\n\n${coverageNotice ? `${coverageNotice}\n\n` : ''}${result.body}\n\n---\n\n${footer}`;
       if (existing) {
         if (existing.body !== body) await request(`${route}/reviews/${existing.id}`, {
           method: 'PUT', body: JSON.stringify({ body }),
@@ -313,6 +315,21 @@ export async function publishReview({
   return { reviewUrl, operations: publication.operations };
 }
 
+// 覆盖缺口来自可信文件进度，不取自模型正文；未审查文件全部列出，读者无需打开工作稿。
+export function coverageNotice(pending: string[], total: number) {
+  if (!pending.length) return '';
+  return [
+    '> [!WARNING]',
+    `> 本轮在时间预算内只完成了部分审查：已覆盖 ${total - pending.length}/${total} 个文件，下列 ${pending.length} 个文件尚未审查，本 Review 的结论不涵盖它们。评论请求继续审查后，会在同一提交上接着审查剩余文件。`,
+    '',
+    `<details><summary>未审查文件（${pending.length}）</summary>`,
+    '',
+    ...pending.map((file) => `- \`${file}\``),
+    '',
+    '</details>',
+  ].join('\n');
+}
+
 function optionalNumber(value: string | undefined) {
   return value === undefined || value === '' ? undefined : Number(value);
 }
@@ -326,7 +343,11 @@ function requiredEnv(name: string) {
 export async function main() {
   const publication = createPublication();
   const input = await publication.run('发布前校验', [], async () => {
-    const result = parseReviewResult(await readFile(requiredEnv('REVIEW_RESULT_PATH'), 'utf8'));
+    const resultPath = requiredEnv('REVIEW_RESULT_PATH');
+    await access(resultPath).catch(() => {
+      throw new Error('Agent 结束时没有调用 submit_review，没有可发布的审查结果');
+    });
+    const result = parseReviewResult(await readFile(resultPath, 'utf8'));
     const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
     const coverage = parseReviewCoverage(JSON.parse(await readFile(coveragePath, 'utf8')));
     // 请求由同一可信 job 的准备步骤绑定，发布目标不取自模型结果。
@@ -334,7 +355,8 @@ export async function main() {
     if (!coverage.scope) throw new Error('Missing published review scope');
     if (request.source === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
     if (request.source !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
-    await validateCoverageCompletion(coverage, requiredEnv('REVIEW_INVENTORY_DIGEST'));
+    const pending = pendingCoverage(coverage, requiredEnv('REVIEW_INVENTORY_DIGEST'));
+    const total = coverage.ledger.filter((entry) => entry.status !== 'out_of_scope' || coverage.scope!.mode === 'full').length;
     const options: PublishOptions = {
       publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result,
       repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
@@ -343,6 +365,7 @@ export async function main() {
       requestSource: request.source, requestCommentId: request.comment_id ?? '',
       requestRootCommentId: request.root_comment_id ?? '',
       threadReplyOnly: request.source === 'thread' && coverage.scope.mode === 'focused',
+      coverageNotice: coverageNotice(pending, total),
       footer: buildFooter({
         runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
         model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
@@ -353,9 +376,13 @@ export async function main() {
         usage: parseReviewUsage(JSON.parse(await readFile(path.join(path.dirname(coveragePath), 'review-usage.json'), 'utf8'))),
       }),
     };
-    return { coverage, coveragePath, options };
+    return { coverage, coveragePath, options, pending, total };
   });
   let reviewUrl = '';
+  if (input.status === 'succeeded' && process.env.GITHUB_OUTPUT) {
+    // Check 结论只认可信覆盖：有未审查文件时不能成为 success。
+    await appendFile(process.env.GITHUB_OUTPUT, `coverage_pending=${input.value!.pending.length}\ncoverage_total=${input.value!.total}\n`);
+  }
   if (input.status === 'succeeded') {
     try {
       reviewUrl = (await publishReview(input.value!.options)).reviewUrl;
@@ -374,10 +401,10 @@ export async function main() {
     writeSummary: process.env.GITHUB_STEP_SUMMARY
       ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, 'GitHub 发布操作')) : undefined,
     saveCoverage: input.status === 'succeeded' ? async (complete) => {
-      const { coverage, coveragePath } = input.value!;
+      const { coverage, coveragePath, pending } = input.value!;
       await writeFile(coveragePath, `${JSON.stringify({
         ...coverage, status: complete ? 'published' : 'draft',
-        complete_audit: complete && coverage.request.source === 'automatic' && coverage.scope!.mode === 'full',
+        complete_audit: complete && !pending.length && coverage.request.source === 'automatic' && coverage.scope!.mode === 'full',
         updated_at: new Date().toISOString(),
       })}\n`, { encoding: 'utf8', mode: 0o600 });
     } : undefined,

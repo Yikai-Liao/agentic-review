@@ -121,8 +121,17 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
       await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, PULL_NUMBER: '8' } }), /context does not match/);
       await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, HEAD_SHA: base } }), /context does not match/);
       await assemble();
-      await assert.rejects(publish(), /Incomplete coverage/);
-      assert.equal(writes.length, 0);
+      // 时间预算内未审完时发布已审部分，由可信清单列出未审文件，且不能成为完整审计 checkpoint。
+      await publish();
+      assert.equal(writes.length, 1);
+      const partialBody = (writes[0] as { body: string }).body;
+      assert.match(partialBody, /只完成了部分审查：已覆盖 0\/1 个文件/);
+      assert.match(partialBody, /- `auth\.ts`/);
+      const partialPublished = JSON.parse(await readFile(coveragePath, 'utf8'));
+      assert.equal(partialPublished.status, 'published');
+      assert.equal(partialPublished.complete_audit, false);
+      assert.match(await readFile(outputPath, 'utf8'), /coverage_pending=1\ncoverage_total=1/);
+      writes.length = 0;
       await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: '改写请求' } }));
       await assert.rejects(assemble(), /progress fields/);
     }
@@ -284,6 +293,15 @@ test('trusted inventory includes reverted incremental files and intervals from r
     assert.deepEqual(third.default_plan!.ranges.map((range: { comparison_start: string; comparison_end: string }) =>
       [range.comparison_start, range.comparison_end]), [[a, b], [b, c], [c, d]]);
     assert.deepEqual(third.ledger.map((entry: { path: string }) => entry.path), ['auth.ts', 'payments.ts']);
+    // 时间预算内部分发布的工作稿是合法的上一轮记录，其未审范围同样由下一轮承接。
+    await chmod(oldWorkspace, 0o700);
+    await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify({ ...coverage, status: 'published' }));
+    await exec(process.execPath, ['scripts/review-request.ts'], { env: { ...env, REVIEW_PREVIOUS_PUBLISHED: 'true',
+      REVIEW_HEAD_SHA: d, GITHUB_RUN_ID: '40', REVIEW_PREVIOUS_RUN_ID: '20', REVIEW_CONTEXT_PATH: path.join(directory, 'context-40.json') } });
+    const afterPartial = await readReviewProgress(path.join(directory, 'context-40.json'), progressPath);
+    assert.equal(afterPartial.default_plan!.reason, 'resume_failed_scope');
+    assert.deepEqual(afterPartial.default_plan!.ranges.map((range: { comparison_start: string; comparison_end: string }) =>
+      [range.comparison_start, range.comparison_end]), [[a, b], [b, c], [c, d]]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

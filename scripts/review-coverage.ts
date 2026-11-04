@@ -74,14 +74,20 @@ export function parseReviewProgress(context: unknown, progress: unknown): Review
   });
 }
 
-export async function validateCoverageCompletion(coverage: ReviewCoverage, expectedDigest: string): Promise<void> {
+// 返回 scope 内尚未完成的文件；清单本身必须与可信变化清单一致。
+export function pendingCoverage(coverage: ReviewCoverage, expectedDigest: string): string[] {
   parseReviewCoverage(coverage);
   if (!coverage.scope || !['draft', 'published'].includes(coverage.status)) throw new Error('Review coverage is not ready for publication');
   if (!/^[0-9a-f]{64}$/.test(expectedDigest) || inventoryDigest(coverage.ledger.map((entry) => entry.path)) !== expectedDigest) throw new Error('Coverage does not match trusted change inventory');
-  for (const entry of coverage.ledger) {
-    if (entry.status === 'out_of_scope' && coverage.scope.mode !== 'full') continue;
-    if (entry.status !== 'complete') throw new Error(`Incomplete coverage: ${entry.path}`);
-  }
+  const scope = coverage.scope;
+  return coverage.ledger
+    .filter((entry) => entry.status !== 'complete' && !(entry.status === 'out_of_scope' && scope.mode !== 'full'))
+    .map((entry) => entry.path);
+}
+
+export async function validateCoverageCompletion(coverage: ReviewCoverage, expectedDigest: string): Promise<void> {
+  const pending = pendingCoverage(coverage, expectedDigest);
+  if (pending.length) throw new Error(`Incomplete coverage: ${pending[0]}`);
 }
 
 export function validateAuditCheckpoint(coverage: ReviewCoverage, expected: { repository: string; pullNumber: number; base: string; head: string; run: string; attempt: string }): void {

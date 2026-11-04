@@ -10,7 +10,7 @@
 
 `notes.md` 的记录粒度使用[共同工作稿规则](../skills/agentic-review/references/review-state.md#分开记录调查进度和问题状态)：保留调查中已取得、但公开结果未包含的支持证据、关键前提和未完成项；没有 finding 也保存必要依据。覆盖状态使用 `review-progress.json`；`review-result.json`、PR Thread、回复和 Review 正文已有的内容直接引用。
 
-笔记随调查形成，与文件进度在同一次 `bash` 或 `codemode` 调用中保存，不为将来复用另起取证、补稿或总结回合。调查完成后登记 complete；最终归纳直接使用当前上下文和已有记录。长工作稿按相关路径或符号定位读取。中央提交要求全部 scope 内覆盖完成；未完成项保持 pending，工作稿保留具体缺口，不生成假 complete。
+笔记随调查形成，与文件进度在同一次 `bash` 或 `codemode` 调用中保存，不为将来复用另起取证、补稿或总结回合。调查完成后登记 complete；最终归纳直接使用当前上下文和已有记录。长工作稿按相关路径或符号定位读取。按风险从高到低调查：认证授权、数据写入与迁移、公共契约、并发与状态，再到测试、文档和生成物。收到收尾通知前，`submit_review` 要求全部 scope 内覆盖完成，不得以范围大为由提前结束；收到收尾通知后，未完成项保持 pending，不生成假 complete，直接提交已审部分的结论，发布器据文件进度列出未审查文件。
 
 准备阶段已记录默认 scope。调查前对照本轮请求核定；显式请求改变范围时调用 `set_review_scope` 更新 `mode`、`ranges`、`rationale` 和 `explicit_text`，否则直接使用默认值。每个区间包含比较起止 SHA 和足以恢复范围的 targets；保留默认计划中的全部义务，只有显式限定时才缩小范围。最新实际 scope 是下一轮恢复范围的唯一来源。
 
@@ -222,6 +222,6 @@ Alert 与标题：
 
 最后将第 4 节的完整结果对象直接传给 `submit_review`。
 
-`submit_review` 先校验结果对象、本轮 scope 和覆盖完成条件，通过后自动写出 `$REVIEW_WORKSPACE_PATH/review-result.json` 并封存同一内容。失败返回 `queued: false` 和具体错误，按错误修正参数或进度后重试；失败不会返回完成。返回 `queued: true` / `Review queued for trusted publication.` 即本轮完成，立即结束 Agent 回合，不再调查、编辑、调用任何工具或再次提交。最终聊天回复只需简短确认，不重复输出 JSON。
+`submit_review` 先校验结果对象、本轮 scope 和覆盖状态（收尾通知前要求全部完成，之后接受保留 pending 的部分结论），通过后自动写出 `$REVIEW_WORKSPACE_PATH/review-result.json` 并封存同一内容。失败返回 `queued: false` 和具体错误，按错误修正参数或进度后重试；失败不会返回完成。返回 `queued: true` / `Review queued for trusted publication.` 即本轮完成，立即结束 Agent 回合，不再调查、编辑、调用任何工具或再次提交。最终聊天回复只需简短确认，不重复输出 JSON。
 
-后续发布由可信 publisher 完成：封存的请求身份、schema、scope 和覆盖完成证据是全部写入的前置条件；通过后将正文、新 finding、请求回复及历史 thread 操作分别发布。单项失败只阻断依赖它的操作，其余继续；thread 写入仍需校验当前 PR 归属。发布器追加运行元数据与实际执行说明，汇总成功、失败和因前置失败未执行的操作；未全部成功时保留失败状态，不推进完整 audit checkpoint。Agent 只提交审查判断，不推断 GitHub 写入已经成功，也不通过其他工具发布。
+后续发布由可信 publisher 完成：封存的请求身份、schema、scope 和文件进度清单是全部写入的前置条件，覆盖不完整时在正文前加可信的未审查文件提示，Check 为 action_required；通过后将正文、新 finding、请求回复及历史 thread 操作分别发布。单项失败只阻断依赖它的操作，其余继续；thread 写入仍需校验当前 PR 归属。发布器追加运行元数据与实际执行说明，汇总成功、失败和因前置失败未执行的操作；未全部成功时保留失败状态，不推进完整 audit checkpoint。Agent 只提交审查判断，不推断 GitHub 写入已经成功，也不通过其他工具发布。
