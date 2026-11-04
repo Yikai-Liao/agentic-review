@@ -75,7 +75,10 @@ test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型�
     await writeFile(path.join(directory, 'event.json'), '{}');
     await writeFile(path.join(directory, 'outputs'), '');
     await writeFile(path.join(directory, 'summary'), '');
-    writeReviewInput(path.join(directory, 'input.json'), []);
+    // 约 12KB 的预载材料：超过单个章节折叠的最小体量，若被折叠，其正文会从请求中消失。
+    writeReviewInput(path.join(directory, 'input.json'), [{
+      kind: 'metadata', title: '审查材料', use: 'context', content: `MATERIAL_HEAD\n${'MATERIAL_LINE 预载材料正文。\n'.repeat(500)}MATERIAL_TAIL`,
+    }]);
     const { stdout, stderr } = await promisify(execFile)(process.execPath, [path.join(actionDirectory, 'dist/index.js')], {
       cwd: directory, timeout: 300000, maxBuffer: 16 * 1024 * 1024,
       env: {
@@ -113,8 +116,10 @@ test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型�
     assert.ok(last.length / 4 < 272000 * 0.8, '折叠后的请求回到阈值以下');
     assert.ok(sizes.filter((size, index) => index > 0 && size < sizes[index - 1] / 2).length >= 3, `应连续提交多次折叠：${sizes.join(' ')}`);
     // 整轮审查是同一个未结束的 user 回合；pi-fold 不折叠该回合的首条消息，也不折叠预载材料。
-    assert.ok(last.includes('RULE_LINE 固定规则正文。') && last.includes('逐份核对证据。'), '多次折叠后启动 Prompt 保持原文');
-    assert.ok(last.includes('# 审查材料'), '预载审查材料保持原文');
+    // 折叠摘要只保留 Prompt 的前 120 个字符；完整 Prompt 的尾部仍在请求中，说明它没有被摘要替换。
+    assert.ok(last.includes(JSON.stringify(PROMPT.trimEnd()).slice(1, -1)), '多次折叠后完整启动 Prompt 保持原文');
+    assert.ok(requests[0].input && JSON.stringify(requests[0].input).includes('MATERIAL_TAIL'), '预载材料首次进入窗口');
+    assert.ok(last.includes('MATERIAL_TAIL'), '多次折叠后预载材料正文保持原文');
     const files = await readdir(path.join(directory, '.pi/agent/sessions'), { recursive: true });
     const session = files.find(file => file.endsWith('.jsonl'));
     assert.ok(session);
