@@ -1,10 +1,12 @@
 // 修改 Pi 请求恢复或摘要边界时运行；SDK 隔离安装，命令见部署说明。
 import assert from 'node:assert/strict';
 import { createServer, type ServerResponse } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
@@ -32,6 +34,64 @@ function stream(response: ServerResponse, error?: string) {
     : { type: 'response.completed', response: { id: 'resp_mock', status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } } };
   response.end(`data: ${JSON.stringify(terminal)}\n\n`);
 }
+
+test('实际 workflow 配置注册目录外模型，并使用原模型名调用 Responses API', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-review-custom-model-'));
+  const requests: any[] = [];
+  const server = createServer(async (request, response) => {
+    assert.equal(request.url, '/v1/responses');
+    assert.equal(request.headers.authorization, 'Bearer test-key');
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    requests.push(JSON.parse(body));
+    stream(response);
+  });
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+    await mkdir(path.join(directory, 'control/scripts'), { recursive: true });
+    await copyFile(new URL('../scripts/configure-review-fast-mode.ts', import.meta.url),
+      path.join(directory, 'control/scripts/configure-review-fast-mode.ts'));
+    const configure = workflow.jobs.review.steps.find((step: any) => step.name === 'Configure Pi runtime');
+    for (const id of ['deepseek-flash', 'gateway/opus-custom-alias']) {
+      await promisify(execFile)('bash', ['-e', '-c', configure.run.replaceAll('$HOME', '$REVIEW_RUNTIME_HOME')], {
+        cwd: directory, env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: directory,
+          REVIEW_AGENT_MODEL: id, REVIEW_AGENT_BASE_URL: baseUrl, REVIEW_EXPLICIT_PROMPT_CACHE: 'false',
+          REVIEW_FAST_MODE: 'false', REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
+      });
+      const agentDir = path.join(directory, '.pi/agent');
+      const runtime = await ModelRuntime.create({ authPath: path.join(agentDir, 'auth.json'),
+        modelsPath: path.join(agentDir, 'models.json'), refreshOnCreate: false });
+      await runtime.setRuntimeApiKey('openai', 'test-key');
+      // 与 Action 相同：设置网关后按 provider/model 查找，不能依靠测试额外注册模型。
+      runtime.registerProvider('openai', { baseUrl });
+      const model = runtime.getModel('openai', id);
+      assert.ok(model, `Model not found: openai/${id}`);
+      assert.equal(model.api, 'openai-responses');
+      assert.equal(model.contextWindow, 272000);
+      assert.equal(model.maxTokens, 25000);
+      const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, cacheWarming: 'off' });
+      const loader = new DefaultResourceLoader({ cwd: directory, agentDir, settingsManager,
+        noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+        noContextFiles: true, systemPrompt: 'Loopback model verification.' });
+      await loader.reload();
+      const { session } = await createAgentSession({ cwd: directory, agentDir, modelRuntime: runtime, model,
+        resourceLoader: loader, tools: [], settingsManager, sessionManager: SessionManager.inMemory(directory) });
+      try {
+        await session.prompt('Reply with OK.');
+        assert.equal(session.agent.state.messages.at(-1).stopReason, 'stop');
+        assert.equal(requests.at(-1).model, id);
+      } finally {
+        session.dispose();
+      }
+    }
+    assert.equal(requests.length, 2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 async function run(compact: boolean, reply: (response: ServerResponse, attempt: number) => void,
   verify: (result: { requests: any[]; events: any[]; session: any; sessionLog: any[] }) => void) {

@@ -45,18 +45,26 @@ export async function configureReviewFastMode(options: {
   }
 
   const models = JSON.parse(await readFile(options.modelsPath, 'utf8'));
-  const override = models.providers.openai.modelOverrides[options.model];
-  // Pi 的原生参数透传保留模型目录、价格和 provider 实现。
-  override.samplingParams = { ...override.samplingParams, service_tier: 'priority' };
+  const model = models.providers.openai.models.find((model: { id: string }) => model.id === options.model);
+  // 给本轮已注册模型写入 Pi 原生参数，不另建请求包装器。
+  model.samplingParams = { ...model.samplingParams, service_tier: 'priority' };
   await writeFile(options.modelsPath, `${JSON.stringify(models, null, 2)}\n`);
   console.info('[fast-mode] Priority processing confirmed and enabled for this run.');
 }
 
 export async function main() {
+  const model = process.env.REVIEW_AGENT_MODEL;
+  const baseUrl = process.env.REVIEW_AGENT_BASE_URL;
+  const modelsPath = process.env.PI_MODELS_PATH;
+  if (!model || !baseUrl || !modelsPath) throw new Error('Review model, base URL and models path are required');
+  const config = JSON.parse(await readFile(modelsPath, 'utf8'));
+  const settings = config.providers.openai.modelOverrides[model];
+  // modelOverrides 不会创建目录外模型；在 Action 查找模型前显式注册 Responses 模型。
+  config.providers.openai = { baseUrl, models: [{ ...settings, id: model, name: model, api: 'openai-responses' }] };
+  await writeFile(modelsPath, `${JSON.stringify(config, null, 2)}\n`);
   await configureReviewFastMode({
-    enabled: process.env.REVIEW_FAST_MODE ?? '', model: process.env.REVIEW_AGENT_MODEL ?? '',
-    baseUrl: process.env.REVIEW_AGENT_BASE_URL ?? '', token: process.env.REVIEW_AGENT_API_KEY ?? '',
-    modelsPath: process.env.PI_MODELS_PATH ?? '',
+    enabled: process.env.REVIEW_FAST_MODE ?? '', model,
+    baseUrl, token: process.env.REVIEW_AGENT_API_KEY ?? '', modelsPath,
   });
 }
 

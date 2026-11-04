@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { access, copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -217,34 +217,39 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   }
 });
 
-test('运行时保留目录价格与原生重试，显式缓存默认关闭并由仓库变量控制', async () => {
+test('运行时注册 Responses 模型并保留原生重试，显式缓存默认关闭并由仓库变量控制', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
-    await symlink(fileURLToPath(new URL('..', import.meta.url)), path.join(directory, 'control'), 'dir');
+    await mkdir(path.join(directory, 'control/scripts'), { recursive: true });
+    await copyFile(new URL('../scripts/configure-review-fast-mode.ts', import.meta.url),
+      path.join(directory, 'control/scripts/configure-review-fast-mode.ts'));
     const workflow = parse(await readFile(workflowPath, 'utf8')) as Workflow;
     const runtime = workflow.jobs.review.steps.find(step => step.name === 'Configure Pi runtime')!;
     assert.equal(runtime.env?.REVIEW_EXPLICIT_PROMPT_CACHE, '${{ vars.REVIEW_EXPLICIT_PROMPT_CACHE }}');
     for (const [model, setting, enabled] of [
       ['gpt-6-luna', undefined, false], ['gpt-6.1-sol', 'false', false], ['gpt-6.1-sol', 'true', true],
+      ['deepseek-flash', 'false', false], ['gateway/opus-alias', 'false', false],
     ] as const) {
       const runtimeHome = path.join(directory, `${model}-${setting ?? 'default'}`);
       execFileSync('/bin/bash', ['--noprofile', '--norc', '-e', '-c', runtime.run!.replaceAll('$HOME', '$REVIEW_RUNTIME_HOME')], {
         cwd: directory,
-        env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: runtimeHome, REVIEW_AGENT_MODEL: model,
+        env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: runtimeHome, REVIEW_AGENT_MODEL: model, REVIEW_AGENT_BASE_URL: 'https://gateway.test/v1',
           REVIEW_EXPLICIT_PROMPT_CACHE: setting, REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
       });
       const provider = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/models.json'), 'utf8')).providers.openai;
       const settings = JSON.parse(await readFile(path.join(runtimeHome, '.pi/agent/settings.json'), 'utf8'));
       assert.deepEqual(settings, { retry: { baseDelayMs: 15000 }, compaction: { enabled: true } });
-      assert.equal(provider.models, undefined, '重新声明模型会把缺省价格设为 0');
-      assert.deepEqual(Object.keys(provider.modelOverrides), [model]);
-      const override = provider.modelOverrides[model];
-      assert.equal(override.cost, undefined, '输入、输出、缓存及分档单价均由目录提供');
-      assert.equal(override.compat.supportsExplicitPromptCacheMode, enabled);
-      assert.equal(override.contextWindow, 272000);
-      assert.equal(override.maxTokens, 25000);
-      assert.equal(override.thinkingLevelMap.off, 'none');
-      assert.equal(override.thinkingLevelMap.xhigh, 'xhigh');
+      assert.equal(provider.modelOverrides, undefined);
+      assert.equal(provider.models.length, 1);
+      assert.equal(provider.baseUrl, 'https://gateway.test/v1');
+      const registeredModel = provider.models[0];
+      assert.equal(registeredModel.id, model);
+      assert.equal(registeredModel.api, 'openai-responses');
+      assert.equal(registeredModel.compat.supportsExplicitPromptCacheMode, enabled);
+      assert.equal(registeredModel.contextWindow, 272000);
+      assert.equal(registeredModel.maxTokens, 25000);
+      assert.equal(registeredModel.thinkingLevelMap.off, 'none');
+      assert.equal(registeredModel.thinkingLevelMap.xhigh, 'xhigh');
       await assert.rejects(access(path.join(runtimeHome, '.pi/agent/skills/agentic-review')));
     }
     for (const setting of ['yes', '1', 'null', '"true"']) {

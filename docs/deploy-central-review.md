@@ -56,10 +56,10 @@ App repository permissions 至少为：
 中央仓库 Actions variables：
 
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_MODEL`：使用 Pi 模型目录中的 OpenAI model ID，例如 `gpt-6-luna`；当前 workflow 使用 OpenAI-compatible provider；
+- `REVIEW_AGENT_MODEL`：Responses API 接受的模型 ID，例如 `gpt-6-luna`、`deepseek-flash` 或网关自定义别名；workflow 会显式注册该 ID，无须出现在 Pi 模型目录中；
 - `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；
 - `REVIEW_FAST_MODE`：可选，`true` 主动请求 fast mode，`false` 或未配置时沿用 API 默认服务层；其他值在签发 Review token 前报错。请求参数和回退规则见下文；
-- `REVIEW_AGENT_BASE_URL`：OpenAI-compatible gateway 地址；
+- `REVIEW_AGENT_BASE_URL`：支持 `/responses` 的 API 基础地址；
 - `AGENTIC_REVIEW_LARK_APP_ID`：飞书企业自建应用 App ID；
 - `AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID`：Lark Secret Rotator GitHub App Client ID。
 
@@ -241,15 +241,15 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 中央 workflow 在 workflow 级使用 `repository_id` 与 `pull_number` 组成 concurrency group，Review 与 publish 共享同一槽位；不同 PR 可以并行。配置为 `queue: max` 和 `cancel-in-progress: false`：同一 PR 最多一个运行中的任务，最多 100 个 pending 任务，队列满后 GitHub 会取消新增任务。FIFO 依据任务开始等待的时间，不保证 webhook 发出时间的绝对顺序。详见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
-Review footer 展示模型、推理档位、耗时、Token 数和按 Pi 模型目录公开单价计算的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时通过 `modelOverrides` 调整窗口等设置，继承目录中的输入、输出、缓存和分档价格；该金额不代表网关账单、折扣或税费。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
+Review footer 展示模型、推理档位、耗时、Token 数和Pi SDK 返回的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。运行时显式注册模型；未配置单价时 SDK 可能返回零费用，该数值不代表模型免费或网关实际账单，单价准确性后续单独完善。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
 
 中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`。仓库 Actions Variable `REVIEW_EXPLICIT_PROMPT_CACHE` 控制显式缓存：未设置或 `false` 时关闭，普通自动缓存由 Pi 和中转站处理；仅在确认当前网关和模型支持后设为 `true`。变量通过 workflow 环境映射到 Pi 的 `compat.supportsExplicitPromptCacheMode`，覆盖模型目录对官方服务的能力声明；非法布尔配置会使准备步骤失败。`supportsLongCacheRetention` 控制长期保留参数，不能替代此开关关闭显式断点。
 
 开启后，在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，并使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }` 给动态材料缓存。关闭时不加入这两类请求参数。缓存扩展保留完整消息正文、角色和顺序，会话标头仍由 Pi 独立生成。开启时若首个请求无法定位固定规则则中止，长审查压缩已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
 
-显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 模型目录中的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
+显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 已配置的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
 
-运行日志中每个 `[review-usage]` JSON 记录一个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。费用直接沿用 Pi 已选择的模型目录、长上下文分档及服务档位价格，不改写消息用量或费用，也不要求中转站返回 TTL 写入明细。扩展通过 `message_end` 校验标准 Token 和费用数值；统计本身缺失或损坏时仍中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。footer 展示总缓存写入量及 SDK 估算，不展示网关未承诺的生命周期拆分。统计不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
+运行日志中每个 `[review-usage]` JSON 记录一个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。费用直接沿用 Pi SDK 返回的统计，不改写消息用量或费用，也不要求中转站返回 TTL 写入明细。扩展通过 `message_end` 校验标准 Token 和费用数值；统计本身缺失或损坏时仍中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。footer 展示总缓存写入量及 SDK 估算，不展示网关未承诺的生命周期拆分。统计不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
 
 相同回合统计累计保存为工作区的 `review-usage.json`，随现有 artifact 归档。可信发布器校验数值后，在 footer 的费用分析折叠区展示回合数、首轮缓存命中率、首轮普通输入/缓存读取/缓存写入，以及累计 token 和费用分项；命中率分母是首轮普通输入、缓存读取、缓存写入之和，零输入单独说明。缺失的推理分项显示未提供，不当作零。分项只统计审查回合，总费用仍采用 Action 汇总；规则版本同时显示为控制面 SHA，便于比较。统计缺失或损坏时发布失败，不填造零值；该文件不保存会话正文，也不参与覆盖完成或请求身份判断。
 
