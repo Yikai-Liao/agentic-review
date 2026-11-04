@@ -221,7 +221,7 @@ PI_SDK_DIRECTORY="$pi_sdk_check_dir/node_modules/@earendil-works/pi-coding-agent
 rm -rf "$pi_sdk_check_dir"
 ```
 
-修改 pi-fold 版本、扩展加载顺序或窗口配置后，用 Action 发布产物验证真实加载、折叠和会话落盘。测试让模拟模型连续读取证据把窗口推过阈值，确认发生一次折叠、没有摘要请求、启动 Prompt 与预载材料仍在窗口中：
+修改 pi-fold 版本、扩展加载顺序或窗口配置后，用 Action 发布产物验证真实加载、折叠和会话落盘。测试让模拟模型连续读取证据把窗口推过阈值，确认连续发生多次折叠、没有摘要请求、完整启动 Prompt 仍在窗口中：
 
 ```bash
 pi_fold_check_dir="$(mktemp -d)"
