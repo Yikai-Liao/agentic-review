@@ -13,9 +13,9 @@ import { configureReviewFastMode } from '../scripts/configure-review-fast-mode.t
 
 const exec = promisify(execFile);
 const options = { enabled: 'true', model: 'gpt-test', baseUrl: 'https://gateway.test/v1/', token: 'test-token', modelsPath: '' };
-const modelConfig = { providers: { openai: { modelOverrides: {
-  'gpt-test': { contextWindow: 500000, samplingParams: { top_p: 0.9 } },
-} } } };
+const modelConfig = { providers: { openai: { models: [
+  { id: 'gpt-test', contextWindow: 500000, samplingParams: { top_p: 0.9 } },
+] } } };
 
 test('启动探测确认 priority/fast 后仅写 Pi 原生模型参数，保留其他配置', async t => {
   t.mock.method(console, 'info', () => {});
@@ -37,7 +37,7 @@ test('启动探测确认 priority/fast 后仅写 Pi 原生模型参数，保留�
     await configureReviewFastMode({ ...options, modelsPath, fetchImpl });
     assert.equal(calls, 1);
     const expected = structuredClone(modelConfig) as any;
-    expected.providers.openai.modelOverrides['gpt-test'].samplingParams.service_tier = 'priority';
+    expected.providers.openai.models[0].samplingParams.service_tier = 'priority';
     assert.deepEqual(JSON.parse(await readFile(modelsPath, 'utf8')), expected);
   }
 });
@@ -128,7 +128,7 @@ test('实际启动步骤只访问模拟网关一次，并把结果写入 Pi 配�
         REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace'),
       },
     });
-    const model = JSON.parse(await readFile(path.join(directory, '.pi/agent/models.json'), 'utf8')).providers.openai.modelOverrides['gpt-test'];
+    const model = JSON.parse(await readFile(path.join(directory, '.pi/agent/models.json'), 'utf8')).providers.openai.models[0];
     assert.equal(model.samplingParams?.service_tier, supported ? 'priority' : undefined);
   }
   assert.equal(requests.length, 2);
