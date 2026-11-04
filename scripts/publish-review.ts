@@ -322,7 +322,7 @@ export function coverageNotice(pending: string[], total: number) {
   if (!pending.length) return '';
   return [
     '> [!WARNING]',
-    `> 本轮在时间预算内只完成了部分审查：已覆盖 ${total - pending.length}/${total} 个文件，下列 ${pending.length} 个文件尚未审查，本轮结论不涵盖它们。再次发起评论请求会接着审查剩余文件；若期间有新提交，只有直接变化的文件需要重新审查。`,
+    `> 本轮在时间预算内只完成了部分审查：已覆盖 ${total - pending.length}/${total} 个文件，下列 ${pending.length} 个文件尚未审查，本轮结论不涵盖它们。在 PR 评论区发起新的评论请求（thread 内回复不续审）会接着审查剩余文件，若期间有新提交，只有直接变化的文件需要重新审查；续审结论不会更新该提交的 \`Agentic Review / audit\` 检查，推送新提交或重新运行自动审查才会重新评定。`,
     '',
     `<details><summary>未审查文件（${pending.length}）</summary>`,
     '',

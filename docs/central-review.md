@@ -67,7 +67,7 @@ Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验
 
 `review-tools` 扩展在 `agent_start` 开始计时，预算由 workflow 的 `REVIEW_TIME_BUDGET_SECONDS`（540 秒）给出，Agent 不能自行宣布用尽。前 6 分钟为调查阶段：模型未提交就想结束时，扩展经 `agent_before_settle` 要求继续，`submit_review` 拒绝仍有 pending 的提交。第 6 分钟进入收尾阶段：通知模型停止新调查、刷新讨论并归纳已审部分，此后 `submit_review` 接受保留 pending 的部分结论。第 9 分钟起，`tool_call` 拦截除 `submit_review` 外的全部工具；此时仍不提交，只再提醒一次，之后 Agent 如实结束，发布器报告没有 `submit_review` 结果，Check 为 failure。Pi 步骤的 15 分钟超时只兜住卡死的工具调用。
 
-部分结论由可信代码标示：发布器按 `review-progress.json` 的文件进度，在 Review 正文前加入已覆盖比例和全部未审查文件，不依赖模型自述。完整性只来自文件进度：存在未审查文件时 `complete_audit` 保持 false，不成为 audit checkpoint，Check 结论为 `action_required`（与 failure 同样阻止 required check，但表明结论已发布、只是覆盖不全），只有全部覆盖才是 success。评论请求会继承已发布部分的完成项：同一快照只审查剩余文件；有新提交时，base 不变且路径差分可读的前提下，只有直接变化的文件与原有未审文件需要审查，差分未知时整个范围重新待审。只回复 thread 的局部请求没有 Review 正文，未审查文件列在 thread 回复中。automatic 运行尚不继承部分结论的进度。
+部分结论由可信代码标示：发布器按 `review-progress.json` 的文件进度，在 Review 正文前加入已覆盖比例和全部未审查文件，不依赖模型自述。完整性只来自文件进度：存在未审查文件时 `complete_audit` 保持 false，不成为 audit checkpoint，Check 结论为 `action_required`（与 failure 同样阻止 required check，但表明结论已发布、只是覆盖不全），只有全部覆盖才是 success。评论请求会继承已发布部分的完成项：同一快照只审查剩余文件；有新提交时，base 不变且路径差分可读的前提下，只有直接变化的文件与原有未审文件需要审查，差分未知时整个范围重新待审。只回复 thread 的局部请求没有 Review 正文，未审查文件列在 thread 回复中。automatic 运行不继承部分结论的进度；评论请求续审的结论不会更新该提交的 `/audit` Check，它只由推送新提交或重新运行自动审查重新评定。
 
 ## Agent 工具
 

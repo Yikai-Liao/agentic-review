@@ -469,7 +469,7 @@ jobs:
               : !delivered || !(pending >= 0) ? 'failure' : pending > 0 ? 'action_required' : 'success';
             const outputs = {
               success: ['Agentic Review 已完成', '审查已完成。'],
-              action_required: ['Agentic Review 部分完成', `时间预算内已审查 ${total - pending}/${total} 个文件，结论已发布；其余 ${pending} 个文件尚未审查，清单见 Review 正文。评论请求继续审查后，会在同一提交上接着审查剩余文件；完成前当前提交保持不可合并。`],
+              action_required: ['Agentic Review 部分完成', `时间预算内已审查 ${total - pending}/${total} 个文件，结论已发布；其余 ${pending} 个文件尚未审查，清单见 Review 正文。PR 评论区的评论请求可以接着审查剩余文件并发布结论，但不会更新本 Check；推送新提交或重新运行自动审查后才会重新评定，在此之前当前提交保持不可合并。`],
               cancelled: ['Agentic Review 已取消', '该审查已取消，当前提交保持不可合并。'],
               failure: ['Agentic Review 执行失败', '审查或发布未全部完成；部分结果可能已经发布。失败明细见 Actions 运行摘要和 publication report，当前提交保持不可合并。'],
             };
