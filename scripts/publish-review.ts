@@ -280,7 +280,9 @@ export async function publishReview({
       if (!root) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
       const tag = marker(`request ${requestCommentId}`, result.request_reply);
       const existing = comments!.value!.find(item => item.in_reply_to_id === root.id && isBot(item) && item.body.includes(tag));
-      const body = `${notice()}\n\n${result.request_reply!.body}\n\n${footer}\n${tag}`;
+      // 只回复 thread 时没有 Review 正文，覆盖缺口随回复公开。
+      const coverage = !needsReview && coverageNotice ? `${coverageNotice}\n\n` : '';
+      const body = `${notice()}\n\n${coverage}${result.request_reply!.body}\n\n${footer}\n${tag}`;
       if (existing) {
         if (existing.body !== body) await request(`/repos/${repository}/pulls/comments/${existing.id}`, {
           method: 'PATCH', body: JSON.stringify({ body }),
@@ -320,7 +322,7 @@ export function coverageNotice(pending: string[], total: number) {
   if (!pending.length) return '';
   return [
     '> [!WARNING]',
-    `> 本轮在时间预算内只完成了部分审查：已覆盖 ${total - pending.length}/${total} 个文件，下列 ${pending.length} 个文件尚未审查，本 Review 的结论不涵盖它们。评论请求继续审查后，会在同一提交上接着审查剩余文件。`,
+    `> 本轮在时间预算内只完成了部分审查：已覆盖 ${total - pending.length}/${total} 个文件，下列 ${pending.length} 个文件尚未审查，本轮结论不涵盖它们。再次发起评论请求会接着审查剩余文件；若期间有新提交，只有直接变化的文件需要重新审查。`,
     '',
     `<details><summary>未审查文件（${pending.length}）</summary>`,
     '',

@@ -72,6 +72,18 @@ test('resume preserves the index and completed files while reopening the request
     reset();
     const continued = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
     assert.deepEqual(continued.pending_files, ['auth.ts', 'billing.ts']);
+    // 部分发布后出现新提交：已发布部分中未直接变化的文件仍算完成，直接变化的文件重新待审。
+    reset();
+    const advanced = prepareReviewWorkspace({ workspace,
+      context: { request: { ...context.request, source: 'pr_comment', head_sha: 'c'.repeat(40) } }, previousPath,
+      readChanges: () => ['cache.ts'] });
+    assert.deepEqual(advanced.pending_files, ['auth.ts', 'billing.ts', 'cache.ts']);
+    // 差分未知时不能把旧完成项当作仍然有效。
+    reset();
+    const unknown = prepareReviewWorkspace({ workspace,
+      context: { request: { ...context.request, source: 'pr_comment', head_sha: 'c'.repeat(40) } }, previousPath,
+      readChanges: () => null });
+    assert.equal(unknown.pending_files.length, 7);
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
 
     // 上次失败也不免除新 PR 评论的复核义务；相同范围的排除项仍保留。

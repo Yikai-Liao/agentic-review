@@ -16,9 +16,9 @@
 
 workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；首次调查和重开项完成必要调查后登记为 `{"path":"src/example.ts","status":"complete"}`，继承完成项保持原状态。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope`，full 范围不允许排除条目。文件进度是唯一的覆盖状态，不另建工作稿完成清单。
 
-可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失、scope 内条目全部完成；任一不满足就失败。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 使用完整 PR 的 `full` scope，完整覆盖由可信历史完成项和本轮调查共同构成。
+可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失；scope 内仍有 pending 时照常发布已审部分，并据文件进度列出全部未审查文件，该轮不形成完整 audit。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 使用完整 PR 的 `full` scope，完整覆盖由可信历史完成项和本轮调查共同构成。
 
-输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一快照恢复已完成状态；automatic 接入同 base、当前历史中的可信完整 audit 后，未直接变化的完成项也默认延续。直接变化、新增和历史未完成项保留 `pending`；当前 thread 对应文件以及每次 `pr_comment` 请求的范围内文件仍按请求复核。
+输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一快照恢复已完成状态；automatic 接入同 base、当前历史中的可信完整 audit 后，未直接变化的完成项也默认延续。上一轮只发布了部分结论时，评论请求同样延续已完成项：同一快照只审查剩余文件，新提交只重开直接变化的文件。直接变化、新增和历史未完成项保留 `pending`；当前 thread 对应文件以及每次 `pr_comment` 请求的范围内文件仍按请求复核。
 
 按 `central/github-context.md` 先调查增量，沿新变化和相关旧记录中的依赖前提定位影响；契约、调用方、保护、状态前提或相关讨论改变时，将对应完成项重开为 pending，局部更新受影响的判断和反证，保留其余证据。其余历史完成项直接继承，不因笔记简短或未写无问题依据而重查；缺少依据确实妨碍本轮影响判断或疑点核验时，只补查相关部分。scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
 

@@ -171,9 +171,9 @@ export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
         const coverage = await readReviewProgress(contextPath, progressPath);
         if (!coverage.scope) throw new Error('Review scope must be recorded before submit_review');
         const pending = pendingCoverage(coverage, process.env.REVIEW_INVENTORY_DIGEST ?? '');
-        // 收尾前只接受完整覆盖，避免模型以范围大为由提前交出部分结论。
+        // 覆盖完整时任何时刻都可提交；仍有 pending 时，收尾通知前不接受部分结论。
         if (pending.length && phase() === 'investigate') {
-          throw new Error(`Incomplete coverage: ${pending.length} files pending, e.g. ${pending[0]}. The time budget has not reached wrap-up; continue the investigation.`);
+          throw new Error(`Incomplete coverage: ${pending.length} files still pending, e.g. ${pending[0]}. Partial results are accepted only after the wrap-up notice; mark investigated files complete or continue the investigation.`);
         }
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
         // 先独占创建封存文件，失败的并发调用不能覆盖工作稿副本。

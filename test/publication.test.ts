@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { publishReview } from '../scripts/publish-review.ts';
+import { coverageNotice, publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
 const result: ReviewResult = {
@@ -367,6 +367,19 @@ test('局部 thread 请求重跑更新旧回复中的失败说明，不重复回
   assert.equal(state.comments.filter(item => item.body.includes('已按请求重新核对。')).length, 1);
   assert.doesNotMatch(reply.body, /发布未全部完成/);
   assert.equal(state.reviews.length, 0);
+});
+
+
+test('部分覆盖只回复 thread 时，未审文件列在回复中；同时发布正文时只列在正文', async () => {
+  const notice = coverageNotice(['auth.ts'], 3);
+  const replyOnly = fixture();
+  await publish(replyOnly, { threadReplyOnly: true, coverageNotice: notice, result: { ...result, comments: [] } });
+  assert.equal(replyOnly.reviews.length, 0);
+  assert.ok(replyOnly.comments.find(item => item.body.includes('已按请求重新核对。')).body.includes('- `auth.ts`'));
+  const both = fixture();
+  await publish(both, { threadReplyOnly: true, coverageNotice: notice, result });
+  assert.ok(both.reviews[0].body.includes('- `auth.ts`'));
+  assert.ok(!both.comments.find(item => item.body.includes('已按请求重新核对。')).body.includes('- `auth.ts`'));
 });
 
 

@@ -352,8 +352,8 @@ test('时间预算由扩展执行：预算内拒绝提前结束和部分提交�
     // 调查阶段：不能自行结束，也不能以部分覆盖提交。
     clock = 359_000;
     assert.equal(turnEnd(), undefined);
-    assert.match(settle().entries[0].content, /不能以范围大、时间不足或未完成为由结束/);
-    await assertSubmissionFailed(submit.execute('call', result), /1 files pending.*continue the investigation/);
+    assert.match(settle().entries[0].content, /仍有 pending 文件.*不能以范围大、时间不足或未完成为由结束/);
+    await assertSubmissionFailed(submit.execute('call', result), /1 files still pending.*only after the wrap-up notice/);
 
     // 收尾阶段：只通知一次，未提交就结束时再次要求收尾，并接受部分结论。
     clock = 360_000;
@@ -371,6 +371,31 @@ test('时间预算由扩展执行：预算内拒绝提前结束和部分提交�
     assert.deepEqual((await submit.execute('call', result)).details, { queued: true });
     assert.equal(call('bash'), undefined);
     assert.equal(settle(), undefined);
+  } finally {
+    process.env = originalEnv;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('小 PR 全部完成后立即提交，不等待收尾阶段', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'review-budget-small-'));
+  const originalEnv = { ...process.env };
+  try {
+    const workspace = path.join(directory, 'workspace');
+    await mkdir(workspace);
+    process.env.REVIEW_WORKSPACE_PATH = workspace;
+    process.env.REVIEW_RESULT_PATH = path.join(directory, 'review-result.json');
+    await configureProgress(directory);
+    let clock = 0;
+    const handlers = new Map<string, (event?: any) => any>();
+    let submit: any;
+    reviewTools({ on: (event: string, handler: any) => handlers.set(event, handler),
+      registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } }, () => clock);
+    handlers.get('agent_start')!();
+    clock = 10_000;
+    assert.equal(handlers.get('turn_end')!({ outcome: 'completed' }), undefined);
+    assert.deepEqual((await submit.execute('call', result)).details, { queued: true });
+    assert.equal(handlers.get('agent_before_settle')!({ outcome: 'completed' }), undefined);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
