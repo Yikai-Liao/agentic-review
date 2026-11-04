@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { coverageNotice, publishReview } from '../scripts/publish-review.ts';
+import { coverageNotice, publishReview, sourceReviewedNotice } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
 const result: ReviewResult = {
@@ -493,3 +493,8 @@ for (const rollbackFails of [false, true]) {
     assert.equal(publication.operations.at(-1)?.id, '撤回覆盖完成状态');
   });
 }
+
+test('来源已审的文件数由发布器写入，没有时不输出', () => {
+  assert.equal(sourceReviewedNotice(0), '');
+  assert.equal(sourceReviewedNotice(508), '> 508 个文件因来源 PR 已审而未重复审查。');
+});

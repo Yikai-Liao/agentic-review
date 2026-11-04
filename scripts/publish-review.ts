@@ -332,6 +332,11 @@ export function coverageNotice(pending: string[], total: number) {
   ].join('\n');
 }
 
+// 跳过数量取自可信文件进度，叠加审查文件仍在待审范围内，不属于这里的计数。
+export function sourceReviewedNotice(count: number) {
+  return count ? `> ${count} 个文件因来源 PR 已审而未重复审查。` : '';
+}
+
 function optionalNumber(value: string | undefined) {
   return value === undefined || value === '' ? undefined : Number(value);
 }
@@ -367,7 +372,10 @@ export async function main() {
       requestSource: request.source, requestCommentId: request.comment_id ?? '',
       requestRootCommentId: request.root_comment_id ?? '',
       threadReplyOnly: request.source === 'thread' && coverage.scope.mode === 'focused',
-      coverageNotice: coverageNotice(pending, total),
+      coverageNotice: [
+        sourceReviewedNotice(coverage.ledger.filter((entry) => entry.status === 'source_reviewed').length),
+        coverageNotice(pending, total),
+      ].filter(Boolean).join('\n\n'),
       footer: buildFooter({
         runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
         model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
