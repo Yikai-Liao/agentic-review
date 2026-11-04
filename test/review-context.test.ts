@@ -82,7 +82,7 @@ async function fixture(t: TestContext, source: 'automatic' | 'pr_comment' | 'thr
       if (query.includes('AssociatedIssues')) repository.pullRequest = { closingIssuesReferences: { nodes: [], pageInfo: { hasNextPage: false } } };
       else for (const key of Object.keys(variables).filter(key => /^oid\d+$/.test(key))) {
         const sha = variables[key];
-        repository[`c${key.slice(3)}`] = query.includes('AssociatedPullRequests')
+        repository[`c${key.slice(3)}`] = /AssociatedPullRequests|MergedSources/.test(query)
           ? { oid: sha, associatedPullRequests: { nodes: [], pageInfo: { hasNextPage: false } } }
           // GitHub 默认只展示同名最新 Check；当前 head 的新 IN_PROGRESS 会遮住旧成功项。
           : { oid: sha, checkSuites: { nodes: sha === history.head && (sha !== head || /\bcheckType\s*:\s*ALL\b/.test(query))

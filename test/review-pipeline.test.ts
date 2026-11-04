@@ -62,11 +62,13 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     git('add', '.'); git('commit', '-qm', 'head');
     const head = git('rev-parse', 'HEAD');
     const contextPath = path.join(directory, 'context', 'review-context.json');
+    const attributionPath = path.join(directory, 'attribution.json');
+    await writeFile(attributionPath, JSON.stringify({ reviewed: [], composition: [], pull_requests: [] }));
     const progressPath = path.join(workspace, 'review-progress.json');
     const coveragePath = path.join(workspace, 'review-coverage.json');
     const outputPath = path.join(directory, 'outputs');
     const env = {
-      ...process.env, REVIEW_TARGET_PATH: target, REVIEW_CONTEXT_PATH: contextPath, REVIEW_PROGRESS_PATH: progressPath,
+      ...process.env, REVIEW_TARGET_PATH: target, REVIEW_ATTRIBUTION_PATH: attributionPath, REVIEW_CONTEXT_PATH: contextPath, REVIEW_PROGRESS_PATH: progressPath,
       REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '7', REVIEW_BASE_SHA: base, REVIEW_HEAD_SHA: head,
       REVIEW_TRIGGER_SOURCE: source, GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath,
       REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: '', REVIEW_COMMENT_ID: source === 'automatic' ? '' : '123',
@@ -264,9 +266,11 @@ test('trusted inventory includes reverted incremental files and intervals from r
     await mkdir(workspace);
     await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify(old));
     const contextPath = path.join(directory, 'context-20.json');
+    const attributionPath = path.join(directory, 'attribution.json');
+    await writeFile(attributionPath, JSON.stringify({ reviewed: [], composition: [], pull_requests: [] }));
     const progressPath = path.join(workspace, 'review-progress.json');
     const outputPath = path.join(directory, 'outputs');
-    const env = { ...process.env, REVIEW_TARGET_PATH: directory, REVIEW_CONTEXT_PATH: contextPath, REVIEW_PROGRESS_PATH: progressPath,
+    const env = { ...process.env, REVIEW_TARGET_PATH: directory, REVIEW_ATTRIBUTION_PATH: attributionPath, REVIEW_CONTEXT_PATH: contextPath, REVIEW_PROGRESS_PATH: progressPath,
       REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '7', REVIEW_BASE_SHA: a, REVIEW_HEAD_SHA: c,
       REVIEW_TRIGGER_SOURCE: 'pr_comment', REVIEW_COMMENT_ID: '2', REVIEW_COMMENT_ROOT_ID: '2', REVIEW_COMMENT_BODY: '',
       GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath,

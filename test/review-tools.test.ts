@@ -36,7 +36,7 @@ async function configureProgress(directory: string, source: 'automatic' | 'pr_co
   process.env.REVIEW_CONTEXT_PATH = path.join(directory, 'review-context.json');
   process.env.REVIEW_PROGRESS_PATH = path.join(directory, 'workspace', 'review-progress.json');
   process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
-  await writeFile(process.env.REVIEW_CONTEXT_PATH, JSON.stringify({ request }));
+  await writeFile(process.env.REVIEW_CONTEXT_PATH, JSON.stringify({ request, source_reviewed: [] }));
   await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'complete' }], scope: {
     mode: 'full', rationale: '完整审查', explicit_text: '',
     ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }],

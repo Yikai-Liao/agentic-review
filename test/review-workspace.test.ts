@@ -167,7 +167,7 @@ test('automatic 增量延续未改完成项，新变化待审，间接影响可�
       ledger: files.map(file => ({ path: file, status: 'pending' })),
     }));
     reset();
-    writeFileSync(contextPath, JSON.stringify({ request: current }));
+    writeFileSync(contextPath, JSON.stringify({ request: current, source_reviewed: [] }));
     const manifest = prepareReviewWorkspace({ workspace, previousPath, context: { request: current },
       readChanges: () => ['auth.ts', 'new.ts'] });
     assert.deepEqual(manifest.pending_files, ['auth.ts', 'new.ts']);

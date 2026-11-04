@@ -8,7 +8,7 @@ import type { ReviewContext, ReviewProgress } from './review-request.ts';
 // 启动前迁移证据和可确定的进度；自然语言范围、跨文件影响与讨论反证仍由 Agent 判断。
 export function prepareReviewWorkspace({ workspace, context, previousPath, threadPath, readChanges }: {
   workspace: string;
-  context: ReviewContext;
+  context: Pick<ReviewContext, 'request'>;
   previousPath?: string;
   threadPath?: string;
   readChanges?: (previousHead: string, currentHead: string) => string[] | null;
@@ -42,7 +42,8 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
     const previousEntries = new Map(previous.ledger.map((entry) => [entry.path, entry]));
     for (const entry of progress.ledger) {
       const old = previousEntries.get(entry.path);
-      if (!old || entry.path === threadPath) continue;
+      // 来源已审条目由本轮可信上下文决定，历史状态只延续到待审条目上。
+      if (!old || entry.path === threadPath || entry.status !== 'pending') continue;
       if (old.status === 'complete' && (!repeatPrScope || resumePartial)
         && (sameSnapshot || (carryUnchanged && !changed.has(entry.path)))) {
         entry.status = 'complete';

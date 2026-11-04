@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { groupReviewThreads, readDiscussion, runGh, type DiscussionBaseline, type Run } from './refresh-review-discussion.ts';
+import type { SourceAttribution } from './attribute-review-sources.ts';
 import { prepareReviewWorkspace } from './prepare-review-workspace.ts';
 import type { ReviewProgress } from './review-request.ts';
 import type { ReviewSnapshot } from './resolve-review-snapshot.ts';
@@ -27,13 +28,24 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
     || snapshot.headSha !== context.request.head_sha) throw new Error('PR snapshot does not match the review request');
   const { discussion, baseline } = discussionSnapshot;
   const { body, ...metadata } = snapshot.metadata;
-  section('request', 'Review request', JSON.stringify(context, null, 2), 'request');
+  // 来源已审的文件清单由 ledger 体现；请求材料不重复列出。
+  const { source_reviewed: _sourceReviewed, ...requestContext } = context;
+  section('request', 'Review request', JSON.stringify(requestContext, null, 2), 'request');
   section('metadata', 'Untrusted PR metadata', JSON.stringify(metadata, null, 2));
   if (typeof body === 'string' && body) section('metadata', 'PR description', body);
   const commits = await run('git', ['-C', target, 'log', '--no-decorate', '--format=fuller',
     `${context.request.comparison_start}..${context.request.head_sha}`, '--']);
   if (commits) section('metadata', 'PR commits', commits, 'reference');
   section('associations', 'PR association index', JSON.stringify(associations, null, 2));
+  const attribution: SourceAttribution = JSON.parse(readFileSync(required('REVIEW_ATTRIBUTION_PATH'), 'utf8'));
+  if (attribution.pull_requests.length) {
+    // 已审来源 PR 的文件不再逐个审查；叠加后内容与来源 head 不同的文件需要核对叠加语义。
+    section('associations', 'Source review attribution', JSON.stringify({
+      source_reviewed_files: context.source_reviewed.length,
+      reviewed_pull_requests: attribution.pull_requests,
+      composition_files: attribution.composition,
+    }, null, 2));
+  }
   const workspace = required('REVIEW_WORKSPACE_PATH');
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
   section('metadata', 'Review runtime paths', JSON.stringify({

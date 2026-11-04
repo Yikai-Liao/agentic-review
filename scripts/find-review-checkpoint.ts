@@ -38,7 +38,8 @@ function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function checkpointQuery(count: number) {
+// runs 限定每个 suite 返回的成功记录数；同一 head 被多个 PR 复用时，目标 PR 的记录可能排在前 10 条之后。
+export function checkpointQuery(count: number, runs = 10) {
   const oids = Array.from({ length: count }, (_, index) => `$oid${index}: GitObjectID!`).join(', ');
   const commits = Array.from(
     { length: count },
@@ -55,7 +56,7 @@ fragment Checkpoint on Commit {
   checkSuites(first: 100, filterBy: { checkName: "${checkName}" }) {
     nodes {
       app { slug }
-      checkRuns(first: 10, filterBy: {
+      checkRuns(first: ${runs}, filterBy: {
         checkName: "${checkName}",
         checkType: ALL,
         statuses: [COMPLETED],
@@ -68,12 +69,13 @@ fragment Checkpoint on Commit {
 }`;
 }
 
-function reviewedRunId(
+// baseSha 省略时不限定比较基线：来源 PR 的 base 与当前 PR 不同，只要求其 head 上有完成的 automatic 审查。
+export function reviewedRunId(
   commit: RecordValue,
   sha: string,
   repositoryId: string,
   pullNumber: string,
-  baseSha: string,
+  baseSha: string | undefined,
   appSlug: string,
 ) {
   const checkSuites = commit.checkSuites;
@@ -96,7 +98,7 @@ function reviewedRunId(
         && parts.length === 7
         && parts[0] === repositoryId
         && parts[1] === pullNumber
-        && parts[2] === baseSha
+        && (baseSha === undefined || parts[2] === baseSha)
         && parts[3] === sha
         && parts[4] === 'automatic'
         && /^[0-9]+$/.test(parts[5]!)

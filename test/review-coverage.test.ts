@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildReviewRequest, initialReviewCoverage, validateReviewScope } from '../scripts/review-request.ts';
-import { inventoryDigest, parseReviewCoverage, validateAuditCheckpoint, validateCoverageCompletion } from '../scripts/review-coverage.ts';
+import { inventoryDigest, parseReviewCoverage, parseReviewProgress, validateAuditCheckpoint, validateCoverageCompletion } from '../scripts/review-coverage.ts';
 
 function fixture() {
   const request = buildReviewRequest({ source: 'automatic', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '20' });
@@ -47,4 +47,18 @@ test('checkpoint requires published full audit bound to the selected run and sna
   validateAuditCheckpoint(published, expected);
   assert.throws(() => validateAuditCheckpoint(published, { ...expected, attempt: '2' }), /completed audit/);
   assert.throws(() => validateAuditCheckpoint({ ...published, complete_audit: false }, expected), /completed audit/);
+});
+
+test('来源已审条目视为完成，且只能由可信上下文决定', async () => {
+  const value = fixture();
+  const digest = inventoryDigest(['src/a.ts', 'src/b.ts']);
+  const ledger = [{ path: 'src/a.ts', status: 'source_reviewed' as const }, { path: 'src/b.ts', status: 'complete' as const }];
+  await validateCoverageCompletion({ ...value, ledger }, digest);
+  const context = { request: value.request, default_plan: undefined, source_reviewed: ['src/a.ts'] };
+  const progress = { scope: { mode: 'full', rationale: 'complete PR', explicit_text: '', ranges: value.scope.ranges }, ledger };
+  assert.deepEqual(parseReviewProgress(context, progress).ledger, ledger);
+  // 模型把待审文件改成来源已审、或把来源已审改成完成，都与可信归因不一致。
+  assert.throws(() => parseReviewProgress(context, { ...progress, ledger: [ledger[0], { path: 'src/b.ts', status: 'source_reviewed' }] }), /trusted attribution/);
+  assert.throws(() => parseReviewProgress(context, { ...progress, ledger: [{ path: 'src/a.ts', status: 'complete' }, ledger[1]] }), /trusted attribution/);
+  assert.throws(() => parseReviewProgress({ request: value.request }, progress), /trusted source attribution/);
 });

@@ -3,6 +3,7 @@ import { appendFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { main as attributeSources } from './attribute-review-sources.ts';
 import { main as findCheckpoint } from './find-review-checkpoint.ts';
 import { findLatestReviewWorkspace } from './find-review-request.ts';
 import { main as prepareAssociations } from './list-review-associations.ts';
@@ -88,6 +89,7 @@ export async function main() {
     REVIEW_BASE_SHA: snapshot.baseSha, REVIEW_HEAD_SHA: snapshot.headSha, REVIEW_TRIGGER_SOURCE: inputs.trigger_source,
     REVIEW_TARGET_PATH: target, REVIEW_BASE_PATH: base, REVIEW_WORKSPACE_PATH: draft,
     REVIEW_ASSOCIATIONS_PATH: path.join(temporary, 'review-associations.json'),
+    REVIEW_ATTRIBUTION_PATH: path.join(temporary, 'review-attribution.json'),
     REVIEW_CONTEXT_PATH: path.join(temporary, 'review-context/review-context.json'),
     REVIEW_PROGRESS_PATH: path.join(draft, 'review-progress.json'), REVIEW_INPUT_PATH: path.join(temporary, 'review-input.json'),
     REVIEW_COMMENT_ID: inputs.comment_id, REVIEW_COMMENT_ROOT_ID: inputs.comment_root_id, REVIEW_COMMENT_BODY: inputs.comment_body,
@@ -117,6 +119,8 @@ export async function main() {
     const ranges = coverage.scope?.ranges ?? coverage.default_plan?.ranges ?? [];
     await fetchReviewCommits(target, ranges.flatMap(range => [range.comparison_start, range.comparison_end]));
   }
+  // 来源归因在持久化请求前完成：它写入可信上下文，Agent 不能改写来源已审的文件。
+  await attributeSources();
   await persistRequest();
   const [checkpoint] = await Promise.all([
     restoreCheckpoint(inputs.repository_id!, inputs.pull_number!, snapshot, previousAudit),

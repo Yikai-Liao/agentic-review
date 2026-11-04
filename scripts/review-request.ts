@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import type { SourceAttribution } from './attribute-review-sources.ts';
 import type { CoverageEntry } from './review-coverage.ts';
 
 export type ReviewRequest = {
@@ -48,7 +49,7 @@ export type ReviewCoverage = {
 };
 
 // Agent 只提交判断和进度；请求身份与默认计划由准备阶段单独封存。
-export type ReviewContext = Pick<ReviewCoverage, 'request' | 'default_plan'>;
+export type ReviewContext = Pick<ReviewCoverage, 'request' | 'default_plan'> & { source_reviewed: string[] };
 export type ReviewProgress = { scope?: ReviewScopeDecision; ledger: CoverageEntry[] };
 
 export type DefaultReviewPlan = {
@@ -244,9 +245,15 @@ export async function main() {
   }
   const coverage = initialReviewCoverage(request);
   coverage.default_plan = prepareDefaultReviewPlan(request, previous, (start, end) => comparisonUsable(process.env.REVIEW_TARGET_PATH!, start, end));
+  // 来源 PR 已审且合入内容与其 head 一致的文件，直接记为来源已审；其余文件待审。
+  const attribution = JSON.parse(await readFile(process.env.REVIEW_ATTRIBUTION_PATH!, 'utf8')) as SourceAttribution;
+  const sourceReviewed = new Set(attribution.reviewed);
   coverage.ledger = reviewInventory(process.env.REVIEW_TARGET_PATH!, request, coverage.default_plan)
-    .map((file) => ({ path: file, status: 'pending' }));
-  const context: ReviewContext = { request, default_plan: coverage.default_plan };
+    .map((file) => ({ path: file, status: sourceReviewed.has(file) ? 'source_reviewed' : 'pending' }));
+  const context: ReviewContext = {
+    request, default_plan: coverage.default_plan,
+    source_reviewed: coverage.ledger.filter((entry) => entry.status === 'source_reviewed').map((entry) => entry.path).sort(),
+  };
   const contextText = `${JSON.stringify(context)}\n`;
   await mkdir(path.dirname(contextPath), { recursive: true, mode: 0o700 });
   await writeFile(contextPath, contextText, { encoding: 'utf8', mode: 0o400, flag: 'wx' });
