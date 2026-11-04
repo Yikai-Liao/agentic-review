@@ -101,7 +101,7 @@ PR 脚本复用当前 PR 的分页读取，输出元数据、全部普通评论�
 
 ## 5. 来源已审时的叠加审查
 
-输入中的 `Source review attribution` 由可信 workflow 生成：当前 PR 的第一父提交链上，某个步骤恰好是已合入 PR 的合入提交，且该 PR 的 head 有同一 Review App 完成的 automatic 审查，则该步骤改动的文件若合入结果与来源 head 一致、且基线一侧自来源分叉点起未变，ledger 记为 `source_reviewed`。这些文件不重复逐个审查；`source_reviewed` 不能改写。
+输入中的 `Source review attribution` 由可信 workflow 生成：当前 PR 的第一父提交链上，某个步骤恰好是已合入 PR 的合入提交，且该 PR 的 head 有同一 Review App 完成的 automatic 审查，则该步骤改动的文件若合入结果与来源 head 一致、且基线一侧相对来源审查的起点未变，ledger 记为 `source_reviewed`。这些文件不重复逐个审查；`source_reviewed` 不能改写。
 
 不一致的文件列在 `composition_files`，附来源 PR：它们的合入结果包含来源审查者没见过的内容（叠加或冲突解决）。这些文件保持 `pending`，只核对叠加后才成立的语义：同一对象被多个来源分别修改后的组合、迁移与实现的先后顺序、环境变量与配置、被其中一个来源改了一半的规则，以及文档与实现的一致性。需要时用 `read-related-pr.ts` 读取列出的来源 PR，确认来源各自已决定的事项，不重报其中已审结的问题。
 

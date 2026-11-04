@@ -78,6 +78,19 @@ export function reviewedRunId(
   baseSha: string | undefined,
   appSlug: string,
 ) {
+  const check = reviewedCheck(commit, sha, repositoryId, pullNumber, baseSha, appSlug);
+  return check ? check.runId : null;
+}
+
+// 返回最新一条匹配的成功审查及其审查时的 base；GraphQL 按时间倒序返回记录。
+export function reviewedCheck(
+  commit: RecordValue,
+  sha: string,
+  repositoryId: string,
+  pullNumber: string,
+  baseSha: string | undefined,
+  appSlug: string,
+) {
   const checkSuites = commit.checkSuites;
   if (commit.oid !== sha || !isRecord(checkSuites) || !Array.isArray(checkSuites.nodes)) {
     throw new Error('Invalid GitHub GraphQL checkpoint response');
@@ -103,7 +116,7 @@ export function reviewedRunId(
         && parts[4] === 'automatic'
         && /^[0-9]+$/.test(parts[5]!)
         && /^[0-9]+$/.test(parts[6]!)) {
-        return `${parts[5]}:${parts[6]}`;
+        return { runId: `${parts[5]}:${parts[6]}`, baseSha: parts[2]! };
       }
     }
   }

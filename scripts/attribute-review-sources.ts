@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { checkpointQuery, reviewedRunId } from './find-review-checkpoint.ts';
+import { checkpointQuery, reviewedCheck } from './find-review-checkpoint.ts';
 import { request } from './list-review-associations.ts';
 import { fetchReviewCommits } from './prepare-review-sources.ts';
 
@@ -27,7 +27,8 @@ export type SourceAttribution = {
 
 export const emptyAttribution: SourceAttribution = { reviewed: [], composition: [], pull_requests: [] };
 
-type Source = SourcePullRequest & { head: string; reviewed: boolean };
+// base 是来源 PR 通过审查时的比较基线，来源审查的差异是 merge-base(base, head)..head。
+type Source = SourcePullRequest & { head: string; reviewed: boolean; base: string };
 type FileState = 'reviewed' | 'composition' | 'direct';
 const rank: Record<FileState, number> = { reviewed: 0, composition: 1, direct: 2 };
 
@@ -105,7 +106,7 @@ async function mergedSources(options: AttributeOptions, steps: string[]) {
         }
         const merge = isRecord(node.mergeCommit) ? node.mergeCommit.oid : null;
         if (node.state === 'MERGED' && merge === step && node.repository.nameWithOwner === options.repository) {
-          sources.set(step, { number: node.number as number, title: node.title, url: node.url, head: node.headRefOid, reviewed: false });
+          sources.set(step, { number: node.number as number, title: node.title, url: node.url, head: node.headRefOid, reviewed: false, base: '' });
         }
       }
     });
@@ -124,7 +125,9 @@ async function markReviewed(options: AttributeOptions, sources: Source[]) {
     batch.forEach((source, index) => {
       const commit = result[`c${index}`];
       if (!isRecord(commit)) throw new Error('Invalid GitHub GraphQL checkpoint response');
-      source.reviewed = reviewedRunId(commit, source.head, options.repositoryId, String(source.number), undefined, options.appSlug) !== null;
+      const check = reviewedCheck(commit, source.head, options.repositoryId, String(source.number), undefined, options.appSlug);
+      source.reviewed = check !== null;
+      source.base = check?.baseSha ?? '';
     });
   }
 }
@@ -148,7 +151,7 @@ export async function attributeReviewSources(options: AttributeOptions): Promise
   await markReviewed(options, [...sources.values()]);
   const reviewedSources = [...sources.values()].filter((source) => source.reviewed);
   // 已审来源的 head 可能不在共享 Git 对象库中（squash 合入后分支已删除），补取后才能比较内容。
-  await fetchReviewCommits(target, reviewedSources.map((source) => source.head));
+  await fetchReviewCommits(target, reviewedSources.flatMap((source) => [source.head, source.base]));
 
   const states = new Map<string, FileState>();
   const touched = new Map<string, Map<number, SourcePullRequest>>();
@@ -166,10 +169,11 @@ export async function attributeReviewSources(options: AttributeOptions): Promise
     // 含换行的路径无法放进 cat-file 的行协议，保守地按普通审查处理。
     const comparable = files.filter((file) => !file.includes('\n'));
     files.filter((file) => file.includes('\n')).forEach((file) => raise(file, 'direct'));
-    // 来源审查的是 head 相对其分叉点的改动。合入结果等于 head，且合入前的基线一侧自分叉点起未变，
-    // 合入才与审查看到的改动一致；基线一侧已有不同内容却被 head 整体覆盖时，被丢弃的改动没有被审过。
-    const fork = (await git(target, ['merge-base', `${step}^1`, source.head])).trim();
-    const ids = await blobIds(target, comparable.flatMap((file) => [`${step}:${file}`, `${source.head}:${file}`, `${step}^1:${file}`, `${fork}:${file}`]));
+    // 来源审查的是 merge-base(审查时的 base, head)..head 的改动。合入结果等于 head，且合入前的基线一侧
+    // 相对该起点未变，这一步对文件的改动才与审查看到的完全一致；否则（含来源改基后带入的其他历史、
+    // 整体采用来源版本而丢弃基线一侧的改动）来源审查者没见过这些内容。
+    const reviewStart = (await git(target, ['merge-base', source.base, source.head])).trim();
+    const ids = await blobIds(target, comparable.flatMap((file) => [`${step}:${file}`, `${source.head}:${file}`, `${step}^1:${file}`, `${reviewStart}:${file}`]));
     comparable.forEach((file, index) => {
       const same = ids[index * 4] === ids[index * 4 + 1] && ids[index * 4 + 2] === ids[index * 4 + 3];
       raise(file, same ? 'reviewed' : 'composition');
