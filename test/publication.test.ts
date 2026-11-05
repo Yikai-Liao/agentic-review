@@ -105,7 +105,7 @@ function fixture() {
 
 function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters<typeof publishReview>[0]> = {}) {
   return publishReview({ result, repository: 'owner/repo', pullNumber: 7, botLogin: 'review-app[bot]', token: 'write-token',
-    expectedHeadSha: 'b'.repeat(40), footer: '[View action run](https://github.test/run)', runUrl: 'https://github.test/run', publicationId: 'run-1',
+    expectedHeadSha: 'b'.repeat(40), footer: { links: '[运行记录](https://github.test/run) · [审查工作稿](https://github.test/run#artifacts)', details: 'openai/gpt-test' }, runUrl: 'https://github.test/run', publicationId: 'run-1',
     api: 'https://api.github.test', requestSource: 'thread', requestCommentId: '900', requestRootCommentId: '123',
     fetchImpl: state.fetchImpl, ...override });
 }
@@ -121,7 +121,7 @@ test('新问题随总评在同一条 Review 中发布，标题行和索引由发
     { path: 'src/auth.ts', line: 50, start_line: null, label: '需人工确认', title: '登录失败时静默跳过审计', body: '**实际行为**：……' },
     { path: 'src/auth.ts', line: 60, start_line: null, label: '改进机会', title: '重复查询可以合并', body: '……' },
   ];
-  const body = '结论。\n\n**合并后的行为**\n\n- 行为。\n\n**核对了什么**\n\n- 场景：结论（`src/auth.ts:10`）';
+  const body = '结论。\n\n### 合并后的行为\n\n- 行为。\n\n### 核对了什么\n\n- 场景：结论（`src/auth.ts:10`）';
   const report = await publish(state, { requestSource: 'automatic', previousHeadSha: 'a'.repeat(40),
     coverage: { reviewed: 4, total: 4, sourceReviewed: 1 }, result: { ...empty, body, comments: findings } });
   ok(report);
@@ -138,8 +138,8 @@ test('新问题随总评在同一条 Review 中发布，标题行和索引由发
   assert.match(lines[0], /^<!-- agentic-review-publication:[0-9a-f]+ --><!-- agentic-review:automatic-summary -->$/);
   assert.equal(lines[1], '## 自动审查：1 个问题需要修改，1 项需要你确认');
   // 索引位于模型正文的“核对了什么”之前，只列标题。
-  assert.ok(review.body.includes('**合并后的行为**\n\n- 行为。\n\n**需要修改**\n\n- 🆕 P1：过期会话仍能删除记录\n\n**需要你确认**\n\n- 🆕 需人工确认：登录失败时静默跳过审计\n\n**可选改进**\n\n- 🆕 改进机会：重复查询可以合并\n\n**核对了什么**'));
-  assert.match(review.body, /审至 `bbbbbbb`（上次 `aaaaaaa`） · 已审 4\/4 个文件（其中 1 个由来源 PR 审过） \| \[View action run\]/);
+  assert.ok(review.body.includes('### 合并后的行为\n\n- 行为。\n\n### 需要修改\n\n- 🆕 P1：过期会话仍能删除记录\n\n### 需要你确认\n\n- 🆕 需人工确认：登录失败时静默跳过审计\n\n### 可选改进\n\n- 🆕 改进机会：重复查询可以合并\n\n### 核对了什么'));
+  assert.ok(review.body.includes('<!-- agentic-review:run-metadata -->\n[运行记录](https://github.test/run) · [审查工作稿](https://github.test/run#artifacts) · 审至 `bbbbbbb`（上次 `aaaaaaa`） · 已审 4/4 个文件（其中 1 个由来源 PR 审过）\nopenai/gpt-test\n<!-- /agentic-review:run-metadata -->'));
   assert.doesNotMatch(review.body, /发布未全部完成/);
 });
 
@@ -157,7 +157,7 @@ test('历史问题：仍未关闭的进入索引，本轮关闭的标注状态�
   assert.equal(state.comments.some(item => item.in_reply_to_id === closing.id), false);
   const latest = state.reviews.at(-1).body;
   assert.equal(latest.split('\n')[1], '## 自动审查：1 个问题需要修改');
-  assert.ok(latest.includes(`**需要修改**\n\n- P2：问题 1 · [讨论](${open.html_url})\n\n**本轮关闭**\n\n- P2：问题 2 · [讨论](${closing.html_url})`));
+  assert.ok(latest.includes(`### 需要修改\n\n- P2：问题 1 · [讨论](${open.html_url})\n\n### 本轮关闭\n\n- P2：问题 2 · [讨论](${closing.html_url})`));
   // 状态再次变化时替换原标注，不叠加。
   await publish(state, { requestSource: 'automatic', publicationId: 'run-3', expectedHeadSha: 'd'.repeat(40), result: {
     ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'reintroduced', evidence: '回退提交再次删除了该断言。' }],
@@ -203,11 +203,11 @@ test('他人发起的讨论无法改写原文，状态变化以回复记录并�
   for (const root of [123, 456]) {
     const reply = state.comments.find(comment => comment.in_reply_to_id === root)!.body;
     assert.match(reply, /^\*\*状态更新：✅ 已关闭\*\*\n\n当前代码已恢复鉴权检查/);
-    assert.match(reply, /\[View action run\]\(https:\/\/github\.test\/run\)/);
+    assert.match(reply, /\[运行记录\]\(https:\/\/github\.test\/run\)/);
     assert.doesNotMatch(reply, /Model:/);
     assert.equal(state.comments.find(item => item.id === root).body, '旧问题');
   }
-  assert.ok(state.reviews[0].body.includes('**本轮关闭**\n\n- 旧问题 · [讨论](https://github.test/comment/123)\n- 旧问题 · [讨论](https://github.test/comment/456)'));
+  assert.ok(state.reviews[0].body.includes('### 本轮关闭\n\n- 旧问题 · [讨论](https://github.test/comment/123)\n- 旧问题 · [讨论](https://github.test/comment/456)'));
 });
 
 test('新的自动总评收起更早的自动总评，评论请求的答复不收起也不被收起', async () => {
@@ -366,7 +366,7 @@ test('收起失败记为发布失败，不影响已发布的新总评', async ()
 test('Check 详情汇总运行、结果、覆盖、用量和未成功的发布操作', () => {
   const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   const text = checkText({
-    footer: '[View action run](https://github.test/run) | Model: openai/gpt-test', result,
+    footer: { links: '[运行记录](https://github.test/run)', details: 'openai/gpt-test' }, result,
     usage: { turns: 3, priceKnown: true, first: zero, total: zero },
     coverage: { reviewed: 4, total: 5, sourceReviewed: 2 },
     operations: [
@@ -375,7 +375,7 @@ test('Check 详情汇总运行、结果、覆盖、用量和未成功的发布�
       { id: '收起旧 Review 1', status: 'blocked', dependencies: [] },
     ],
   });
-  assert.match(text, /Model: openai\/gpt-test/);
+  assert.match(text, /## 运行\n\n\[运行记录\]\(https:\/\/github\.test\/run\)\n\nopenai\/gpt-test\n/);
   assert.match(text, /新问题 2 条；历史问题状态变化 2 条（✅ 已关闭 2）/);
   assert.match(text, /已审查 4\/5 个文件；来源 PR 已审而未重复审查 2 个/);
   assert.match(text, /3 个审查回合/);
@@ -413,7 +413,7 @@ test('局部 thread 请求仅回复人类 root，不创建 Review 或改变 thre
   assert.equal(state.reviews.length, 0);
   assert.equal(state.calls.some(call => call.url.includes('/reviews')), false);
   const reply = state.comments.find(item => item.in_reply_to_id === 123).body;
-  assert.match(reply, /^结论未变，当前问题仍需关注。\n\n<!-- agentic-review:run-metadata -->\n\[View action run\]/);
+  assert.match(reply, /^结论未变，当前问题仍需关注。\n\n<!-- agentic-review:run-metadata -->\n\[运行记录\]/);
   assert.equal(state.calls.some(call => call.body?.query?.includes('resolveReviewThread')), false);
 });
 

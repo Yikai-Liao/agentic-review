@@ -146,7 +146,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
-    const bodyFinding = '没有需要处理的问题。\n\n**合并后的行为**：auth.ts 的写入路径保留原有权限约束。';
+    const bodyFinding = '没有需要处理的问题。\n\n### 合并后的行为\n\nauth.ts 的写入路径保留原有权限约束。';
     await writeFile(resultPath, JSON.stringify({ body: bodyFinding, comments: [], thread_updates: [], request_reply: null }));
     await rm(usagePath);
     await assert.rejects(publish(), /review-usage.json/);
@@ -156,7 +156,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     assert.equal(writes.length, 1);
     assert.ok((writes[0] as { body: string }).body.includes(bodyFinding));
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
-    assert.match((writes[0] as { body: string }).body, /Cost \(est\.\): \$0\.0032/);
+    assert.match((writes[0] as { body: string }).body, /费用约 \$0\.0032/);
     // 用量明细只经步骤输出进入 Check，PR 正文只保留一行运行信息。
     assert.doesNotMatch((writes[0] as { body: string }).body, /首轮缓存命中/);
     const checkTextOutput = (await readFile(outputPath, 'utf8')).split(/^check_text<<(check_text_[\w-]+)\n/m);

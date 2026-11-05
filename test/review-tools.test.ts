@@ -438,7 +438,7 @@ test('时间预算必须显式配置且大于收尾预留', async () => {
 });
 
 test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
-  assert.equal(
+  assert.deepEqual(
     buildFooter({
       runUrl: 'https://github.test/run',
       workspaceUrl: 'https://github.test/artifact/1',
@@ -449,7 +449,8 @@ test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
       outputTokens: 15_300,
       cost: 0.00424,
     }),
-    '[View action run](https://github.test/run) | [审查工作稿](https://github.test/artifact/1) | Model: openai/gpt-test (thinking: high) | Time: 2m 55s | Tokens: 715.3K | Cost (est.): $0.0042',
+    { links: '[运行记录](https://github.test/run) · [审查工作稿](https://github.test/artifact/1)',
+      details: 'openai/gpt-test（推理 high） · 用时 2 分 55 秒 · 715.3K token · 费用约 $0.0042' },
   );
 });
 
@@ -471,7 +472,7 @@ test('production workflow shares the thinking level between Pi and the published
     assert.ok(buildFooter({
       runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/artifact/1',
       model: 'openai/gpt-test', thinkingLevel: level,
-    }).includes(`(thinking: ${level})`));
+    }).details.includes(`（推理 ${level}）`));
   }
 });
 

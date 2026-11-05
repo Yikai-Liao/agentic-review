@@ -19,6 +19,8 @@ type FooterMetadata = {
   controlSha?: string;
   priceKnown?: boolean;
 };
+// 页脚分两行：第一行是可点开的链接与审查位置，第二行是运行信息。
+export type Footer = { links: string; details: string };
 type PublishOptions = {
   result: ReviewResult;
   repository: string;
@@ -27,7 +29,7 @@ type PublishOptions = {
   token: string;
   expectedHeadSha: string;
   previousHeadSha?: string;
-  footer: string;
+  footer: Footer;
   runUrl: string;
   publicationId: string;
   api: string;
@@ -122,7 +124,7 @@ function formatDuration(value: number) {
   seconds %= 3600;
   const minutes = Math.floor(seconds / 60);
   seconds %= 60;
-  return [hours && `${hours}h`, minutes && `${minutes}m`, `${seconds}s`].filter(Boolean).join(' ');
+  return [hours && `${hours} 小时`, minutes && `${minutes} 分`, `${seconds} 秒`].filter(Boolean).join(' ');
 }
 
 export function buildFooter({
@@ -136,26 +138,26 @@ export function buildFooter({
   cost,
   controlSha,
   priceKnown,
-}: FooterMetadata) {
-  const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
-  if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
-  if (Number.isFinite(durationSeconds)) parts.push(`Time: ${formatDuration(durationSeconds!)}`);
+}: FooterMetadata): Footer {
+  const details = [thinkingLevel && thinkingLevel !== 'off' ? `${model}（推理 ${thinkingLevel}）` : model];
+  if (Number.isFinite(durationSeconds)) details.push(`用时 ${formatDuration(durationSeconds!)}`);
   if (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)) {
-    parts.push(`Tokens: ${formatNumber(inputTokens! + outputTokens!)}`);
+    details.push(`${formatNumber(inputTokens! + outputTokens!)} token`);
   }
-  if (cost === undefined || priceKnown === false) parts.push('Cost (est.): 未提供');
+  if (cost === undefined || priceKnown === false) details.push('费用未提供');
   else {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Invalid review cost');
-    parts.push(`Cost (est.): ${dollars(cost)}`);
+    details.push(`费用约 ${dollars(cost)}`);
   }
-  if (controlSha) parts.push(`Rules: ${controlSha.slice(0, 7)}`);
-  return parts.join(' | ');
+  if (controlSha) details.push(`规则 \`${controlSha.slice(0, 7)}\``);
+  return { links: `${runLinkText(runUrl)} · [审查工作稿](${workspaceUrl})`, details: details.join(' · ') };
 }
 
+const runLinkText = (runUrl: string) => `[运行记录](${runUrl})`;
 const dollars = (value: number) => value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
 
-// PR 上只保留一行运行信息；固定标记让下一轮输入剔除它，费用明细写入 Check 供复盘。
-const metadataBlock = (line: string) => `${reviewMetadataStart}\n${line}\n${reviewMetadataEnd}`;
+// 固定标记让下一轮输入剔除运行信息；费用明细写入 Check 供复盘。
+const metadataBlock = (text: string) => `${reviewMetadataStart}\n${text}\n${reviewMetadataEnd}`;
 
 export function usageDetails(usage: ReviewUsage) {
   parseReviewUsage(usage);
@@ -177,7 +179,7 @@ export function usageDetails(usage: ReviewUsage) {
 }
 
 type CheckRecord = {
-  footer?: string;
+  footer?: Footer;
   usage?: ReviewUsage;
   coverage?: { reviewed: number; total: number; sourceReviewed: number };
   result?: ReviewResult;
@@ -194,7 +196,7 @@ export function checkText({ footer, usage, coverage, result, operations }: Check
     .map(status => [statusLabels[status], result.thread_updates.filter(item => item.status === status).length] as const)
     .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join('，');
   return [
-    ...(footer ? ['## 运行', '', footer, ''] : []),
+    ...(footer ? ['## 运行', '', footer.links, '', footer.details, ''] : []),
     ...(result ? ['## 审查结果', '',
       `新问题 ${result.comments.length} 条；历史问题状态变化 ${result.thread_updates.length} 条${statusCounts ? `（${statusCounts}）` : ''}。`, ''] : []),
     ...(coverage ? ['## 覆盖', '',
@@ -265,7 +267,7 @@ export async function publishReview({
       : '';
   };
   const compose = (...parts: string[]) => parts.filter(Boolean).join('\n\n');
-  const runLink = metadataBlock(`[View action run](${runUrl})`);
+  const runLink = metadataBlock(runLinkText(runUrl));
   const firstLine = (body: string) => body.split('\n', 1)[0];
   const summaryTag = marker('summary', result);
   // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
@@ -396,8 +398,9 @@ export async function publishReview({
         ...(coverage ? [`已审 ${coverage.reviewed}/${coverage.total} 个文件${coverage.sourceReviewed
           ? `（其中 ${coverage.sourceReviewed} 个由来源 PR 审过）` : ''}`] : []),
       ].join(' · ');
+      // GitHub 评论把单个换行渲染为换行，两行运行信息不需要空行分隔。
       const render = (first: string) => `${first}\n${compose(heading, notice(), coverageNotice,
-        placeIndex(result.body, index.markdown))}\n\n---\n\n${metadataBlock(`${scope} | ${footer}`)}`;
+        placeIndex(result.body, index.markdown))}\n\n---\n\n${metadataBlock(`${footer.links} · ${scope}\n${footer.details}`)}`;
       const existing = ownSummary();
       if (existing) {
         // 已被后续审查接管的总评保持原样，重跑旧运行不能改写它。
@@ -516,7 +519,7 @@ function summaryIndex({ result, findings, comments, allComments, threads }: {
     fix: items.filter(item => item.group === 'fix').length,
     confirm: items.filter(item => item.group === 'confirm').length,
     markdown: sections.filter(([, lines]) => lines.length)
-      .map(([name, lines]) => `**${name}**\n\n${lines.join('\n')}`).join('\n\n'),
+      .map(([name, lines]) => `### ${name}\n\n${lines.join('\n')}`).join('\n\n'),
   };
 }
 
@@ -524,7 +527,7 @@ function summaryIndex({ result, findings, comments, allComments, threads }: {
 function placeIndex(body: string, index: string) {
   if (!index) return body;
   const lines = body.split('\n');
-  const at = lines.findIndex(line => /^\*\*核对了什么\*\*/.test(line.trim()));
+  const at = lines.findIndex(line => line.trim() === '### 核对了什么');
   return at === -1 ? `${body}\n\n${index}` : [...lines.slice(0, at), index, '', ...lines.slice(at)].join('\n');
 }
 
