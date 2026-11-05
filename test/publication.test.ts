@@ -571,6 +571,36 @@ for (const rollbackFails of [false, true]) {
   });
 }
 
+test('Check 详情最后写入，列出保存失败与覆盖撤回', async () => {
+  const publication = createPublication();
+  let text = '';
+  const coverage: boolean[] = [];
+  await publication.run('Review 正文', [], async () => {});
+  await finishPublication(publication, {
+    saveCoverage: async (complete) => { coverage.push(complete); },
+    saveReport: async () => { throw new Error('report unavailable'); },
+    writeCheckText: async () => { text = checkText({ operations: publication.operations }); },
+  });
+  assert.deepEqual(coverage, [true, false]);
+  assert.match(text, /成功 3；失败 1；前置失败，未执行 0/);
+  assert.match(text, /- 失败：保存发布报告/);
+  assert.equal(publication.operations.at(-1)?.id, '写入 Check 详情');
+});
+
+test('Check 详情写入失败同样撤回覆盖完成状态，且只撤回一次', async () => {
+  for (const reportFails of [false, true]) {
+    const publication = createPublication();
+    const coverage: boolean[] = [];
+    await finishPublication(publication, {
+      saveCoverage: async (complete) => { coverage.push(complete); },
+      saveReport: async () => { if (reportFails) throw new Error('report unavailable'); },
+      writeCheckText: async () => { throw new Error('output unavailable'); },
+    });
+    assert.deepEqual(coverage, [true, false]);
+    assert.equal(publication.operations.filter(item => item.id === '撤回覆盖完成状态').length, 1);
+  }
+});
+
 test('来源已审的文件数由发布器写入，没有时不输出', () => {
   assert.equal(sourceReviewedNotice(0), '');
   assert.equal(sourceReviewedNotice(508), '> 508 个文件因来源 PR 已审而未重复审查。');

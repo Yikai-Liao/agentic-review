@@ -239,7 +239,7 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 发布前上传 `review-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 `notes.md`、文件进度、结果及可信范围；Agent 或发布失败时，下一轮仍可恢复其中未完成的范围。发布成功后，`publication-report.json` 随 `review-completed-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>` 一起归档，不再单独上传成功报告。发布失败时，报告单独存入 `review-publication-<run>-<attempt>`；草稿组装或归档失败时另存原始诊断稿，不将其当作可恢复范围。原有工作区命名和历史查找协议保持一致。
 
-`publication-report.json` 在摘要、Check 详情与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这些出口的结果。Actions 摘要和 Check 详情记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败或完成工作区上传失败同样不能让 Check 成功。全部操作成功时，正文和回复不附加执行说明；正文或请求回复发布前已有操作失败或被阻断时，开头提示失败数量。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
+`publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；Check 详情最后写入，列出此前全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果；Check 详情写入失败同样回写 coverage，其结果只在进程日志中。进程日志最后汇总全部操作。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败或完成工作区上传失败同样不能让 Check 成功。全部操作成功时，正文和回复不附加执行说明；正文或请求回复发布前已有操作失败或被阻断时，开头提示失败数量。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
 
 同一运行重跑时，publisher 完整分页读取本 bot 发布的标记，复用已发布的正文、finding 和回复；正文中的执行说明按本次结果更新，resolve/reopen 重新核对远端状态。标记绑定运行、目标 PR、head、操作及内容。写请求报错可能意味着远端已生效，本轮不盲目重试；下次先核对标记。GitHub 写入与网络响应并非原子事务，远端尚不可见时无法保证恰好一次发布。
 
