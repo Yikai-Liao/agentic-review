@@ -287,18 +287,39 @@ test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同
   handlers.get('before_provider_request')!({ payload: { input: [] } }, { model, modelRegistry: registry });
   assert.deepEqual(model.cost, price);
 
-  // 目录没有价格的网关别名：Review 照常运行，用量标记价格未知，发布时费用显示“未提供”。
-  const unknown = new Map<string, Function>();
-  costExtension({ on: (event, handler) => { unknown.set(event, handler); } });
-  const alias = modelOf({ id: 'gateway/opus-alias', api: 'openai-responses' });
+  // 经扩展完整处理一次请求与回合，再从它保存的 review-usage.json 生成发布结果。
+  const directory = mkdtempSync(path.join(tmpdir(), 'review-price-'));
+  const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
+  process.env.REVIEW_WORKSPACE_PATH = directory;
+  t.after(() => {
+    if (originalWorkspace === undefined) delete process.env.REVIEW_WORKSPACE_PATH;
+    else process.env.REVIEW_WORKSPACE_PATH = originalWorkspace;
+    rmSync(directory, { recursive: true, force: true });
+  });
   t.mock.method(console, 'info', () => {});
-  assert.doesNotThrow(() => unknown.get('before_provider_request')!({ payload: { input: [] } },
-    { model: alias, modelRegistry: registry, abort: () => assert.fail('无价格别名不应中止') }));
-  assert.deepEqual(alias.cost, modelOf().cost);
-  const usage = { input: 5, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
-  const unpriced = { turns: 1, priceKnown: false, first: usage, total: usage };
-  const footer = buildFooter({ ...metadata, cost: 0, usage: unpriced });
-  assert.match(footer, /Cost \(est\.\): 未提供/);
-  assert.doesNotMatch(footer, /\$0\.0000/);
-  assert.throws(() => parseReviewUsage({ ...unpriced, priceKnown: undefined }), /Invalid review price state/);
+  const publishedFooter = (id: string) => {
+    const run = new Map<string, Function>();
+    costExtension({ on: (event, handler) => { run.set(event, handler); } });
+    const registered = modelOf({ id, api: 'openai-responses' });
+    run.get('before_provider_request')!({ payload: { input: [] } },
+      { model: registered, modelRegistry: registry, abort: () => assert.fail('缺少价格不应中止 Review') });
+    // 模拟 SDK 按注册模型当时的 cost 计算用量。
+    const rate = registered.cost.input;
+    const usage = { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1_000_000,
+      cost: { input: rate, output: 0, cacheRead: 0, cacheWrite: 0, total: rate } };
+    run.get('message_end')!({ message: { role: 'assistant', usage } }, { abort: () => assert.fail('用量有效') });
+    run.get('turn_end')!({ turnIndex: 0, message: { role: 'assistant', provider: 'openai', model: id, stopReason: 'stop', usage } });
+    const saved = parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8')));
+    return { saved, footer: buildFooter({ ...metadata, cost: rate, usage: saved }) };
+  };
+  // 有价模型：保存价格已知，费用正常显示。
+  const known = publishedFooter('gpt-test');
+  assert.equal(known.saved.priceKnown, true);
+  assert.match(known.footer, /Cost \(est\.\): \$2\.0000/);
+  // 目录没有价格的网关别名：Review 照常运行，保存价格未知，发布时费用显示“未提供”。
+  const unknown = publishedFooter('gateway/opus-alias');
+  assert.equal(unknown.saved.priceKnown, false);
+  assert.match(unknown.footer, /Cost \(est\.\): 未提供/);
+  assert.doesNotMatch(unknown.footer, /\$0\.0000/);
+  assert.throws(() => parseReviewUsage({ ...unknown.saved, priceKnown: undefined }), /Invalid review price state/);
 });
