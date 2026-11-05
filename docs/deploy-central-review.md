@@ -247,7 +247,7 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 本轮新 finding 作为 `comments[]` 随总评一次 `POST /pulls/{n}/reviews` 发布，页面上只新增一条时间线记录。整条 Review 会因任一行号不在 diff 中被 GitHub 拒绝，因此 `submit_review` 在提交时按 `git diff -M --unified=3` 的右侧 hunk 核对每条 finding，越界时返回该文件的可评论范围让模型修正，发布阶段不再逐条重试。无法绑定 diff 行的 finding（`line: null`）挂在 PR 改动文件上：创建 Review 的 `comments[]` 不支持文件级评论，publisher 在总评之后用 `POST /pulls/{n}/comments` 加 `subject_type: file` 逐条发布，每条单独占一条时间线记录。它与 inline finding 一样有 thread 状态，计入标题和索引，下一轮可标注和关闭。`submit_review` 校验 `path` 属于 PR 改动的文件。
 
-总评首行带发布标记与 `agentic-review:automatic-summary` 标记，第二行是 publisher 生成的标题。新的 automatic 总评发布后，publisher 用 `PUT /pulls/{n}/reviews/{id}` 把同一 PR 中本 bot 更早、尚未收起的 automatic 总评改为一行“已被某次审查取代”的指向（带 `agentic-review:superseded` 标记），原文放进 `<details>`，可展开查看，下一轮输入也仍能读取。按 Review ID 判断先后，同一运行重跑只收起比自身更早的总评，并补做上次失败的收起；已收起的总评不会被重跑恢复。评论请求的答复可能只覆盖局部范围，既不收起其他总评，也不被收起。收起只改总评正文，其下的 inline 讨论不受影响。
+总评首行带发布标记与 `agentic-review:automatic-summary` 标记，第二行是 publisher 生成的标题。新的 automatic 总评发布后，publisher 用 `PUT /pulls/{n}/reviews/{id}` 把同一 PR 中本 bot 更早、尚未收起的 automatic 总评改为一行“已被某次审查取代”的指向（带 `agentic-review:superseded` 标记），原文放进 `<details>`，可展开查看，下一轮输入也仍能读取。按 Review ID 判断先后，同一运行重跑只收起比自身更早的总评，并补做上次失败的收起；已收起的总评不会被重跑恢复。本运行的总评已被后续审查接管时，重跑仍补发自己未发出的文件级 finding（总评列出的问题都要有讨论），但不再改动 thread 状态、标注或回复；为此 thread 状态写入需要先读到 Review 列表，读取失败时不写。评论请求的答复可能只覆盖局部范围，既不收起其他总评，也不被收起。收起只改总评正文，其下的 inline 讨论不受影响。
 
 没有新 finding、没有 thread 状态变化且标题与最新 automatic 总评相同时，publisher 就地更新该总评，不新建 Review。就地更新把新发布标记追加在首行已有标记之后：旧运行重跑仍能凭自己的标记找到这条总评，而首行不以自己的标记结尾，说明它已不是当前结论，重跑不改写正文，也不重复发布 finding。关闭历史问题时，publisher 在本 bot 创建的 root 首行写入带 `agentic-review:status` 标记的状态标注，再 resolve，不另发回复；重现、风险升级，或 root 不是本 bot 创建时才回复。每次收起、标注和回复都是独立的发布操作，失败时计入运行报告和 Check 结论，不影响已发布的新总评。
 

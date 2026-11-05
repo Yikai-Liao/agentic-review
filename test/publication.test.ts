@@ -286,6 +286,34 @@ test('无法绑定 diff 行的问题在总评之后发布为文件级讨论，�
   assert.ok(state.reviews[0].body.includes(`- P2：部署文档漏掉新增的权限 · [讨论](${thread.html_url})`));
 });
 
+test('总评被后续审查取代后重跑：补发失败的文件级讨论，但不改动讨论状态', async () => {
+  const state = fixture();
+  const fileLevel: ReviewResult['comments'][number] = {
+    path: 'docs/deploy.md', line: null, start_line: null, label: 'P2', title: '部署文档漏掉新增的权限', body: '……',
+  };
+  // 重跑使用封存的同一结果；run-1 关闭了他人发起的讨论 123。
+  const first = { ...empty, body: '结论。', comments: [fileLevel],
+    thread_updates: [{ root_comment_id: 123, status: 'resolved' as const, evidence: '鉴权检查已恢复（`src/auth.ts:3`）。' }] };
+  state.fail = call => call.method === 'POST' && call.url.endsWith('/pulls/7/comments') ? new Response('unavailable', { status: 502 }) : undefined;
+  const failed = await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first });
+  assert.deepEqual(failed.operations.filter(item => item.status === 'failed').map(item => item.id), ['finding 1 (docs/deploy.md:file)']);
+  assert.ok(state.resolved.has('thread-123'));
+  state.fail = () => undefined;
+  // 后续审查判定 123 重现，发布新总评并收起 run-1 的总评。
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, body: '结论。',
+    thread_updates: [{ root_comment_id: 123, status: 'reintroduced', evidence: '回退提交再次跳过了鉴权检查。' }] } }));
+  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
+  assert.equal(state.resolved.has('thread-123'), false);
+  // run-1 重跑：补发文件级讨论；不恢复已收起的总评，也不把 123 重新关闭。
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first }));
+  assert.equal(state.comments.filter(item => item.subject_type === 'file').length, 1);
+  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
+  assert.equal(state.resolved.has('thread-123'), false);
+  // 再次重跑不重复补发。
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first }));
+  assert.equal(state.comments.filter(item => item.subject_type === 'file').length, 1);
+});
+
 test('部分覆盖时标题写明未审完，未审文件清单在正文前', async () => {
   const state = fixture();
   await publish(state, { requestSource: 'automatic', coverage: { reviewed: 2, total: 3, sourceReviewed: 0 },
@@ -473,7 +501,8 @@ for (const kind of ['comments', 'threads', 'reviews'] as const) {
       assert.equal(state.resolved.size, 0);
       assert.ok(state.comments.some(item => item.body.includes('状态更新：')));
     } else {
-      assert.equal(state.resolved.size, 2);
+      // 状态写入要先确认本运行的总评未被后续审查接管，读取失败时不写。
+      assert.equal(state.resolved.size, 0);
     }
   });
 }

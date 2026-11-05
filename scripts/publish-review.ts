@@ -266,6 +266,16 @@ export async function publishReview({
   };
   const compose = (...parts: string[]) => parts.filter(Boolean).join('\n\n');
   const runLink = metadataBlock(`[View action run](${runUrl})`);
+  const firstLine = (body: string) => body.split('\n', 1)[0];
+  const summaryTag = marker('summary', result);
+  // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
+  const summaryHead = requestSource === 'automatic' ? `${summaryTag}${automaticSummaryMarker}` : summaryTag;
+  // 首行以本次标记结尾才是当前结论；已被收起或被后续运行就地更新的总评说明后续审查已接管。
+  const isCurrent = (body: string) => !isSuperseded(body) && firstLine(body).endsWith(summaryHead);
+  const ownSummary = () => reviews?.value?.find(item => isBot(item) && firstLine(item.body).includes(summaryTag));
+  // 本运行的总评已被后续审查接管时，重跑不再改动讨论状态，以免覆盖后续审查的判断。
+  const replaced = () => { const own = ownSummary(); return own !== undefined && !isCurrent(own.body); };
+  const reviewRead = reviews ? [reviews] : [];
 
   for (const update of result.thread_updates) {
     const id = `thread ${update.root_comment_id}`;
@@ -280,7 +290,8 @@ export async function publishReview({
     const statusLine = `**${label}**（${short(expectedHeadSha)}）：${update.evidence} ${statusTag}${statusMarker}`;
     // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
     await Promise.all([
-      run(`${id} 状态同步`, [root, threads!], async () => {
+      run(`${id} 状态同步`, [root, threads!, ...reviewRead], async () => {
+        if (replaced()) return;
         const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
         if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
         const shouldResolve = update.status === 'resolved';
@@ -296,8 +307,8 @@ export async function publishReview({
         if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
       }),
       // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
-      run(`${id} 状态标注`, [root], async () => {
-        if (!isBot(root.value!)) return;
+      run(`${id} 状态标注`, [root, ...reviewRead], async () => {
+        if (!isBot(root.value!) || replaced()) return;
         const body = root.value!.body;
         const [first, ...others] = body.split('\n\n');
         const next = `${statusLine}\n\n${first.endsWith(statusMarker) ? others.join('\n\n') : body}`;
@@ -306,8 +317,8 @@ export async function publishReview({
         });
       }),
       // 关闭只需标注；重现、升级需要通知人，他人发起的讨论也无法改写原文，二者改为回复。
-      run(`${id} 状态回复`, [root], async () => {
-        if (update.status === 'resolved' && isBot(root.value!)) return;
+      run(`${id} 状态回复`, [root, ...reviewRead], async () => {
+        if ((update.status === 'resolved' && isBot(root.value!)) || replaced()) return;
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
         if (replies.some(item => item.body.includes(tag))) return;
@@ -357,7 +368,6 @@ export async function publishReview({
     const inline = findings.filter(({ comment }) => comment.line !== null);
     const fileLevel = findings.filter(({ comment }) => comment.line === null);
     const review = await run('Review 正文', [reviews!, comments!, threads!], async () => {
-      const tag = marker('summary', result);
       const automatic = requestSource === 'automatic';
       const index = summaryIndex({
         result, findings: findings.map(item => item.tag), comments: comments!.value!.filter(isBot),
@@ -375,15 +385,12 @@ export async function publishReview({
         ...(coverage ? [`已审 ${coverage.reviewed}/${coverage.total} 个文件${coverage.sourceReviewed
           ? `（其中 ${coverage.sourceReviewed} 个由来源 PR 审过）` : ''}`] : []),
       ].join(' · ');
-      // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
-      const head = automatic ? `${tag}${automaticSummaryMarker}` : tag;
       const render = (first: string) => `${first}\n${compose(heading, notice(), coverageNotice,
         placeIndex(result.body, index.markdown))}\n\n---\n\n${metadataBlock(`${scope} | ${footer}`)}`;
-      const firstLine = (body: string) => body.split('\n', 1)[0];
-      const existing = reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(tag));
+      const existing = ownSummary();
       if (existing) {
-        // 首行以本次标记结尾才是当前结论；已被收起或被后续运行就地更新的总评保持原样，重跑旧运行不能改写它。
-        const current = !isSuperseded(existing.body) && firstLine(existing.body).endsWith(head);
+        // 已被后续审查接管的总评保持原样，重跑旧运行不能改写它。
+        const current = isCurrent(existing.body);
         const body = render(firstLine(existing.body));
         if (current && existing.body !== body) await request(`${route}/reviews/${existing.id}`, {
           method: 'PUT', body: JSON.stringify({ body }),
@@ -394,14 +401,14 @@ export async function publishReview({
       // 没有新问题、没有状态变化且结论标题不变时，就地更新最新总评，不产生新的时间线条目和通知。
       if (latest && !result.comments.length && !result.thread_updates.length && latest.body.split('\n')[1] === heading) {
         // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评，并据首行结尾判断自己已不是当前结论。
-        const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${head}`);
+        const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${summaryHead}`);
         await request(`${route}/reviews/${latest.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
         return { id: latest.id, url: latest.html_url, current: true };
       }
       // 新问题挂在同一条 Review 下，每轮只占一条时间线记录；行号已在提交时按 PR diff 校验。
       const response = await request<{ id: number; html_url: string }>(`${route}/reviews`, {
         method: 'POST', body: JSON.stringify({
-          body: render(head), commit_id: expectedHeadSha, event: 'COMMENT',
+          body: render(summaryHead), commit_id: expectedHeadSha, event: 'COMMENT',
           ...(inline.length ? { comments: inline.map(({ comment, tag: findingTag }) => ({
             path: comment.path, line: comment.line, side: 'RIGHT', body: `${renderFinding(comment)}\n\n${findingTag}`,
             ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
@@ -412,8 +419,8 @@ export async function publishReview({
     });
     reviewUrl = review.value?.url ?? '';
     // 创建 Review 的 comments 不支持文件级讨论，只能在总评之后单独发布；它与 inline 问题一样有 thread 状态，
-    // 下一轮能进入索引并被关闭。只有当前结论补发，已被后续审查取代的旧运行重跑不再发布。
-    if (review.value?.current) {
+    // 下一轮能进入索引并被关闭。总评中列出的问题都必须有讨论，因此总评已被取代时重跑也补发，按标记去重。
+    if (review.value) {
       for (const { comment, id, tag: findingTag } of fileLevel) {
         await run(id, [review], async () => {
           if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
