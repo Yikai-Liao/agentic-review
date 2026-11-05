@@ -5,10 +5,6 @@ import { parseReviewUsage, type ModelUsage, type ReviewUsage } from '../../scrip
 
 type AssistantMessage = {
   role: 'assistant';
-  provider: string;
-  model: string;
-  responseId?: string;
-  stopReason: string;
   usage: ModelUsage;
 };
 
@@ -21,10 +17,7 @@ type ExtensionAPI = {
   on(event: 'message_end', handler: (event: { message: { role: string } }, ctx: {
     abort(): void;
   }) => void): void;
-  on(event: 'turn_end', handler: (event: {
-    turnIndex: number;
-    message: { role: string };
-  }) => void): void;
+  on(event: 'turn_end', handler: (event: { message: { role: string } }) => void): void;
 };
 
 export default function reviewCost(pi: ExtensionAPI) {
@@ -95,21 +88,11 @@ export default function reviewCost(pi: ExtensionAPI) {
     }
   });
 
-  pi.on('turn_end', ({ turnIndex, message: ended }) => {
+  pi.on('turn_end', ({ message: ended }) => {
     if (usageError) throw usageError;
     if (ended.role !== 'assistant') return;
-    const message = ended as AssistantMessage;
-    const { input, output, cacheRead, cacheWrite, reasoning, totalTokens, cost } = message.usage;
-    // 使用 Pi 已按模型目录和服务档位计算的费用，不复制单价或输出会话正文。
-    console.info('[review-usage]', JSON.stringify({
-      turn: turnIndex,
-      model: `${message.provider}/${message.model}`,
-      responseId: message.responseId,
-      stopReason: message.stopReason,
-      tokens: { input, output, cacheRead, cacheWrite, reasoning, total: totalTokens },
-      cost: { input: cost.input, output: cost.output, cacheRead: cost.cacheRead, cacheWrite: cost.cacheWrite, total: cost.total },
-    }));
-    const usage = structuredClone(message.usage);
+    // 每回合明细已在会话 JSONL 的 assistant 消息中，这里只累计，不写入运行日志。
+    const usage = structuredClone((ended as AssistantMessage).usage);
     if (!summary) summary = { turns: 1, first: usage, total: structuredClone(usage) };
     else {
       summary.turns++;
