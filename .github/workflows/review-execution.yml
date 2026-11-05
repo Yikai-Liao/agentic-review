@@ -213,10 +213,11 @@ jobs:
       - name: Ensure ripgrep is available
         run: |
           if ! command -v rg >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ripgrep
+            # 安装进度不进入运行日志；apt 错误仍输出到 stderr 并使步骤失败。
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ripgrep >/dev/null
           fi
-          rg --version
+          rg --version | head -n 1
 
       - name: Restore trusted Pi fold extension
         id: pi-fold

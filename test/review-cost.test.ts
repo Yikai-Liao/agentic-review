@@ -162,7 +162,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   assert.throws(() => turn({ turnIndex: 3, message: { role: 'assistant' } }), /review token usage/);
 });
 
-test('逐轮费用保留失败及推理分项，保存无正文的累计与首轮统计供发布', t => {
+test('逐轮费用保留失败及推理分项，只保存无正文的累计与首轮统计供发布，不写运行日志', t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-usage-'));
   const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
   process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -177,18 +177,13 @@ test('逐轮费用保留失败及推理分项，保存无正文的累计与首�
   t.mock.method(console, 'info', (...args: unknown[]) => { lines.push(args); });
   const turn = handlers.get('turn_end')!;
   turn({ turnIndex: 0, message: { role: 'user', content: 'private source' } });
-  assert.equal(lines.length, 0);
   const cost = { input: 0.00006, output: 0.02, cacheRead: 0.05, cacheWrite: 0.2, total: 0.27006 };
   for (const stopReason of ['toolUse', 'error']) {
     turn({ turnIndex: 1, message: { role: 'assistant', provider: 'openai', model: 'gpt-6.1-sol',
       responseId: 'response-1', content: 'private source', errorMessage: 'private diagnostics', stopReason,
       usage: { input: 30, output: 2000, reasoning: 1200, cacheRead: 500000, cacheWrite: 80000, totalTokens: 582030, cost } } });
-    const [prefix, value] = lines.at(-1)! as string[];
-    assert.equal(prefix, '[review-usage]');
-    assert.deepEqual(JSON.parse(value), { turn: 1, model: 'openai/gpt-6.1-sol', responseId: 'response-1', stopReason,
-      tokens: { input: 30, output: 2000, reasoning: 1200, cacheRead: 500000, cacheWrite: 80000, total: 582030 }, cost });
-    assert.ok(!value.includes('private'));
   }
+  assert.equal(lines.length, 0);
   const saved = readFileSync(path.join(directory, 'review-usage.json'), 'utf8');
   const summary = parseReviewUsage(JSON.parse(saved));
   assert.equal(summary.turns, 2);
