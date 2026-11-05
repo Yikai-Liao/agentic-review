@@ -14,35 +14,40 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
   const directory = await mkdtemp(path.join(tmpdir(), 'review-pipeline-'));
   const writes: unknown[] = [];
   let failReview = false;
+  let failCollapse = false;
   let failCoveragePath: string | undefined;
+  const reviews: Array<{ id: number; body: string; html_url: string; user: { login: string } }> = [];
   const server = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk;
+    response.setHeader('Content-Type', 'application/json');
     if (request.method === 'GET' && request.url?.startsWith('/repos/owner/repo/pulls/7/reviews?')) {
-      response.setHeader('Content-Type', 'application/json');
-      response.end('[]');
+      response.end(JSON.stringify(reviews));
       return;
     }
     if (request.method === 'GET' && request.url?.startsWith('/repos/owner/repo/pulls/7/comments?')) {
-      response.setHeader('Content-Type', 'application/json'); response.end('[]'); return;
+      response.end('[]'); return;
     }
-    if (request.method === 'POST' && request.url === '/repos/owner/repo/pulls/7/comments') {
-      const finding = JSON.parse(body);
-      writes.push(finding);
-      response.setHeader('Content-Type', 'application/json');
-      response.statusCode = finding.line === 1 ? 422 : 201;
-      response.end(JSON.stringify(finding.line === 1 ? { message: 'invalid diff line' } : { html_url: 'https://github.test/finding' }));
+    if (request.method === 'POST' && request.url === '/graphql') {
+      response.end(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
+        nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } } } }));
       return;
     }
+    if (request.method === 'PUT' && request.url?.startsWith('/repos/owner/repo/pulls/7/reviews/')) {
+      writes.push(JSON.parse(body));
+      response.statusCode = failCollapse ? 503 : 200;
+      response.end(JSON.stringify(failCollapse ? { message: 'old review unavailable' } : {}));
+      return;
+    }
+    assert.equal(request.method, 'POST');
     assert.equal(request.url, '/repos/owner/repo/pulls/7/reviews');
     writes.push(JSON.parse(body));
-    response.setHeader('Content-Type', 'application/json');
     if (failCoveragePath) {
       await rm(failCoveragePath);
       await mkdir(failCoveragePath);
     }
     response.statusCode = failReview ? 503 : 201;
-    response.end(JSON.stringify(failReview ? { message: 'review unavailable' } : { html_url: 'https://github.test/review/1' }));
+    response.end(JSON.stringify(failReview ? { message: 'review unavailable' } : { id: 2, html_url: 'https://github.test/review/2' }));
   });
   try {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -141,7 +146,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
-    const bodyFinding = '## 自动代码审查 ⬆️\n\n问题详情：auth.ts 删除必要的权限约束，未授权请求可到达写入路径；须恢复约束并复核合法请求。';
+    const bodyFinding = '**结论**：有一个问题需要修改。\n\n**问题详情**\n\n- auth.ts 删除必要的权限约束，未授权请求可到达写入路径；须恢复约束并复核合法请求。';
     await writeFile(resultPath, JSON.stringify({ body: bodyFinding, comments: [], thread_updates: [], request_reply: null }));
     await rm(usagePath);
     await assert.rejects(publish(), /review-usage.json/);
@@ -165,27 +170,34 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     // 两类请求的身份与完成状态均已验证；共享 CLI 故障链只执行一次。
     if (source === 'pr_comment') return;
 
-    // 一条 finding 失败也必须发布后续 finding 和正文，但退出失败且不能推进 checkpoint。
+    // 新问题随正文一次发布；收起旧总评失败时新总评照常发布，但退出失败且不能推进 checkpoint。
     await assemble();
-    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [1, 2].map(line => ({
-      path: 'auth.ts', line, start_line: null, body: `finding ${line}`,
-    })), thread_updates: [], request_reply: null }));
+    reviews.push({ id: 1, html_url: 'https://github.test/review/1', user: { login: 'review-app[bot]' },
+      body: '<!-- agentic-review-publication:old --><!-- agentic-review:automatic-summary -->\n## 自动审查：没有需要处理的问题\n\n旧结论' });
+    failCollapse = true;
+    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [{
+      path: 'auth.ts', line: 1, start_line: null, label: 'P2', title: '未授权请求可到达写入路径', body: 'finding',
+    }], thread_updates: [], request_reply: null }));
     const beforePartial = writes.length;
-    await assert.rejects(publish(), /invalid diff line/);
-    assert.equal(writes.length - beforePartial, 3);
+    await assert.rejects(publish(), /old review unavailable/);
+    assert.equal(writes.length - beforePartial, 2);
+    const bundled = writes[beforePartial] as { comments: Array<{ path: string; line: number; body: string }> };
+    assert.deepEqual(bundled.comments.map(({ path, line }) => ({ path, line })), [{ path: 'auth.ts', line: 1 }]);
+    assert.match(bundled.comments[0].body, /\*\*P2：未授权请求可到达写入路径\*\*/);
     const partialCoverage = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(partialCoverage.status, 'draft');
     assert.equal(partialCoverage.complete_audit, false);
     const reportPath = path.join(workspace, 'publication-report.json');
     const partial = JSON.parse(await readFile(reportPath, 'utf8'));
-    assert.equal(partial.operations.filter((item: any) => item.status === 'failed').length, 1);
     assert.equal(partial.operations.find((item: any) => item.id === 'Review 正文').status, 'succeeded');
+    assert.equal(partial.operations.find((item: any) => item.id === '收起旧 Review 1').status, 'failed');
     assert.match(await readFile(publishEnv.GITHUB_STEP_SUMMARY, 'utf8'), /GitHub 发布操作未全部完成/);
+    reviews.length = 0;
+    failCollapse = false;
     failReview = true;
     await assert.rejects(publish(), /review unavailable/);
-    const multiple = JSON.parse(await readFile(reportPath, 'utf8'));
-    assert.equal(multiple.operations.filter((item: any) => item.status === 'failed').length, 2);
-    assert.equal(multiple.operations.find((item: any) => item.id.startsWith('finding 2')).status, 'succeeded');
+    const failedReview = JSON.parse(await readFile(reportPath, 'utf8'));
+    assert.equal(failedReview.operations.find((item: any) => item.id === 'Review 正文').status, 'failed');
     // GitHub 全部成功时，任一报告出口失败仍须回写 draft，不能保留已有 published 状态。
     failReview = false;
     await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [], thread_updates: [], request_reply: null }));

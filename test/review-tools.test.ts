@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, open, readFile, rm, writeFile, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -6,13 +7,27 @@ import { test } from 'node:test';
 import { parse } from 'yaml';
 import reviewTools from '../.github/pi-extensions/review-tools.ts';
 import { buildFooter } from '../scripts/publish-review.ts';
+import { commentableRanges } from '../scripts/review-diff-lines.ts';
 
 import { inventoryDigest } from '../scripts/review-coverage.ts';
 import { buildReviewRequest } from '../scripts/review-request.ts';
 import { parseReviewResult } from '../scripts/review-result.ts';
 
 process.env.REVIEW_TIME_BUDGET_SECONDS = '540';
-const headSha = 'b'.repeat(40);
+// 新问题的行号在提交时按真实 PR diff 校验：base 有 60 行，head 改写第 40-42 行。
+const target = await mkdtemp(path.join(tmpdir(), 'review-target-'));
+const git = (...args: string[]) => execFileSync('git', ['-C', target, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim();
+git('init', '-q');
+await mkdir(path.join(target, 'src'));
+const lines = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`);
+await writeFile(path.join(target, 'src/auth.ts'), `${lines.join('\n')}\n`);
+git('add', '.');
+git('commit', '-qm', 'base');
+const baseSha = git('rev-parse', 'HEAD');
+await writeFile(path.join(target, 'src/auth.ts'), `${lines.map((line, index) => index >= 39 && index <= 41 ? `${line} changed` : line).join('\n')}\n`);
+git('commit', '-qam', 'head');
+const headSha = git('rev-parse', 'HEAD');
+process.on('exit', () => execFileSync('rm', ['-rf', target]));
 async function assertSubmissionFailed(response: Promise<any>, error: RegExp) {
   const failure = await response;
   assert.equal(failure.details.queued, false);
@@ -21,7 +36,7 @@ async function assertSubmissionFailed(response: Promise<any>, error: RegExp) {
 }
 const result = {
   body: '## Review 总结\n\n这个 PR 修复了清理行为。',
-  comments: [{ path: 'src/auth.ts', line: 42, start_line: 40, body: '**[P1] 仍会误删**\n\n详细证据。' }],
+  comments: [{ path: 'src/auth.ts', line: 42, start_line: 40, label: 'P1' as const, title: '过期会话仍能删除记录', body: '详细证据。' }],
   thread_updates: [{
     root_comment_id: 123,
     status: 'resolved' as const,
@@ -32,7 +47,8 @@ const result = {
 
 async function configureProgress(directory: string, source: 'automatic' | 'pr_comment' | 'thread' = 'automatic') {
   const request = buildReviewRequest({ source, commentId: source === 'automatic' ? '' : '8', rootCommentId: source === 'automatic' ? '' : '8',
-    text: '审查请求\r\n保留换行', repository: 'owner/repo', pullNumber: 7, baseSha: 'a'.repeat(40), headSha, runId: '99' });
+    text: '审查请求\r\n保留换行', repository: 'owner/repo', pullNumber: 7, baseSha, headSha, runId: '99' });
+  process.env.REVIEW_TARGET_PATH = target;
   process.env.REVIEW_CONTEXT_PATH = path.join(directory, 'review-context.json');
   process.env.REVIEW_PROGRESS_PATH = path.join(directory, 'workspace', 'review-progress.json');
   process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
@@ -88,7 +104,7 @@ test('范围与提交只需要模型判断和文件进度，不搬运请求身�
     await assertSubmissionFailed(tools.get('submit_review').execute('call', summary), /scope must be recorded/);
     await tools.get('set_review_scope').execute('call', {
       mode: 'focused', rationale: '用户明确限定鉴权链路。', explicit_text: '只看 auth',
-      ranges: [{ targets: ['src/auth/**'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40) }],
+      ranges: [{ targets: ['src/auth/**'], comparison_start: baseSha, comparison_end: headSha }],
     });
     const saved = JSON.parse(await readFile(progressPath, 'utf8'));
     assert.deepEqual(Object.keys(saved).sort(), ['ledger', 'scope']);
@@ -118,7 +134,7 @@ test('automatic reviews cannot record a focused partial scope', async () => {
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     let scopeTool: any;
     reviewTools({ on: () => {}, registerTool: (definition) => { if (definition.name === 'set_review_scope') scopeTool = definition; } });
-    await assert.rejects(scopeTool.execute('call', { mode: 'focused', rationale: '只看一个文件。', explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: 'a'.repeat(40), comparison_end: 'b'.repeat(40)  }]}), /complete PR scope/);
+    await assert.rejects(scopeTool.execute('call', { mode: 'focused', rationale: '只看一个文件。', explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: baseSha, comparison_end: headSha  }]}), /complete PR scope/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -145,6 +161,11 @@ test('submit_review rejects invalid results without sealing and allows correctio
       [{ ...result, body: '中'.repeat(400_000) }, /too large/],
       [{ ...result, comments: [{ ...result.comments[0], path: '../secret' }] }, /comment path/],
       [{ ...result, comments: [{ ...result.comments[0], start_line: 43 }] }, /start_line/],
+      [{ ...result, comments: [{ ...result.comments[0], label: 'P3' }] }, /comment label; use one of P0, P1/],
+      [{ ...result, comments: [{ ...result.comments[0], title: '两行\n标题' }] }, /comment title/],
+      [{ ...result, comments: [{ ...result.comments[0], start_line: null, line: 10 }] }, /src\/auth\.ts:10 is outside the PR diff\. Commentable line ranges in this file: 37-45/],
+      [{ ...result, comments: [{ ...result.comments[0], path: 'src/other.ts' }] }, /no commentable lines/],
+      [{ ...result, thread_updates: [{ ...result.thread_updates[0], evidence: '第一行\n第二行原因' }] }, /thread evidence/],
       [{ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }, /thread status/],
       [{ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }, /Duplicate thread update/],
       [{ ...result, request_reply: '字符串答复' }, /Invalid request reply/],
@@ -448,4 +469,14 @@ test('production workflow shares the thinking level between Pi and the published
       model: 'openai/gpt-test', thinkingLevel: level,
     }).includes(`(thinking: ${level})`));
   }
+});
+
+test('可评论行按 GitHub 的三行上下文与改名识别计算，删除的文件没有可评论行', () => {
+  const ranges = commentableRanges([
+    'diff --git a/old name.ts b/new name.ts', 'similarity index 90%', 'rename from old name.ts', 'rename to new name.ts',
+    '--- a/old name.ts\t', '+++ b/new name.ts\t', '@@ -10,7 +10,8 @@ fn', ' a', '+b',
+    'diff --git a/gone.ts b/gone.ts', '--- a/gone.ts', '+++ /dev/null', '@@ -1,3 +0,0 @@',
+    'diff --git a/one.ts b/one.ts', '--- a/one.ts', '+++ b/one.ts', '@@ -1 +1 @@', '@@ -5,0 +6,0 @@',
+  ].join('\n'));
+  assert.deepEqual([...ranges], [['new name.ts', [[10, 17]]], ['one.ts', [[1, 1]]]]);
 });

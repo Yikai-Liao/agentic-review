@@ -401,6 +401,8 @@ jobs:
           HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
           REVIEW_INVENTORY_DIGEST: ${{ steps.review-context.outputs.inventory_digest }}
           REVIEW_COMPARISON_START: ${{ steps.review-context.outputs.comparison_start }}
+          # 总评页脚标出上次完整审查的提交，读者据此判断本轮看了哪段变化。
+          REVIEW_CHECKPOINT_HEAD: ${{ steps.review-context.outputs.checkpoint_head }}
           REVIEW_RUN_ID: ${{ github.run_id }}
           REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
           REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}

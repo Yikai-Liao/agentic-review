@@ -243,11 +243,13 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 同一运行重跑时，publisher 完整分页读取本 bot 发布的标记，复用已发布的正文、finding 和回复；正文中的执行说明按本次结果更新，resolve/reopen 重新核对远端状态。标记绑定运行、目标 PR、head、操作及内容。写请求报错可能意味着远端已生效，本轮不盲目重试；下次先核对标记。GitHub 写入与网络响应并非原子事务，远端尚不可见时无法保证恰好一次发布。
 
-### 旧总评折叠
+### 每轮一条 Review 与旧总评收起
 
-automatic 总评带固定的 `agentic-review:automatic-summary` 标记。新的 automatic 总评发布后，publisher 将同一 PR 中本 bot 更早的 automatic 总评用 GraphQL `minimizeComment` 折叠为 `OUTDATED`；页面上只展开最新结论，旧总评原文保留，可点开查看或经 API 读取。按 Review ID 判断先后，同一运行重跑只折叠比自身更早的总评，不会折叠后来的结果；已折叠的 Review 先经 GraphQL 核对，不重复写入。评论请求的答复可能只覆盖局部范围，既不折叠其他总评，也不被 automatic 总评折叠。只承载 inline finding 或 thread 回复的空 Review 不折叠，以免隐藏原讨论。
+本轮新 finding 作为 `comments[]` 随总评一次 `POST /pulls/{n}/reviews` 发布，页面上只新增一条时间线记录。整条 Review 会因任一行号不在 diff 中被 GitHub 拒绝，因此 `submit_review` 在提交时按 `git diff -M --unified=3` 的右侧 hunk 核对每条 finding，越界时返回该文件的可评论范围让模型修正，发布阶段不再逐条重试。
 
-每个折叠是独立的发布操作，失败时与其他写入一样计入运行报告和 Check 结论，不影响已发布的新总评。折叠不改变 REST 返回的 Review 内容，旧总评在下一轮输入中仍作为未变化的参考记录，不会被当作新讨论；只写在总评正文中的 finding 也因此保留在审查输入中。
+总评首行带发布标记与 `agentic-review:automatic-summary` 标记，第二行是 publisher 生成的标题。新的 automatic 总评发布后，publisher 用 `PUT /pulls/{n}/reviews/{id}` 把同一 PR 中本 bot 更早、尚未收起的 automatic 总评改为一行“已被某次审查取代”的指向（带 `agentic-review:superseded` 标记），原文放进 `<details>`，可展开查看，下一轮输入也仍能读取。按 Review ID 判断先后，同一运行重跑只收起比自身更早的总评；已收起的总评不会被重跑恢复。评论请求的答复可能只覆盖局部范围，既不收起其他总评，也不被收起。收起只改总评正文，其下的 inline 讨论不受影响。
+
+没有新 finding、没有 thread 状态变化且标题与最新 automatic 总评相同时，publisher 就地更新该总评，不新建 Review。关闭历史问题时，publisher 在本 bot 创建的 root 首行写入带 `agentic-review:status` 标记的状态标注，再 resolve，不另发回复；重现、风险升级，或 root 不是本 bot 创建时才回复。每次收起、标注和回复都是独立的发布操作，失败时计入运行报告和 Check 结论，不影响已发布的新总评。
 
 ### 评论请求、范围与历史
 
@@ -261,7 +263,7 @@ automatic 总评带固定的 `agentic-review:automatic-summary` 标记。新的 
 
 中央 workflow 在 workflow 级使用 `repository_id` 与 `pull_number` 组成 concurrency group，Review 与 publish 共享同一槽位；不同 PR 可以并行。配置为 `queue: max` 和 `cancel-in-progress: false`：同一 PR 最多一个运行中的任务，最多 100 个 pending 任务，队列满后 GitHub 会取消新增任务。FIFO 依据任务开始等待的时间，不保证 webhook 发出时间的绝对顺序。详见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
-Review footer 只占一行，展示运行链接、模型、推理档位、耗时、Token 数和 Pi SDK 返回的美元费用估算；thread 状态更新回复只链接运行，运行信息以同轮总评为准。费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。显式注册的模型不在 Pi 目录中，SDK 会把它的费用算成 0。`review-cost` 扩展在首次请求前从 Pi 模型目录取价（含分档价格）：优先精确模型 ID；目录没有时，取同系列、同档位名中版本最高的型号，例如 `gpt-6.1-terra` 取 `gpt-5.6-terra`。后一种是估价，不是该模型的真实价格；同名模型在不同 provider 的价格可能不同，优先取 `openai`。目录中找不到可用价格的网关别名仍可正常审查，但用量统计标记价格未知（`priceKnown: false`），Review footer 与 Check 详情中的所有费用均显示“未提供”，不显示 $0.0000。费用不代表网关实际账单。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
+Review footer 只占一行，先给出审查位置（本轮 head 与上次完整审查的 head）和已审文件数（含由来源 PR 审过的数量），再展示运行链接、模型、推理档位、耗时、Token 数和 Pi SDK 返回的美元费用估算；thread 状态更新回复只链接运行，运行信息以同轮总评为准。费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。显式注册的模型不在 Pi 目录中，SDK 会把它的费用算成 0。`review-cost` 扩展在首次请求前从 Pi 模型目录取价（含分档价格）：优先精确模型 ID；目录没有时，取同系列、同档位名中版本最高的型号，例如 `gpt-6.1-terra` 取 `gpt-5.6-terra`。后一种是估价，不是该模型的真实价格；同名模型在不同 provider 的价格可能不同，优先取 `openai`。目录中找不到可用价格的网关别名仍可正常审查，但用量统计标记价格未知（`priceKnown: false`），Review footer 与 Check 详情中的所有费用均显示“未提供”，不显示 $0.0000。费用不代表网关实际账单。Action 版本通过运行链接查看，审查的具体范围以工作稿为准。
 
 中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`。仓库 Actions Variable `REVIEW_EXPLICIT_PROMPT_CACHE` 控制显式缓存：未设置或 `false` 时关闭，普通自动缓存由 Pi 和中转站处理；仅在确认当前网关和模型支持后设为 `true`。变量通过 workflow 环境映射到 Pi 的 `compat.supportsExplicitPromptCacheMode`，覆盖模型目录对官方服务的能力声明；非法布尔配置会使准备步骤失败。`supportsLongCacheRetention` 控制长期保留参数，不能替代此开关关闭显式断点。
 
@@ -279,12 +281,12 @@ footer 以固定元数据标记包围。准备输入、读取关联 PR 和刷新
 
 ### 复盘数据
 
-PR 页面只面向读者：最新总评展开，旧 automatic 总评折叠，footer 只占一行。复盘按下表读取，不从 PR 正文解析统计。
+PR 页面只面向读者：最新总评完整展示，旧 automatic 总评收起为一行指向，footer 只占一行。复盘按下表读取，不从 PR 正文解析统计。
 
 | 数据 | 位置 | 保留 |
 | --- | --- | --- |
 | 运行信息、审查结果计数、覆盖、用量与费用分项、未成功的发布操作 | 每次运行的 Check（`Agentic Review / audit` 或 `/ requested`）的 `output.text` | 随目标仓库的提交保留 |
-| 每轮总评原文，包括已折叠的总评；finding、状态更新与人工回复 | PR Review、inline thread | 随 PR 保留 |
+| 每轮总评原文（旧总评在折叠区内）；finding、状态标注、状态更新与人工回复 | PR Review、inline thread | 随 PR 保留 |
 | 发布操作的错误原文 | Actions 摘要、`publication-report.json` | 运行日志保留期；artifact 7 天 |
 | `notes.md`、会话 JSONL、`pi-fold-evidence/` | workspace 与 session artifact | 7 天 |
 
@@ -295,7 +297,7 @@ gh api graphql -f query='query($owner:String!,$name:String!,$pull:Int!){reposito
   -f owner=<owner> -f name=<repo> -F pull=<number>
 ```
 
-旧总评是否折叠可读 `PullRequestReview.isMinimized` 与 `minimizedReason`。会话 JSONL、`pi-fold-evidence/` 与 `notes.md` 含目标仓库源码或引用片段，保留期维持 7 天；需要深入分析调查过程时，在过期前导出到 Git 忽略的 `evals/experiments/` 并在报告中注明。
+旧总评是否已收起，看正文第二行是否带 `agentic-review:superseded` 标记。会话 JSONL、`pi-fold-evidence/` 与 `notes.md` 含目标仓库源码或引用片段，保留期维持 7 天；需要深入分析调查过程时，在过期前导出到 Git 忽略的 `evals/experiments/` 并在报告中注明。
 
 如果 Review 发布失败，先检查：
 

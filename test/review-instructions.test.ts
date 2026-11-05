@@ -128,8 +128,10 @@ test('中央 JSON 示例仍通过生产 schema，表达模板只由中央适配�
   assert.ok(parsed.some(example => example.request_reply !== null), '包含 thread 请求答复示例');
   assert.ok(parsed.some(example => example.request_reply === null && example.comments.length === 0), '包含仅正文示例');
   assert.ok(parsed.some(example => example.thread_updates.length > 0), '包含历史 thread 更新示例');
-  assert.ok(parsed.some(example => example.body.startsWith('## 自动审查') && example.comments.length > 0));
-  assert.ok(result.includes('## Review 正文'));
+  // 标题和问题索引由发布器生成，示例正文从结论开始。
+  assert.ok(parsed.every(example => !example.body.startsWith('#')));
+  assert.ok(parsed.some(example => example.comments.length > 0));
+  assert.ok(result.includes('## 总评正文'));
   assert.ok(result.includes('## Finding 内容'));
   assert.ok(result.includes('收到收尾通知前，`submit_review` 要求全部 scope 内覆盖完成'));
   assert.ok(result.includes('不另建 `review.md` 索引'));

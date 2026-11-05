@@ -63,7 +63,7 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 
 `publish-review-run.ts` 统一验证、组装和发布。准备入口写出请求摘要后，即使后续输入装配失败，可信发布入口仍可组装可恢复范围；Agent 未成功完成时不发布 Review。组装成功后通过步骤输出登记 `workspace_ready`，后续发布失败或取消仍归档该范围。正常路径只归档一次：发布成功使用 `review-completed-workspace`，否则使用 `review-workspace`，包含已有的发布报告；归档失败仍使 Check 失败。原始诊断稿只供排查。目标代码只 checkout 一次，base 工作树共用 Git 对象，两个工作树创建时均禁用 checkout hook。
 
-Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。automatic 总评发布后，publisher 将同一 PR 中本 bot 更早的 automatic 总评折叠为 outdated，评论请求的答复不参与折叠。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给 Agent 结束后的可信发布步骤。
+Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把总评和本轮新 finding 作为同一条 Review 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。总评的标题、问题索引和 footer 由 publisher 根据结果与讨论状态生成，模型只写结论、合并后的行为、自上次审查和核对内容。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。新的 automatic 总评发布后，publisher 把同一 PR 中本 bot 更早的 automatic 总评正文改为一行指向新总评，原文收在折叠区；评论请求的答复不参与收起。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给 Agent 结束后的可信发布步骤。
 
 ### 时间预算与部分结论
 
@@ -102,9 +102,11 @@ PR 元数据、评论、项目规则、固定区间 patch 及工作稿进入 `$R
 
 材料以 `o200k_base` 统计 Token，并逐条保留完整原文、类别和路径。[运行时预载](../scripts/write-review-input.ts)按模型窗口、最大输出与调查空间计算预算，优先请求、规则、当前变化与有变化的讨论；当前笔记、进度、已有旧结果及完整材料索引也参与同一预算选择。已交付的索引与原文直接使用，首批调查从已知代码位置读取必要源码；补充导航时与同批源码读取合并。未容纳的材料继续保留索引入口，使用现有工具按需读取；不把截断文本当完整证据。
 
-## 历史问题默认展示本轮变化
+## 总评索引展示当前未解决问题
 
-默认总评导航只列本轮新 finding 和 `thread_updates` 中实际变化的历史问题。本轮关闭的问题报告一次；已经关闭且未变化，或仍未解决但没有状态变化的历史问题，都不在后续总评逐条或按数量重报，核对结论继续留在工作稿。尚有未解决问题时仍使用 `❌` 标题，不把没有新问题写成全部已解决。
+总评索引由 publisher 生成，按“需要修改 / 需要你确认 / 可选改进”列出本 bot 提出且仍未解决的全部问题：本轮新问题标 🆕，本轮风险升级或重现的历史问题分别标 ⚠️ 和 🔁，并单列“本轮关闭”。标题按未解决数量给出结论，没有新问题时也不会写成全部已解决。模型的 `thread_updates` 只记录状态实际变化的历史问题；未变化的历史问题由索引从讨论状态读取，不需要模型重报。
+
+关闭历史问题时，publisher 在原问题首行写入状态标注（状态、审查 head 和一行原因）后 resolve，不另发回复；重现、风险升级或 root 由他人创建时才回复。没有新问题、没有状态变化且标题不变时，publisher 就地更新最新总评，不产生新的时间线条目和通知。
 
 显式 PR 评论要求核对或汇总历史状态时，总评按请求范围答复，可包含未变化状态，但不制造 thread update。显式 @ 某个 thread 的请求在 `request_reply` 中得到针对性答复，即使结论未变；总评不再重复同一答案。历史取证、最终讨论刷新和状态变化的证据要求保持原有职责。
 
