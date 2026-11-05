@@ -140,7 +140,7 @@ export function buildFooter({
   if (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)) {
     parts.push(`Tokens: ${formatNumber(inputTokens! + outputTokens!)}`);
   }
-  if (cost === undefined) parts.push('Cost (est.): 未提供');
+  if (cost === undefined || usage?.priceKnown === false) parts.push('Cost (est.): 未提供');
   else {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Invalid review cost');
     parts.push(`Cost (est.): ${cost > 0 && cost < 0.0001 ? '<$0.0001' : `$${cost.toFixed(4)}`}`);
@@ -152,7 +152,7 @@ export function buildFooter({
   const total = usage.total;
   const firstInput = first.input + first.cacheRead + first.cacheWrite;
   const hit = firstInput === 0 ? '无输入' : `${(100 * first.cacheRead / firstInput).toFixed(1)}%`;
-  const dollars = (value: number) => value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
+  const dollars = (value: number) => !usage.priceKnown ? '未提供' : value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
   const tokens = (value: number) => value.toLocaleString('en-US');
   return [reviewMetadataStart, parts.join(' | '), '', '<details>',
     `<summary>费用分析：${usage.turns} 个审查回合；首轮缓存命中 ${hit}</summary>`, '',

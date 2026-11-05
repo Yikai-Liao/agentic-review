@@ -206,7 +206,7 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   const first: ModelUsage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, reasoning: 0, totalTokens: 43230,
     cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
   const footer = buildFooter({ ...metadata, cost: 0.1505318, controlSha: 'b64df5114c7fe64a9eb7ff3361a13d36ba9305b2',
-    usage: { turns: 1, first, total: first } });
+    usage: { turns: 1, priceKnown: true, first, total: first } });
   assert.match(footer, /首轮缓存命中 4\.6%/);
   assert.match(footer, /缓存读取 \| 1,972 \| \$0\.0002/);
   assert.match(footer, /缓存写入 \| 41,123 \| \$0\.1028/);
@@ -215,11 +215,11 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   assert.match(footer, /推理 Token：0，已包含在输出中/);
   const empty: ModelUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
-  assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /首轮缓存命中 无输入/);
-  assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /推理 Token：未提供/);
-  for (const value of [null, {}, { turns: 0, first, total: first },
-    { turns: 1, first, total: { ...first, cacheRead: -1 } },
-    { turns: 1, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
+  assert.match(buildFooter({ ...metadata, usage: { turns: 1, priceKnown: true, first: empty, total: empty } }), /首轮缓存命中 无输入/);
+  assert.match(buildFooter({ ...metadata, usage: { turns: 1, priceKnown: true, first: empty, total: empty } }), /推理 Token：未提供/);
+  for (const value of [null, {}, { turns: 0, priceKnown: true, first, total: first },
+    { turns: 1, priceKnown: true, first, total: { ...first, cacheRead: -1 } },
+    { turns: 1, priceKnown: true, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
     assert.throws(() => parseReviewUsage(value), /review/);
   }
 });
@@ -274,17 +274,17 @@ test('运行时注册 Responses 模型并保留原生重试，显式缓存默认
   }
 });
 
-test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同档位取最新版本，找不到则中止', () => {
+test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同档位取最新版本，找不到则标记费用未知', t => {
   const entry = (provider: string, id: string, input: number) => ({ provider, id, cost: { input, output: input * 5, cacheRead: 0, cacheWrite: 0 } });
   const models = [entry('openai', 'gpt-5.6-terra', 2), entry('openai', 'gpt-6-terra', 3), entry('openai', 'gpt-6.1-sol', 4),
     entry('openai', 'gpt-6.1-luna', 0), entry('bedrock', 'openai.gpt-7-terra', 9), entry('openai', 'deepseek-flash', 1)];
-  assert.equal(findCatalogCost('gpt-6.1-sol', models).input, 4);
-  assert.equal(findCatalogCost('deepseek-flash', models).input, 1);
-  assert.equal(findCatalogCost('gpt-6.1-terra', models).input, 3);
-  assert.equal(findCatalogCost('gpt-5.2-terra', models).input, 3);
+  assert.equal(findCatalogCost('gpt-6.1-sol', models)?.input, 4);
+  assert.equal(findCatalogCost('deepseek-flash', models)?.input, 1);
+  assert.equal(findCatalogCost('gpt-6.1-terra', models)?.input, 3);
+  assert.equal(findCatalogCost('gpt-5.2-terra', models)?.input, 3);
   // 零价条目是被显式注册遮住的模型，不能当作目录价格。
-  assert.throws(() => findCatalogCost('gpt-6.1-luna', models), /No Pi catalog price/);
-  assert.throws(() => findCatalogCost('gateway/opus-alias', models), /No Pi catalog price/);
+  assert.equal(findCatalogCost('gpt-6.1-luna', models), undefined);
+  assert.equal(findCatalogCost('gateway/opus-alias', models), undefined);
 
   const handlers = new Map<string, Function>();
   costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
@@ -292,9 +292,18 @@ test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同
   handlers.get('before_provider_request')!({ payload: { input: [] } }, { model, modelRegistry: registry });
   assert.deepEqual(model.cost, price);
 
-  let aborted = false;
-  costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
-  assert.throws(() => handlers.get('before_provider_request')!({ payload: { input: [] } },
-    { model: modelOf({ id: 'unknown-model', api: 'openai-responses' }), modelRegistry: registry, abort: () => { aborted = true; } }), /No Pi catalog price/);
-  assert.ok(aborted);
+  // 目录没有价格的网关别名：Review 照常运行，用量标记价格未知，发布时费用显示“未提供”。
+  const unknown = new Map<string, Function>();
+  costExtension({ on: (event, handler) => { unknown.set(event, handler); } });
+  const alias = modelOf({ id: 'gateway/opus-alias', api: 'openai-responses' });
+  t.mock.method(console, 'info', () => {});
+  assert.doesNotThrow(() => unknown.get('before_provider_request')!({ payload: { input: [] } },
+    { model: alias, modelRegistry: registry, abort: () => assert.fail('无价格别名不应中止') }));
+  assert.deepEqual(alias.cost, modelOf().cost);
+  const usage = { input: 5, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  const unpriced = { turns: 1, priceKnown: false, first: usage, total: usage };
+  const footer = buildFooter({ ...metadata, cost: 0, usage: unpriced });
+  assert.match(footer, /Cost \(est\.\): 未提供/);
+  assert.doesNotMatch(footer, /\$0\.0000/);
+  assert.throws(() => parseReviewUsage({ ...unpriced, priceKnown: undefined }), /Invalid review price state/);
 });
