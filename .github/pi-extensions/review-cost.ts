@@ -1,6 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { findCatalogCost, type CatalogModel, type ModelCost } from '../../scripts/review-pricing.ts';
 import { parseReviewUsage, type ModelUsage, type ReviewUsage } from '../../scripts/review-usage.ts';
 
 type AssistantMessage = {
@@ -15,7 +16,8 @@ type AssistantMessage = {
 type ExtensionAPI = {
   on(event: 'before_agent_start', handler: (event: { prompt?: string }) => void): void;
   on(event: 'before_provider_request', handler: (event: { payload: unknown }, ctx: {
-    model?: { api: string; compat?: { supportsExplicitPromptCacheMode?: boolean } };
+    model?: { id: string; api: string; cost: ModelCost; compat?: { supportsExplicitPromptCacheMode?: boolean } };
+    modelRegistry: { getAll(): readonly CatalogModel[] };
     abort(): void;
   }) => Record<string, unknown> | undefined): void;
   on(event: 'message_end', handler: (event: { message: { role: string } }, ctx: {
@@ -37,7 +39,19 @@ export default function reviewCost(pi: ExtensionAPI) {
     firstRequest = true;
   });
 
+  let priced = false;
   pi.on('before_provider_request', (event, ctx) => {
+    if (!priced && ctx.model) {
+      try {
+        // 显式注册的模型没有单价；首次请求前取目录价格，之后 SDK 照常按 model.cost 与分档计费。
+        ctx.model.cost = findCatalogCost(ctx.model.id, ctx.modelRegistry.getAll());
+        priced = true;
+      } catch (error) {
+        usageError = error as Error;
+        ctx.abort();
+        throw error;
+      }
+    }
     if (ctx.model?.api !== 'openai-responses') return;
     const payload = event.payload as Record<string, unknown>;
     const result: Record<string, unknown> = { ...payload, prompt_cache_key: 'agentic-review' };

@@ -11,6 +11,13 @@ import { buildFooter } from '../scripts/publish-review.ts';
 import costExtension from '../.github/pi-extensions/review-cost.ts';
 import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 import { parseReviewUsage, type ModelUsage } from '../scripts/review-usage.ts';
+import { findCatalogCost, type CatalogModel } from '../scripts/review-pricing.ts';
+
+const price = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 };
+const catalog: CatalogModel[] = [{ provider: 'openai', id: 'gpt-test', cost: price }];
+// 显式注册的模型初始单价为 0；扩展在首次请求前从目录补价。
+const modelOf = (extra: object = {}) => ({ id: 'gpt-test', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...extra });
+const registry = { getAll: () => catalog };
 
 const metadata = { runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/workspace', model: 'openai/gpt-test' };
 type Step = { id?: string; name?: string; env?: Record<string, string>; run?: string };
@@ -41,11 +48,11 @@ test('不同 Review 共享 OpenAI 缓存分组，输入、服务档位与其他 
   for (const key of ['session-1', 'session-2']) {
     const original = { model: 'gpt-6.1-sol', input, prompt_cache_key: key, store: false,
       reasoning: { effort: 'high' }, service_tier: 'priority', prompt_cache_options: { ttl: '30m' } };
-    const result = request({ payload: original }, { model: { api: 'openai-responses' } });
+    const result = request({ payload: original }, { model: modelOf({ api: 'openai-responses' }), modelRegistry: registry });
     assert.deepEqual(result, { ...original, prompt_cache_key: 'agentic-review' });
     assert.equal(result.input, input);
     assert.equal(original.prompt_cache_key, key);
-    assert.equal(request({ payload: original }, { model: { api: 'anthropic-messages' } }), undefined);
+    assert.equal(request({ payload: original }, { model: modelOf({ api: 'anthropic-messages' }), modelRegistry: registry }), undefined);
   }
 });
 
@@ -59,7 +66,7 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
   const prompt = (await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)))).trim();
   handlers.get('before_agent_start')!({ prompt });
   const request = handlers.get('before_provider_request')!;
-  const ctx = { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } },
+  const ctx = { model: modelOf({ api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } }), modelRegistry: registry,
     abort: () => assert.fail('正常请求不应中止') };
   const stable = [{ role: 'developer', content: '固定系统提示' },
     { role: 'user', content: [{ type: 'input_text', text: prompt }] }];
@@ -116,7 +123,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   const request = (compacted = false) => handlers.get('before_provider_request')!({ payload: { input: [
     { role: 'user', content: [{ type: 'input_text', text: '固定规则' }] },
     { role: 'user', content: [{ type: 'input_text', text: '动态材料' }] },
-  ].slice(compacted ? 1 : 0) } }, { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } } });
+  ].slice(compacted ? 1 : 0) } }, { model: modelOf({ api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } }), modelRegistry: registry });
   const end = handlers.get('message_end')!;
   const turn = handlers.get('turn_end')!;
   const ctx = { abort: () => assert.fail('有效标准统计不应中止') };
@@ -265,4 +272,29 @@ test('运行时注册 Responses 模型并保留原生重试，显式缓存默认
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同档位取最新版本，找不到则中止', () => {
+  const entry = (provider: string, id: string, input: number) => ({ provider, id, cost: { input, output: input * 5, cacheRead: 0, cacheWrite: 0 } });
+  const models = [entry('openai', 'gpt-5.6-terra', 2), entry('openai', 'gpt-6-terra', 3), entry('openai', 'gpt-6.1-sol', 4),
+    entry('openai', 'gpt-6.1-luna', 0), entry('bedrock', 'openai.gpt-7-terra', 9), entry('openai', 'deepseek-flash', 1)];
+  assert.equal(findCatalogCost('gpt-6.1-sol', models).input, 4);
+  assert.equal(findCatalogCost('deepseek-flash', models).input, 1);
+  assert.equal(findCatalogCost('gpt-6.1-terra', models).input, 3);
+  assert.equal(findCatalogCost('gpt-5.2-terra', models).input, 3);
+  // 零价条目是被显式注册遮住的模型，不能当作目录价格。
+  assert.throws(() => findCatalogCost('gpt-6.1-luna', models), /No Pi catalog price/);
+  assert.throws(() => findCatalogCost('gateway/opus-alias', models), /No Pi catalog price/);
+
+  const handlers = new Map<string, Function>();
+  costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
+  const model = modelOf({ api: 'openai-responses' });
+  handlers.get('before_provider_request')!({ payload: { input: [] } }, { model, modelRegistry: registry });
+  assert.deepEqual(model.cost, price);
+
+  let aborted = false;
+  costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
+  assert.throws(() => handlers.get('before_provider_request')!({ payload: { input: [] } },
+    { model: modelOf({ id: 'unknown-model', api: 'openai-responses' }), modelRegistry: registry, abort: () => { aborted = true; } }), /No Pi catalog price/);
+  assert.ok(aborted);
 });
