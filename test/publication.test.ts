@@ -82,6 +82,13 @@ function fixture() {
         state.afterWrite(call);
         return Response.json(review);
       }
+      if (call.method === 'POST' && call.url.endsWith('/pulls/7/comments')) {
+        const id = 1000 + comments.length;
+        const comment = { ...call.body, id, in_reply_to_id: null, user: bot, html_url: `https://github.test/comment/${id}` };
+        comments.push(comment);
+        state.afterWrite(call);
+        return Response.json(comment);
+      }
       if (call.method === 'POST' && call.url.endsWith('/replies')) {
         const root = Number(call.url.match(/comments\/(\d+)\/replies$/)![1]);
         const id = 1000 + comments.length;
@@ -228,26 +235,31 @@ test('结论不变且没有新问题或状态变化时，就地更新最新总�
   assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
 });
 
-test('无法绑定 diff 行的问题放进总评的问题详情，计入标题和索引，且该总评不被就地覆盖', async () => {
+test('无法绑定 diff 行的问题在总评之后发布为文件级讨论，计入标题、索引和下一轮状态', async () => {
   const state = fixture();
-  const detached: ReviewResult['comments'][number] = {
+  const fileLevel: ReviewResult['comments'][number] = {
     path: 'docs/deploy.md', line: null, start_line: null, label: 'P2', title: '部署文档漏掉新增的权限', body: '**什么情况下出错**：……',
   };
-  const report = await publish(state, { requestSource: 'automatic', publicationId: 'run-1',
-    result: { ...empty, body: '结论。\n\n**核对了什么**\n\n- 场景：结论（`src/a.ts:1`）', comments: [detached, result.comments[0]] } });
-  ok(report);
+  const run = () => publish(state, { requestSource: 'automatic', publicationId: 'run-1',
+    result: { ...empty, body: '结论。', comments: [fileLevel, result.comments[0]] } });
+  ok(await run());
   const [review] = state.reviews;
   assert.deepEqual(review.inline.map((item: any) => item.path), ['src/example.ts']);
   assert.equal(review.body.split('\n')[1], '## 自动审查：2 个问题需要修改');
-  assert.ok(review.body.includes('- 🆕 P2：部署文档漏掉新增的权限 · 见下方问题详情'));
-  assert.match(review.body, /\*\*核对了什么\*\*[\s\S]*\*\*问题详情\*\*<!-- agentic-review:body-findings -->\n\n> \[!WARNING\]\n> \*\*P2：部署文档漏掉新增的权限\*\*\n\n\*\*什么情况下出错\*\*：……\n\n`docs\/deploy\.md`/);
-  // 问题详情只存在于正文，标题相同的下一轮也发新 Review，旧正文收进折叠区。
-  state.comments.push({ id: 1, in_reply_to_id: null, body: '> **P2：另一个问题**\n\n<!-- agentic-review-publication:x -->',
-    user: { login: 'review-app[bot]' }, html_url: 'https://github.test/comment/1' });
-  await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, body: '结论不变。' } });
-  assert.equal(state.reviews.length, 2);
-  assert.equal(state.reviews[1].body.split('\n')[1], '## 自动审查：2 个问题需要修改');
-  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
+  assert.ok(review.body.includes('- 🆕 P2：部署文档漏掉新增的权限'));
+  const posted = mutations(state.calls).filter(call => call.url.endsWith('/pulls/7/comments'));
+  assert.equal(posted.length, 1);
+  assert.deepEqual([posted[0].body.path, posted[0].body.subject_type, posted[0].body.commit_id], ['docs/deploy.md', 'file', 'b'.repeat(40)]);
+  assert.match(posted[0].body.body, /^> \[!WARNING\]\n> \*\*P2：部署文档漏掉新增的权限\*\*\n\n\*\*什么情况下出错\*\*/);
+  // 重跑不重复发布。
+  const before = mutations(state.calls).length;
+  ok(await run());
+  assert.equal(mutations(state.calls).length, before);
+  // 下一轮没有新问题时，文件级讨论仍作为未解决问题留在标题和索引中。
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-2', expectedHeadSha: 'c'.repeat(40), result: { ...empty, body: '结论不变。' } });
+  assert.equal(state.reviews[0].body.split('\n')[1], '## 自动审查：2 个问题需要修改');
+  const thread = state.comments.find(item => item.subject_type === 'file');
+  assert.ok(state.reviews[0].body.includes(`- P2：部署文档漏掉新增的权限 · [讨论](${thread.html_url})`));
 });
 
 test('部分覆盖时标题写明未审完，未审文件清单在正文前', async () => {

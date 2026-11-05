@@ -49,7 +49,7 @@ export function parseReviewResult(text: string): ReviewResult {
         comment.path.includes('\\') || comment.path.split('/').includes('..')) {
       throw new Error('Invalid review comment path');
     }
-    // line 为 null 表示无法绑定 diff 行，发布器把它放进总评的“问题详情”。
+    // line 为 null 表示无法绑定 diff 行，发布为该文件上的文件级讨论。
     if (comment.line !== null && (!Number.isInteger(comment.line) || comment.line < 1)) {
       throw new Error('Invalid review comment line');
     }

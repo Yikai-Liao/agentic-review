@@ -166,6 +166,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
       [{ ...result, comments: [{ ...result.comments[0], start_line: null, line: 10 }] }, /src\/auth\.ts:10 is outside the PR diff\. Commentable line ranges in this file: 37-45/],
       [{ ...result, comments: [{ ...result.comments[0], path: 'src/other.ts' }] }, /no commentable lines/],
       [{ ...result, comments: [{ ...result.comments[0], line: null, start_line: 40 }] }, /start_line/],
+      [{ ...result, comments: [{ ...result.comments[0], path: 'docs/missing.md', line: null, start_line: null }] }, /docs\/missing\.md is not changed in the PR/],
       [{ ...result, thread_updates: [{ ...result.thread_updates[0], evidence: '第一行\n第二行原因' }] }, /thread evidence/],
       [{ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }, /thread status/],
       [{ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }, /Duplicate thread update/],
@@ -178,9 +179,8 @@ test('submit_review rejects invalid results without sealing and allows correctio
       await assert.rejects(readFile(path.join(workspace, 'review-result.json')), { code: 'ENOENT' });
     }
 
-    // 无法绑定 diff 行的问题不校验行号，由发布器放进总评。
-    const accepted = { ...result, comments: [...result.comments,
-      { ...result.comments[0], path: 'docs/missing.md', line: null, start_line: null }] };
+    // 无法绑定 diff 行的问题作为 PR 改动文件上的文件级讨论，不校验行号。
+    const accepted = { ...result, comments: [...result.comments, { ...result.comments[0], line: null, start_line: null }] };
     await tool.execute('call', accepted);
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), accepted);
     await assertSubmissionFailed(tool.execute('call', result), /already submitted/);
@@ -483,6 +483,10 @@ test('可评论行按 GitHub 的三行上下文与改名识别计算，删除的
     'diff --git a/one.ts b/one.ts', '--- a/one.ts', '+++ b/one.ts', '@@ -1 +1 @@', '@@ -5,0 +6,0 @@',
     // 以 `++ ` 开头的新增内容在 hunk 中显示为 `+++ `，后续 hunk 仍属于同一文件。
     'diff --git a/plus.md b/plus.md', '--- a/plus.md', '+++ b/plus.md', '@@ -1,2 +1,3 @@', ' a', '+++ b', '--- c', '@@ -20,3 +21,4 @@', ' d',
+    // 含双引号、反斜杠或控制字符的路径带 C 风格引号；core.quotePath=false 时非 ASCII 字符原样输出。
+    'diff --git "a/q\\"\\\\\\t中.ts" "b/q\\"\\\\\\t中.ts"', '--- "a/q\\"\\\\\\t中.ts"', '+++ "b/q\\"\\\\\\t中.ts"', '@@ -1 +1 @@',
+    'diff --git a/x b/x', '--- a/x', '+++ "b/\\303\\251.ts"', '@@ -1 +1 @@',
   ].join('\n'));
-  assert.deepEqual([...ranges], [['new name.ts', [[10, 17]]], ['one.ts', [[1, 1]]], ['plus.md', [[1, 3], [21, 24]]]]);
+  assert.deepEqual([...ranges], [['new name.ts', [[10, 17]]], ['one.ts', [[1, 1]]], ['plus.md', [[1, 3], [21, 24]]],
+    ['q"\\\t中.ts', [[1, 1]]], ['é.ts', [[1, 1]]]]);
 });

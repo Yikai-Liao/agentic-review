@@ -343,10 +343,11 @@ export async function publishReview({
   let reviewUrl = '';
   if (needsReview) {
     const findings = result.comments.map((comment, index) => ({
-      comment, tag: marker(`finding ${index + 1} (${comment.path}:${comment.line ?? 'summary'})`, comment),
+      comment, id: `finding ${index + 1} (${comment.path}:${comment.line ?? 'file'})`,
+      tag: marker(`finding ${index + 1} (${comment.path}:${comment.line ?? 'file'})`, comment),
     }));
     const inline = findings.filter(({ comment }) => comment.line !== null);
-    const detached = findings.filter(({ comment }) => comment.line === null);
+    const fileLevel = findings.filter(({ comment }) => comment.line === null);
     const review = await run('Review 正文', [reviews!, comments!, threads!], async () => {
       const tag = marker('summary', result);
       const automatic = requestSource === 'automatic';
@@ -366,13 +367,10 @@ export async function publishReview({
         ...(coverage ? [`已审 ${coverage.reviewed}/${coverage.total} 个文件${coverage.sourceReviewed
           ? `（其中 ${coverage.sourceReviewed} 个由来源 PR 审过）` : ''}`] : []),
       ].join(' · ');
-      // 无法绑定 diff 行的问题没有讨论可挂，由发布器放在总评末尾，并与 inline 问题一样计入标题和索引。
-      const details = detached.length ? `**问题详情**${bodyFindingsMarker}\n\n${detached
-        .map(({ comment }) => `${renderFinding(comment)}\n\n\`${comment.path}\``).join('\n\n')}` : '';
       // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
       const head = automatic ? `${tag}${automaticSummaryMarker}` : tag;
       const render = (first: string) => `${first}\n${compose(heading, notice(), coverageNotice,
-        placeIndex(result.body, index.markdown), details)}\n\n---\n\n${metadataBlock(`${scope} | ${footer}`)}`;
+        placeIndex(result.body, index.markdown))}\n\n---\n\n${metadataBlock(`${scope} | ${footer}`)}`;
       const firstLine = (body: string) => body.split('\n', 1)[0];
       const existing = reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(tag));
       if (existing) {
@@ -386,9 +384,7 @@ export async function publishReview({
       }
       const latest = automatic ? latestAutomaticSummary(reviews!.value!.filter(isBot)) : undefined;
       // 没有新问题、没有状态变化且结论标题不变时，就地更新最新总评，不产生新的时间线条目和通知。
-      // 上一轮的问题详情只存在于总评正文，带问题详情的总评不能被覆盖。
-      if (latest && !result.comments.length && !result.thread_updates.length
-          && latest.body.split('\n')[1] === heading && !latest.body.includes(bodyFindingsMarker)) {
+      if (latest && !result.comments.length && !result.thread_updates.length && latest.body.split('\n')[1] === heading) {
         // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评，并据首行结尾判断自己已不是当前结论。
         const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${head}`);
         await request(`${route}/reviews/${latest.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
@@ -407,6 +403,18 @@ export async function publishReview({
       return { id: response.id, url: response.html_url, current: true };
     });
     reviewUrl = review.value?.url ?? '';
+    // 创建 Review 的 comments 不支持文件级讨论，只能在总评之后单独发布；它与 inline 问题一样有 thread 状态，
+    // 下一轮能进入索引并被关闭。只有当前结论补发，已被后续审查取代的旧运行重跑不再发布。
+    if (review.value?.current) {
+      for (const { comment, id, tag: findingTag } of fileLevel) {
+        await run(id, [review], async () => {
+          if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
+          await request(`${route}/comments`, { method: 'POST', body: JSON.stringify({
+            body: `${renderFinding(comment)}\n\n${findingTag}`, commit_id: expectedHeadSha, path: comment.path, subject_type: 'file',
+          }) });
+        });
+      }
+    }
     // 最新自动总评代表当前结论；更早的自动总评正文收起为一行指向，原文保留在折叠区供展开和下一轮读取。
     // 重跑复用当前总评时同样核对，补做上次失败的收起；比当前总评更新的 Review 不受影响。
     // 其下的讨论不受影响，仍未解决的问题照常显示。评论请求的答复只覆盖请求范围，既不收起其他总评，也不被收起。
@@ -431,7 +439,6 @@ const statusUpdatePrefix = '**状态更新：';
 const statusMarker = '<!-- agentic-review:status -->';
 const automaticSummaryMarker = '<!-- agentic-review:automatic-summary -->';
 const supersededMarker = '<!-- agentic-review:superseded -->';
-const bodyFindingsMarker = '<!-- agentic-review:body-findings -->';
 const isAutomaticSummary = (body: string) => body.split('\n', 1)[0].endsWith(automaticSummaryMarker);
 const isSuperseded = (body: string) => body.split('\n', 2)[1]?.endsWith(supersededMarker) ?? false;
 
@@ -475,7 +482,7 @@ function summaryIndex({ result, findings, comments, allComments, threads }: {
       rank: known ? labelOrder.indexOf(label!) : labelOrder.length, line: `- ${line}${text}` });
   };
   for (const comment of result.comments) {
-    add(comment.label, `${comment.label}：${comment.title}${comment.line === null ? ' · 见下方问题详情' : ''}`, '🆕 ');
+    add(comment.label, `${comment.label}：${comment.title}`, '🆕 ');
   }
   for (const root of comments) {
     if (root.in_reply_to_id != null || !root.body.includes(publicationTagPrefix) || findings.some(tag => root.body.includes(tag))) continue;

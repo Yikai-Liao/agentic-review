@@ -146,7 +146,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
-    const bodyFinding = '**结论**：有一个问题需要修改。\n\n**问题详情**\n\n- auth.ts 删除必要的权限约束，未授权请求可到达写入路径；须恢复约束并复核合法请求。';
+    const bodyFinding = '没有需要处理的问题。\n\n**合并后的行为**：auth.ts 的写入路径保留原有权限约束。';
     await writeFile(resultPath, JSON.stringify({ body: bodyFinding, comments: [], thread_updates: [], request_reply: null }));
     await rm(usagePath);
     await assert.rejects(publish(), /review-usage.json/);
