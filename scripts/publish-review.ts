@@ -275,6 +275,9 @@ export async function publishReview({
       return found;
     });
     const label = statusLabels[update.status];
+    // 标注带本运行的发布标记，重跑时据此认出自己写入的标注。
+    const statusTag = marker(`${id} status`, update);
+    const statusLine = `**${label}**（${short(expectedHeadSha)}）：${update.evidence} ${statusTag}${statusMarker}`;
     // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
     await Promise.all([
       run(`${id} 状态同步`, [root, threads!], async () => {
@@ -295,10 +298,9 @@ export async function publishReview({
       // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
       run(`${id} 状态标注`, [root], async () => {
         if (!isBot(root.value!)) return;
-        const line = `**${label}**（${short(expectedHeadSha)}）：${update.evidence} ${statusMarker}`;
         const body = root.value!.body;
         const [first, ...others] = body.split('\n\n');
-        const next = `${line}\n\n${first.endsWith(statusMarker) ? others.join('\n\n') : body}`;
+        const next = `${statusLine}\n\n${first.endsWith(statusMarker) ? others.join('\n\n') : body}`;
         if (next !== body) await request(`/repos/${repository}/pulls/comments/${root.value!.id}`, {
           method: 'PATCH', body: JSON.stringify({ body: next }),
         });
@@ -310,7 +312,13 @@ export async function publishReview({
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
         if (replies.some(item => item.body.includes(tag))) return;
         const status = `${statusUpdatePrefix}${label}**`;
-        if (replies.filter(item => item.body.startsWith(statusUpdatePrefix)).at(-1)?.body.startsWith(status)) return;
+        // 最新状态相同时不重复。本 bot 的问题关闭时只改标注、不回复，最新状态以标注为准；
+        // 标注由本运行写入时说明是重跑，回复仍需补发。
+        const annotation = root.value!.body.split('\n\n', 1)[0];
+        const unchanged = isBot(root.value!)
+          ? annotation.endsWith(statusMarker) && annotation.startsWith(`**${label}**`) && !annotation.includes(statusTag)
+          : replies.filter(item => item.body.startsWith(statusUpdatePrefix)).at(-1)?.body.startsWith(status);
+        if (unchanged) return;
         await request(`${route}/comments/${update.root_comment_id}/replies`, {
           method: 'POST', body: JSON.stringify({ body: `${compose(status, update.evidence, runLink)}\n${tag}` }),
         });

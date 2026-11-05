@@ -152,7 +152,7 @@ test('历史问题：仍未关闭的进入索引，本轮关闭的标注状态�
     ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'resolved', evidence: '新断言覆盖了原触发（`src/example.ts:2`）。' }],
   } });
   ok(report);
-  assert.match(closing.body, /^\*\*✅ 已关闭\*\*（`ccccccc`）：新断言覆盖了原触发（`src\/example\.ts:2`）。 <!-- agentic-review:status -->\n\n> \[!WARNING\]\n> \*\*P2：问题 2\*\*/);
+  assert.match(closing.body, /^\*\*✅ 已关闭\*\*（`ccccccc`）：新断言覆盖了原触发（`src\/example\.ts:2`）。 <!-- agentic-review-publication:[0-9a-f]+ --><!-- agentic-review:status -->\n\n> \[!WARNING\]\n> \*\*P2：问题 2\*\*/);
   assert.ok(state.resolved.has(`thread-${closing.id}`));
   assert.equal(state.comments.some(item => item.in_reply_to_id === closing.id), false);
   const latest = state.reviews.at(-1).body;
@@ -162,12 +162,36 @@ test('历史问题：仍未关闭的进入索引，本轮关闭的标注状态�
   await publish(state, { requestSource: 'automatic', publicationId: 'run-3', expectedHeadSha: 'd'.repeat(40), result: {
     ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'reintroduced', evidence: '回退提交再次删除了该断言。' }],
   } });
-  assert.match(closing.body, /^\*\*🔁 问题重现\*\*（`ddddddd`）：回退提交再次删除了该断言。 <!-- agentic-review:status -->\n\n> \[!WARNING\]/);
+  assert.match(closing.body, /^\*\*🔁 问题重现\*\*（`ddddddd`）：回退提交再次删除了该断言。 <!-- agentic-review-publication:[0-9a-f]+ --><!-- agentic-review:status -->\n\n> \[!WARNING\]/);
   assert.equal(closing.body.match(/agentic-review:status/g).length, 1);
   // 重现需要通知人：重开讨论并回复。
   assert.equal(state.resolved.has(`thread-${closing.id}`), false);
   assert.match(state.comments.find(item => item.in_reply_to_id === closing.id).body, /^\*\*状态更新：🔁 问题重现\*\*\n\n回退提交/);
   assert.ok(state.reviews.at(-1).body.includes(`- 🔁 P2：问题 2 · [讨论](${closing.html_url})`));
+  // 关闭不回复，因此“重现 → 关闭 → 再次重现”时，最后一条回复仍是上次重现；再次重现仍须通知。
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-4', expectedHeadSha: 'e'.repeat(40), result: {
+    ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'resolved', evidence: '断言已恢复（`src/example.ts:2`）。' }],
+  } });
+  const again = { ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'reintroduced' as const, evidence: '另一次回退又删除了该断言。' }] };
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-5', expectedHeadSha: 'f'.repeat(40), result: again });
+  const replies = () => state.comments.filter(item => item.in_reply_to_id === closing.id);
+  assert.deepEqual(replies().map(item => item.body.split('\n\n')[1]), ['回退提交再次删除了该断言。', '另一次回退又删除了该断言。']);
+  // 同一运行重跑不重复回复；状态已是重现时，新运行也不重复。
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-5', expectedHeadSha: 'f'.repeat(40), result: again });
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-6', expectedHeadSha: 'f'.repeat(40), result: again });
+  assert.equal(replies().length, 2);
+  // 回复失败而标注已写入时，重跑仍补发回复。
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-7', expectedHeadSha: 'a'.repeat(40), result: {
+    ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'resolved', evidence: '断言再次恢复（`src/example.ts:2`）。' }],
+  } });
+  const third = { ...again, thread_updates: [{ ...again.thread_updates[0], evidence: '第三次回退删除了该断言。' }] };
+  state.fail = call => call.url.endsWith(`/comments/${closing.id}/replies`) ? new Response('unavailable', { status: 502 }) : undefined;
+  const failed = await publish(state, { requestSource: 'automatic', publicationId: 'run-8', expectedHeadSha: 'b'.repeat(40), result: third });
+  assert.deepEqual(failed.operations.filter(item => item.status === 'failed').map(item => item.id), [`thread ${closing.id} 状态回复`]);
+  assert.match(closing.body, /^\*\*🔁 问题重现\*\*/);
+  state.fail = () => undefined;
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-8', expectedHeadSha: 'b'.repeat(40), result: third }));
+  assert.equal(replies().length, 3);
 });
 
 test('他人发起的讨论无法改写原文，状态变化以回复记录并只附运行链接', async () => {
