@@ -152,7 +152,10 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     assert.ok((writes[0] as { body: string }).body.includes(bodyFinding));
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
     assert.match((writes[0] as { body: string }).body, /Cost \(est\.\): \$0\.0032/);
-    assert.match((writes[0] as { body: string }).body, /首轮缓存命中 4\.6%/);
+    // 用量明细只经步骤输出进入 Check，PR 正文只保留一行运行信息。
+    assert.doesNotMatch((writes[0] as { body: string }).body, /首轮缓存命中/);
+    const checkTextOutput = (await readFile(outputPath, 'utf8')).split(/^check_text<<(check_text_[\w-]+)\n/m);
+    assert.match(checkTextOutput.at(-1)!, new RegExp(`首轮缓存命中 4\\.6%[\\s\\S]*成功 \\d+；失败 0[\\s\\S]*\\n${checkTextOutput.at(-2)}\\n$`));
     assert.doesNotMatch((writes[0] as { body: string }).body, /\| Action v|\| 审查范围:/);
     const published = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(published.status, 'published');

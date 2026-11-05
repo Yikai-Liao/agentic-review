@@ -239,9 +239,15 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 发布前上传 `review-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 `notes.md`、文件进度、结果及可信范围；Agent 或发布失败时，下一轮仍可恢复其中未完成的范围。发布成功后，`publication-report.json` 随 `review-completed-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>` 一起归档，不再单独上传成功报告。发布失败时，报告单独存入 `review-publication-<run>-<attempt>`；草稿组装或归档失败时另存原始诊断稿，不将其当作可恢复范围。原有工作区命名和历史查找协议保持一致。
 
-`publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败或完成工作区上传失败同样不能让 Check 成功。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
+`publication-report.json` 在摘要、Check 详情与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这些出口的结果。Actions 摘要和 Check 详情记录此前的 GitHub 操作；进程日志最后汇总全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败或完成工作区上传失败同样不能让 Check 成功。全部操作成功时，正文和回复不附加执行说明；正文或请求回复发布前已有操作失败或被阻断时，开头提示失败数量。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
 
 同一运行重跑时，publisher 完整分页读取本 bot 发布的标记，复用已发布的正文、finding 和回复；正文中的执行说明按本次结果更新，resolve/reopen 重新核对远端状态。标记绑定运行、目标 PR、head、操作及内容。写请求报错可能意味着远端已生效，本轮不盲目重试；下次先核对标记。GitHub 写入与网络响应并非原子事务，远端尚不可见时无法保证恰好一次发布。
+
+### 旧总评折叠
+
+automatic 总评带固定的 `agentic-review:automatic-summary` 标记。新的 automatic 总评发布后，publisher 将同一 PR 中本 bot 更早的 automatic 总评用 GraphQL `minimizeComment` 折叠为 `OUTDATED`；页面上只展开最新结论，旧总评原文保留，可点开查看或经 API 读取。按 Review ID 判断先后，同一运行重跑只折叠比自身更早的总评，不会折叠后来的结果；已折叠的 Review 先经 GraphQL 核对，不重复写入。评论请求的答复可能只覆盖局部范围，既不折叠其他总评，也不被 automatic 总评折叠。只承载 inline finding 或 thread 回复的空 Review 不折叠，以免隐藏原讨论。
+
+每个折叠是独立的发布操作，失败时与其他写入一样计入运行报告和 Check 结论，不影响已发布的新总评。折叠不改变 REST 返回的 Review 内容，旧总评在下一轮输入中仍作为未变化的参考记录，不会被当作新讨论；只写在总评正文中的 finding 也因此保留在审查输入中。
 
 ### 评论请求、范围与历史
 
@@ -255,7 +261,7 @@ Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行�
 
 中央 workflow 在 workflow 级使用 `repository_id` 与 `pull_number` 组成 concurrency group，Review 与 publish 共享同一槽位；不同 PR 可以并行。配置为 `queue: max` 和 `cancel-in-progress: false`：同一 PR 最多一个运行中的任务，最多 100 个 pending 任务，队列满后 GitHub 会取消新增任务。FIFO 依据任务开始等待的时间，不保证 webhook 发出时间的绝对顺序。详见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
 
-Review footer 展示模型、推理档位、耗时、Token 数和Pi SDK 返回的美元费用估算；费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。显式注册的模型不在 Pi 目录中，SDK 会把它的费用算成 0。`review-cost` 扩展在首次请求前从 Pi 模型目录取价（含分档价格）：优先精确模型 ID；目录没有时，取同系列、同档位名中版本最高的型号，例如 `gpt-6.1-terra` 取 `gpt-5.6-terra`。后一种是估价，不是该模型的真实价格；同名模型在不同 provider 的价格可能不同，优先取 `openai`。目录中找不到可用价格的网关别名仍可正常审查，但用量统计标记价格未知（`priceKnown: false`），Review footer 与费用分析的所有费用均显示“未提供”，不显示 $0.0000。费用不代表网关实际账单。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
+Review footer 只占一行，展示运行链接、模型、推理档位、耗时、Token 数和 Pi SDK 返回的美元费用估算；thread 状态更新回复只链接运行，运行信息以同轮总评为准。费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。显式注册的模型不在 Pi 目录中，SDK 会把它的费用算成 0。`review-cost` 扩展在首次请求前从 Pi 模型目录取价（含分档价格）：优先精确模型 ID；目录没有时，取同系列、同档位名中版本最高的型号，例如 `gpt-6.1-terra` 取 `gpt-5.6-terra`。后一种是估价，不是该模型的真实价格；同名模型在不同 provider 的价格可能不同，优先取 `openai`。目录中找不到可用价格的网关别名仍可正常审查，但用量统计标记价格未知（`priceKnown: false`），Review footer 与 Check 详情中的所有费用均显示“未提供”，不显示 $0.0000。费用不代表网关实际账单。Action 版本通过运行链接查看，审查范围以正文和工作稿为准。
 
 中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`。仓库 Actions Variable `REVIEW_EXPLICIT_PROMPT_CACHE` 控制显式缓存：未设置或 `false` 时关闭，普通自动缓存由 Pi 和中转站处理；仅在确认当前网关和模型支持后设为 `true`。变量通过 workflow 环境映射到 Pi 的 `compat.supportsExplicitPromptCacheMode`，覆盖模型目录对官方服务的能力声明；非法布尔配置会使准备步骤失败。`supportsLongCacheRetention` 控制长期保留参数，不能替代此开关关闭显式断点。
 
@@ -263,13 +269,33 @@ Review footer 展示模型、推理档位、耗时、Token 数和Pi SDK 返回�
 
 显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 已配置的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
 
-每个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算记录在会话 JSONL 对应 assistant 消息的 `usage` 中，运行日志不再逐回合输出。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。费用直接沿用 Pi SDK 返回的统计，不改写消息用量或费用，也不要求中转站返回 TTL 写入明细。扩展通过 `message_end` 校验标准 Token 和费用数值；统计本身缺失或损坏时仍中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。footer 展示总缓存写入量及 SDK 估算，不展示网关未承诺的生命周期拆分。统计不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
+每个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算记录在会话 JSONL 对应 assistant 消息的 `usage` 中，运行日志不再逐回合输出。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。费用直接沿用 Pi SDK 返回的统计，不改写消息用量或费用，也不要求中转站返回 TTL 写入明细。扩展通过 `message_end` 校验标准 Token 和费用数值；统计本身缺失或损坏时仍中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。Check 详情展示总缓存写入量及 SDK 估算，不展示网关未承诺的生命周期拆分。统计不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
 
-相同回合统计累计保存为工作区的 `review-usage.json`，随现有 artifact 归档。可信发布器校验数值后，在 footer 的费用分析折叠区展示回合数、首轮缓存命中率、首轮普通输入/缓存读取/缓存写入，以及累计 token 和费用分项；命中率分母是首轮普通输入、缓存读取、缓存写入之和，零输入单独说明。缺失的推理分项显示未提供，不当作零。分项只统计审查回合，总费用仍采用 Action 汇总；规则版本同时显示为控制面 SHA，便于比较。统计缺失或损坏时发布失败，不填造零值；该文件不保存会话正文，也不参与覆盖完成或请求身份判断。
+相同回合统计累计保存为工作区的 `review-usage.json`，随现有 artifact 归档。可信发布器校验数值后，在 Check 详情的用量部分展示回合数、首轮缓存命中率、首轮普通输入/缓存读取/缓存写入，以及累计 token 和费用分项；命中率分母是首轮普通输入、缓存读取、缓存写入之和，零输入单独说明。缺失的推理分项显示未提供，不当作零。分项只统计审查回合，总费用仍采用 Action 汇总；规则版本同时显示为控制面 SHA，便于比较。统计缺失或损坏时发布失败，不填造零值；该文件不保存会话正文，也不参与覆盖完成或请求身份判断。
 
-footer 以固定元数据标记包围。准备输入、读取关联 PR 和刷新讨论时，只剔除当前 Review App 自己生成的此区域，避免统计明细增加下轮输入费用；GitHub 正文和 artifact 保留完整统计。审查结论、发布幂等标记、人工回复与其他机器人正文保持不变，统计之外的判断编辑仍正常进入增量讨论。
+footer 以固定元数据标记包围。准备输入、读取关联 PR 和刷新讨论时，只剔除当前 Review App 自己生成的此区域，避免运行信息增加下轮输入费用；完整统计保存在 Check 详情和 artifact 中。审查结论、发布幂等标记、人工回复与其他机器人正文保持不变，统计之外的判断编辑仍正常进入增量讨论。
 
 页脚链接当前 Actions 运行的 artifacts 区域，其中包含可恢复草稿、完成工作区或失败诊断报告；保留期以 workflow 的 `retention-days` 为准，访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
+
+### 复盘数据
+
+PR 页面只面向读者：最新总评展开，旧 automatic 总评折叠，footer 只占一行。复盘按下表读取，不从 PR 正文解析统计。
+
+| 数据 | 位置 | 保留 |
+| --- | --- | --- |
+| 运行信息、审查结果计数、覆盖、用量与费用分项、未成功的发布操作 | 每次运行的 Check（`Agentic Review / audit` 或 `/ requested`）的 `output.text` | 随目标仓库的提交保留 |
+| 每轮总评原文，包括已折叠的总评；finding、状态更新与人工回复 | PR Review、inline thread | 随 PR 保留 |
+| 发布操作的错误原文 | Actions 摘要、`publication-report.json` | 运行日志保留期；artifact 7 天 |
+| `notes.md`、会话 JSONL、`pi-fold-evidence/` | workspace 与 session artifact | 7 天 |
+
+Check 详情由发布器生成，经发布步骤输出交给 Check completion，Agent 不能写入该输出；发布器未运行到写出时，Check 只有结论和摘要。详情只列操作 ID 与状态，不含错误原文。读取示例：
+
+```sh
+gh api graphql -f query='query($owner:String!,$name:String!,$pull:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pull){commits(last:100){nodes{commit{oid checkSuites(first:20){nodes{checkRuns(first:20,filterBy:{checkName:"Agentic Review / audit"}){nodes{databaseId conclusion text}}}}}}}}}}' \
+  -f owner=<owner> -f name=<repo> -F pull=<number>
+```
+
+旧总评是否折叠可读 `PullRequestReview.isMinimized` 与 `minimizedReason`。会话 JSONL、`pi-fold-evidence/` 与 `notes.md` 含目标仓库源码或引用片段，保留期维持 7 天；需要深入分析调查过程时，在过期前导出到 Git 忽略的 `evals/experiments/` 并在报告中注明。
 
 如果 Review 发布失败，先检查：
 

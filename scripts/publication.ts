@@ -40,9 +40,11 @@ export function createPublication() {
 export async function finishPublication(publication: ReturnType<typeof createPublication>, outlets: {
   saveReport: () => Promise<void>;
   writeSummary?: () => Promise<void>;
+  writeCheckText?: () => Promise<void>;
   saveCoverage?: (complete: boolean) => Promise<void>;
 }) {
   if (outlets.writeSummary) await publication.run('写入 Actions 摘要', [], outlets.writeSummary);
+  if (outlets.writeCheckText) await publication.run('写入 Check 详情', [], outlets.writeCheckText);
   if (outlets.saveCoverage) {
     const complete = publication.operations.every(item => item.status === 'succeeded');
     await publication.run('保存覆盖状态', [], () => outlets.saveCoverage!(complete));

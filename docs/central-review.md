@@ -63,7 +63,7 @@ Token 默认约一小时过期。可信 workflow 在 Agent 启动前将 Token A 
 
 `publish-review-run.ts` 统一验证、组装和发布。准备入口写出请求摘要后，即使后续输入装配失败，可信发布入口仍可组装可恢复范围；Agent 未成功完成时不发布 Review。组装成功后通过步骤输出登记 `workspace_ready`，后续发布失败或取消仍归档该范围。正常路径只归档一次：发布成功使用 `review-completed-workspace`，否则使用 `review-workspace`，包含已有的发布报告；归档失败仍使 Check 失败。原始诊断稿只供排查。目标代码只 checkout 一次，base 工作树共用 Git 对象，两个工作树创建时均禁用 checkout hook。
 
-Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给 Agent 结束后的可信发布步骤。
+Pi 结束后，可信 publisher 使用封存并核对过的请求身份，校验 schema、scope、覆盖与 root comment 在当前 PR 中的归属，再把自由 Markdown `body` 和 inline `comments` 发布到本轮审查的 head，并按结论处理 thread 状态，不限制 root 创建者。thread @ 请求无论结论是否变化，都必须对原 thread root 回复一次；目标由可信请求确定，publisher 用请求 comment ID 幂等去重。automatic 总评发布后，publisher 将同一 PR 中本 bot 更早的 automatic 总评折叠为 outdated，评论请求的答复不参与折叠。只有 publisher 成功完成发布后，可信 completion 才能把 Check 标为 success；发布或 completion 失败都不能推进完整 audit checkpoint。Review footer 链接限期保留的 Actions 工作稿 artifact；下载者必须登录且拥有中央仓库权限。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 实际还要求 `contents: write`，因此该权限只给 Agent 结束后的可信发布步骤。
 
 ### 时间预算与部分结论
 

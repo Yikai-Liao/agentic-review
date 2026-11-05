@@ -43,7 +43,7 @@ thread update 的 `evidence` 先给出处置结论，区分已修复、原判断
 
 说明改变判断的依据时，用真实来源定位，例如“[aaaaaaa](原 commit URL) 的 `src/export/refund.ts:28` 让两种失败复用退还记录”。链接目标原样保留，标签与目标类型一致；commit 链接不能冒充文件链接。部分修复仍按上方规则判定状态；状态未变化的进展默认留在工作稿。修复引入的新根因另记 finding，并在说明新根因时附原 thread 链接。
 
-使用当前 PR 内原 thread 的 root comment ID，每轮最多更新一次；最新 `Pi thread 状态更新` 相同时不重复。根据审查结论决定 resolve/reopen，不以 thread 创建者身份为条件。正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
+使用当前 PR 内原 thread 的 root comment ID，每轮最多更新一次；最新 `状态更新` 相同时不重复。根据审查结论决定 resolve/reopen，不以 thread 创建者身份为条件。正文按发布后状态书写，本轮 `resolved` 记作 `✅ 已关闭`，不算未解决。
 
 ## 3. 最终归纳
 

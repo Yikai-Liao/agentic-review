@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { coverageNotice, publishReview, sourceReviewedNotice } from '../scripts/publish-review.ts';
+import { checkText, coverageNotice, publishReview, sourceReviewedNotice } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
 const result: ReviewResult = {
@@ -20,13 +20,14 @@ function fixture() {
   const comments: any[] = [123, 456].map(id => ({ id, in_reply_to_id: null, body: '旧问题', user: { login: 'maintainer' } }));
   const reviews: any[] = [];
   const resolved = new Set<string>();
+  const minimized = new Set<string>();
   const state: {
-    calls: Call[]; comments: any[]; reviews: any[]; resolved: Set<string>;
+    calls: Call[]; comments: any[]; reviews: any[]; resolved: Set<string>; minimized: Set<string>;
     fail: (call: Call) => Response | undefined;
     afterWrite: (call: Call) => void;
     fetchImpl: typeof fetch;
   } = {
-    calls, comments, reviews, resolved,
+    calls, comments, reviews, resolved, minimized,
     fail: (_call: Call): Response | undefined => undefined,
     afterWrite: (_call: Call) => {},
     fetchImpl: (async (input, init) => {
@@ -43,6 +44,13 @@ function fixture() {
           reviewThreads: { nodes: [123, 456].map(id => ({ id: `thread-${id}`, isResolved: resolved.has(`thread-${id}`), comments: { nodes: [{ databaseId: id }] } })),
             pageInfo: { hasNextPage: false, endCursor: null } },
         } } } });
+        if (query.includes('nodes(ids')) return Response.json({ data: { nodes: call.body.variables.ids.map((id: string) => ({ id, isMinimized: minimized.has(id) })) } });
+        if (query.includes('minimizeComment')) {
+          assert.match(query, /classifier:OUTDATED/);
+          minimized.add(call.body.variables.id);
+          state.afterWrite(call);
+          return Response.json({ data: { minimizeComment: { minimizedComment: { isMinimized: true } } } });
+        }
         const id = call.body.variables.thread;
         assert.ok(query.includes('resolveReviewThread'), `Unexpected GraphQL operation: ${query}`);
         const operation = query.includes('unresolveReviewThread') ? 'unresolveReviewThread' : 'resolveReviewThread';
@@ -51,7 +59,7 @@ function fixture() {
         return Response.json({ data: { [operation]: { thread: { id } } } });
       }
       if (call.url.endsWith('/reviews') && call.method === 'POST') {
-        const review = { ...call.body, id: reviews.length + 1, user: bot, html_url: `https://github.test/review/${reviews.length + 1}` };
+        const review = { ...call.body, id: reviews.length + 1, node_id: `review-${reviews.length + 1}`, user: bot, html_url: `https://github.test/review/${reviews.length + 1}` };
         reviews.push(review);
         state.afterWrite(call);
         return Response.json(review);
@@ -86,7 +94,7 @@ function fixture() {
 
 function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters<typeof publishReview>[0]> = {}) {
   return publishReview({ result, repository: 'owner/repo', pullNumber: 7, botLogin: 'review-app[bot]', token: 'write-token',
-    expectedHeadSha: 'b'.repeat(40), footer: '[运行报告](https://github.test/run)', publicationId: 'run-1',
+    expectedHeadSha: 'b'.repeat(40), footer: '[运行报告](https://github.test/run)', runUrl: 'https://github.test/run', publicationId: 'run-1',
     api: 'https://api.github.test', requestSource: 'thread', requestCommentId: '900', requestRootCommentId: '123',
     fetchImpl: state.fetchImpl, ...override });
 }
@@ -113,7 +121,69 @@ test('发布多行 finding、正文和页脚，按结论同步人类及其他 bo
     ...finding, commit_id: 'b'.repeat(40), side: 'RIGHT', start_side: 'RIGHT',
   });
   assert.deepEqual([...state.resolved].sort(), ['thread-123', 'thread-456']);
-  for (const root of [123, 456]) assert.match(state.comments.find(comment => comment.in_reply_to_id === root)!.body, /已关闭/);
+  // 全部成功时不加执行说明；thread 回复只链接运行，不重复总评的运行信息。
+  assert.doesNotMatch(state.reviews[0].body, /下文为审查判断|运行报告。/);
+  for (const root of [123, 456]) {
+    const reply = state.comments.find(comment => comment.in_reply_to_id === root)!.body;
+    assert.match(reply, /^\*\*状态更新：✅ 已关闭\*\*/);
+    assert.match(reply, /\[View action run\]\(https:\/\/github\.test\/run\)/);
+    assert.doesNotMatch(reply, /运行报告/);
+  }
+});
+
+test('新的自动总评折叠更早的自动总评，评论请求的答复不折叠也不被折叠', async () => {
+  const state = fixture();
+  const automatic = { requestSource: 'automatic', result: { ...result, comments: [], thread_updates: [], request_reply: null } };
+  await publish(state, { ...automatic, publicationId: 'run-1' });
+  assert.equal(state.minimized.size, 0);
+  await publish(state, { requestSource: 'pr_comment', publicationId: 'run-2',
+    result: { ...automatic.result, body: '<!-- agentic-review:automatic-summary -->\n正文中的同名标记' } });
+  assert.equal(state.minimized.size, 0);
+  const report = await publish(state, { ...automatic, publicationId: 'run-3' });
+  assert.ok(report.operations.every(item => item.status === 'succeeded'), JSON.stringify(report));
+  assert.deepEqual([...state.minimized], ['review-1']);
+  // 重跑不重复折叠；更早运行的重跑不会折叠更新的总评。
+  const before = mutations(state.calls).length;
+  await publish(state, { ...automatic, publicationId: 'run-3' });
+  await publish(state, { ...automatic, publicationId: 'run-1' });
+  assert.equal(mutations(state.calls).length, before);
+  assert.deepEqual([...state.minimized], ['review-1']);
+  assert.equal(state.reviews.length, 3);
+});
+
+test('折叠失败记为发布失败，不影响已发布的新总评', async () => {
+  const state = fixture();
+  const automatic = { requestSource: 'automatic', result: { ...result, comments: [], thread_updates: [], request_reply: null } };
+  await publish(state, { ...automatic, publicationId: 'run-1' });
+  state.fail = call => call.body?.query?.includes('minimizeComment') ? Response.json({ errors: [{ message: 'forbidden' }] }) : undefined;
+  const report = await publish(state, { ...automatic, publicationId: 'run-2' });
+  assert.equal(report.reviewUrl, 'https://github.test/review/2');
+  assert.deepEqual(report.operations.filter(item => item.status !== 'succeeded').map(item => item.id), ['折叠旧 Review 1']);
+  assert.equal(state.minimized.size, 0);
+});
+
+test('Check 详情汇总运行、结果、覆盖、用量和未成功的发布操作', () => {
+  const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  const text = checkText({
+    footer: '[View action run](https://github.test/run) | Model: openai/gpt-test', result,
+    usage: { turns: 3, priceKnown: true, first: zero, total: zero },
+    coverage: { reviewed: 4, total: 5, sourceReviewed: 2 },
+    operations: [
+      { id: 'Review 正文', status: 'succeeded', dependencies: [] },
+      { id: 'finding 1 (src/example.ts:1)', status: 'failed', dependencies: [], error: 'secret API response' },
+      { id: '折叠旧 Review 1', status: 'blocked', dependencies: [] },
+    ],
+  });
+  assert.match(text, /Model: openai\/gpt-test/);
+  assert.match(text, /新问题 2 条；历史问题状态变化 2 条（✅ 已关闭 2）/);
+  assert.match(text, /已审查 4\/5 个文件；来源 PR 已审而未重复审查 2 个/);
+  assert.match(text, /3 个审查回合/);
+  assert.match(text, /成功 1；失败 1；前置失败，未执行 1/);
+  assert.match(text, /- 失败：finding 1 \(src\/example\.ts:1\)/);
+  assert.match(text, /- 前置失败，未执行：折叠旧 Review 1/);
+  assert.doesNotMatch(text, /secret API response|- 成功/);
+  // 发布前校验失败时只有操作记录。
+  assert.match(checkText({ operations: [{ id: '发布前校验', status: 'failed', dependencies: [] }] }), /^## 发布操作/);
 });
 
 test('风险升高时重开已关闭 thread', async () => {
@@ -200,7 +270,7 @@ test('同一 thread 的状态与证据并行，正文等待两项结束并包含
   assert.equal(state.reviews.length, 0);
   release();
   const report = await pending;
-  assert.ok(state.comments.some(item => item.body.includes('Pi thread 状态更新')));
+  assert.ok(state.comments.some(item => item.body.includes('状态更新：')));
   assert.equal(state.resolved.size, 0);
   assert.equal(report.operations.find(item => item.id === 'thread 123 状态同步')?.status, 'failed');
   assert.equal(report.operations.find(item => item.id === 'thread 123 证据回复')?.status, 'succeeded');
@@ -223,7 +293,7 @@ for (const [name, matches] of [
   ['单条 finding', (call: Call) => call.url.endsWith('/comments') && call.body?.line === 1],
   ['Review 正文', (call: Call) => call.url.endsWith('/reviews') && call.method === 'POST'],
   ['请求回复', (call: Call) => call.body?.body?.includes('已按请求重新核对。')],
-  ['thread 证据回复', (call: Call) => call.url.endsWith('/comments/123/replies') && call.body?.body?.includes('Pi thread')],
+  ['thread 证据回复', (call: Call) => call.url.endsWith('/comments/123/replies') && call.body?.body?.includes('状态更新：')],
   ['thread 状态同步', (call: Call) => call.body?.query?.startsWith('mutation') && call.body?.variables.thread === 'thread-123'],
 ] as const) {
   test(`${name} 遇到未预料异常，其余独立写入继续执行`, async () => {
@@ -256,7 +326,7 @@ for (const kind of ['comments', 'threads', 'reviews'] as const) {
       assert.equal(state.reviews.length, 1);
     } else if (kind === 'threads') {
       assert.equal(state.resolved.size, 0);
-      assert.ok(state.comments.some(item => item.body.includes('Pi thread')));
+      assert.ok(state.comments.some(item => item.body.includes('状态更新：')));
       assert.equal(state.reviews.length, 1);
     } else {
       assert.equal(state.reviews.length, 0);
@@ -348,7 +418,7 @@ test('GraphQL 返回 HTTP 200 的业务错误仍记为失败，证据回复继�
     ? Response.json({ errors: [{ message: 'forbidden mutation' }] }) : undefined;
   const report = await publish(state);
   assert.equal(report.operations.filter(item => item.status === 'failed').length, 2);
-  assert.ok(state.comments.some(item => item.body.includes('Pi thread')));
+  assert.ok(state.comments.some(item => item.body.includes('状态更新：')));
   assert.equal(state.reviews.length, 1);
 });
 
@@ -450,16 +520,23 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
   assert.match(completion, /REVIEW_JOB_STATUS: \$\{\{ job.status \}\}/);
   const script = completion.split('          script: |\n')[1].split('\n').map(line => line.slice(12)).join('\n');
   let payload: any;
+  let checkDetails = '## 运行';
   async function conclusion(jobStatus: string, publicationOutcome = 'success', agentOutcome = 'success', archiveOutcome = 'success', pending = '0') {
     await runInNewContext(`(async () => { ${script} })()`, {
       process: { env: { REPOSITORY: 'owner/repo', CHECK_ID: '1', PI_REVIEW_OUTCOME: agentOutcome,
         PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: archiveOutcome, REVIEW_JOB_STATUS: jobStatus,
-        COVERAGE_PENDING: pending, COVERAGE_TOTAL: '5' } },
+        COVERAGE_PENDING: pending, COVERAGE_TOTAL: '5', CHECK_TEXT: checkDetails } },
       github: { rest: { checks: { update: async (value: any) => { payload = value; } } } },
     });
     return payload.conclusion;
   }
   assert.equal(await conclusion('success'), 'success');
+  assert.equal(payload.output.text, '## 运行');
+  assert.match(completion, /CHECK_TEXT: \$\{\{ steps\.publish-review\.outputs\.check_text \}\}/);
+  checkDetails = '';
+  assert.equal(await conclusion('failure'), 'failure');
+  assert.equal('text' in payload.output, false);
+  checkDetails = '## 运行';
   // 部分覆盖已发布但仍阻止合并；缺失覆盖统计不能当作完整。
   assert.equal(await conclusion('success', 'success', 'success', 'success', '2'), 'action_required');
   assert.match(payload.output.summary, /已审查 3\/5 个文件/);

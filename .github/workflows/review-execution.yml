@@ -484,6 +484,8 @@ jobs:
           COMPLETION_WORKSPACE_OUTCOME: ${{ steps.review-workspace.outcome }}
           COVERAGE_PENDING: ${{ steps.publish-review.outputs.coverage_pending }}
           COVERAGE_TOTAL: ${{ steps.publish-review.outputs.coverage_total }}
+          # 运行、用量与发布结果的长期记录；发布器未运行到输出时为空。
+          CHECK_TEXT: ${{ steps.publish-review.outputs.check_text }}
           REVIEW_JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
@@ -510,5 +512,5 @@ jobs:
               status: 'completed',
               conclusion,
               completed_at: new Date().toISOString(),
-              output: { title: outputs[conclusion][0], summary: outputs[conclusion][1] },
+              output: { title: outputs[conclusion][0], summary: outputs[conclusion][1], ...(process.env.CHECK_TEXT ? { text: process.env.CHECK_TEXT } : {}) },
             });

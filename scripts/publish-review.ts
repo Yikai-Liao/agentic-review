@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { createPublication, finishPublication, publicationSummary } from './publication.ts';
+import { createHash, randomUUID } from 'node:crypto';
+import { createPublication, finishPublication, publicationSummary, type PublicationOperation } from './publication.ts';
 import { parseReviewCoverage, pendingCoverage } from './review-coverage.ts';
 import { access, appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -17,7 +17,7 @@ type FooterMetadata = {
   outputTokens?: number;
   cost?: number;
   controlSha?: string;
-  usage?: ReviewUsage;
+  priceKnown?: boolean;
 };
 type PublishOptions = {
   result: ReviewResult;
@@ -27,6 +27,7 @@ type PublishOptions = {
   token: string;
   expectedHeadSha: string;
   footer: string;
+  runUrl: string;
   publicationId: string;
   api: string;
   requestSource?: string;
@@ -132,7 +133,7 @@ export function buildFooter({
   outputTokens,
   cost,
   controlSha,
-  usage,
+  priceKnown,
 }: FooterMetadata) {
   const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
   if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
@@ -140,29 +141,68 @@ export function buildFooter({
   if (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)) {
     parts.push(`Tokens: ${formatNumber(inputTokens! + outputTokens!)}`);
   }
-  if (cost === undefined || usage?.priceKnown === false) parts.push('Cost (est.): 未提供');
+  if (cost === undefined || priceKnown === false) parts.push('Cost (est.): 未提供');
   else {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Invalid review cost');
-    parts.push(`Cost (est.): ${cost > 0 && cost < 0.0001 ? '<$0.0001' : `$${cost.toFixed(4)}`}`);
+    parts.push(`Cost (est.): ${dollars(cost)}`);
   }
   if (controlSha) parts.push(`Rules: ${controlSha.slice(0, 7)}`);
-  if (!usage) return parts.join(' | ');
+  return parts.join(' | ');
+}
+
+const dollars = (value: number) => value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
+
+// PR 上只保留一行运行信息；固定标记让下一轮输入剔除它，费用明细写入 Check 供复盘。
+const metadataBlock = (line: string) => `${reviewMetadataStart}\n${line}\n${reviewMetadataEnd}`;
+
+export function usageDetails(usage: ReviewUsage) {
   parseReviewUsage(usage);
-  const first = usage.first;
-  const total = usage.total;
+  const { first, total } = usage;
   const firstInput = first.input + first.cacheRead + first.cacheWrite;
   const hit = firstInput === 0 ? '无输入' : `${(100 * first.cacheRead / firstInput).toFixed(1)}%`;
-  const dollars = (value: number) => !usage.priceKnown ? '未提供' : value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
+  const cost = (value: number) => usage.priceKnown ? dollars(value) : '未提供';
   const tokens = (value: number) => value.toLocaleString('en-US');
-  return [reviewMetadataStart, parts.join(' | '), '', '<details>',
-    `<summary>费用分析：${usage.turns} 个审查回合；首轮缓存命中 ${hit}</summary>`, '',
+  return [
+    `${usage.turns} 个审查回合；首轮缓存命中 ${hit}。`, '',
     '| 审查回合用量 | Token | 费用估算 |', '| --- | ---: | ---: |',
     ...([
       ['普通输入', 'input'], ['缓存读取', 'cacheRead'], ['缓存写入', 'cacheWrite'], ['输出（含推理）', 'output'],
-    ] as const).map(([label, key]) => `| ${label} | ${tokens(total[key])} | ${dollars(total.cost[key])} |`), '',
+    ] as const).map(([label, key]) => `| ${label} | ${tokens(total[key])} | ${cost(total.cost[key])} |`), '',
     `首轮输入：普通 ${tokens(first.input)}；缓存读取 ${tokens(first.cacheRead)}；缓存写入 ${tokens(first.cacheWrite)}。`,
     total.reasoning === undefined ? '推理 Token：未提供。' : `推理 Token：${tokens(total.reasoning)}，已包含在输出中。`,
-    '以上为审查回合统计；总费用采用 Action 汇总。', '', '</details>', reviewMetadataEnd,
+    '以上为审查回合统计；总费用采用 Action 汇总。',
+  ].join('\n');
+}
+
+type CheckRecord = {
+  footer?: string;
+  usage?: ReviewUsage;
+  coverage?: { reviewed: number; total: number; sourceReviewed: number };
+  result?: ReviewResult;
+  operations: PublicationOperation[];
+};
+
+// Check 随提交长期保留并可经 API 查询，是复盘运行数据的固定来源；PR 正文只面向读者。
+// 操作数受结果 schema 的条目上限约束，不含错误原文，正文远低于 Check output 上限。
+export function checkText({ footer, usage, coverage, result, operations }: CheckRecord) {
+  const counts = (['succeeded', 'failed', 'blocked'] as const)
+    .map(status => [status, operations.filter(item => item.status === status)] as const);
+  const labels = { succeeded: '成功', failed: '失败', blocked: '前置失败，未执行' };
+  const statusCounts = result && (Object.keys(statusLabels) as Array<keyof typeof statusLabels>)
+    .map(status => [statusLabels[status], result.thread_updates.filter(item => item.status === status).length] as const)
+    .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join('，');
+  return [
+    ...(footer ? ['## 运行', '', footer, ''] : []),
+    ...(result ? ['## 审查结果', '',
+      `新问题 ${result.comments.length} 条；历史问题状态变化 ${result.thread_updates.length} 条${statusCounts ? `（${statusCounts}）` : ''}。`, ''] : []),
+    ...(coverage ? ['## 覆盖', '',
+      `已审查 ${coverage.reviewed}/${coverage.total} 个文件；来源 PR 已审而未重复审查 ${coverage.sourceReviewed} 个。`, ''] : []),
+    ...(usage ? ['## 用量', '', usageDetails(usage), ''] : []),
+    '## 发布操作', '',
+    counts.map(([status, items]) => `${labels[status]} ${items.length}`).join('；') + '。',
+    ...counts.filter(([status]) => status !== 'succeeded').flatMap(([status, items]) =>
+      items.map(item => `- ${labels[status]}：${item.id}`)),
+    '', '错误详情见本次运行的 Actions 摘要与 `publication-report.json`。',
   ].join('\n');
 }
 
@@ -174,6 +214,7 @@ export async function publishReview({
   token,
   expectedHeadSha,
   footer,
+  runUrl,
   publicationId,
   api,
   requestSource = 'automatic',
@@ -206,15 +247,17 @@ export async function publishReview({
     result.thread_updates.length ? run('读取 PR thread', [], () =>
       reviewThreads(fetchImpl, api, token, repository, pullNumber)) : undefined,
     needsReview ? run('读取已发布 Review', [], () => listPullRecords<{
-      id: number; body: string; html_url: string; user?: { login?: string };
+      id: number; node_id: string; body: string; html_url: string; user?: { login?: string };
     }>(fetchImpl, api, token, `${route}/reviews`)) : undefined,
   ]);
+  // 只有失败需要提醒读者；全部成功时 GitHub 上的状态本身就是执行结果。
   const notice = () => {
     const failed = publication.operations.filter(item => item.status !== 'succeeded').length;
     return failed
       ? `> [!WARNING]\n> 发布未全部完成：${failed} 项操作失败或因前置失败未执行。下文是审查判断，不能据此认定 finding 已发布或 thread 已关闭；实际执行结果见运行报告。`
-      : '> 下文为审查判断；GitHub 发布和 thread 同步的实际执行结果见运行报告。';
+      : '';
   };
+  const compose = (...parts: string[]) => parts.filter(Boolean).join('\n\n');
 
   for (const [index, comment] of result.comments.entries()) {
     const id = `finding ${index + 1} (${comment.path}:${comment.line})`;
@@ -262,11 +305,12 @@ export async function publishReview({
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
         if (replies.some(item => item.body.includes(tag))) return;
-        const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
-        if (replies.filter(item => item.body.startsWith('**Pi thread 状态更新：')).at(-1)?.body.startsWith(status)) return;
+        const status = `${statusUpdatePrefix}${statusLabels[update.status]}**`;
+        if (replies.filter(item => item.body.startsWith(statusUpdatePrefix)).at(-1)?.body.startsWith(status)) return;
+        // 同轮总评已有完整运行信息，回复只链接运行。
         await request(`${route}/comments/${update.root_comment_id}/replies`, {
           method: 'POST', body: JSON.stringify({
-            body: `${status}\n\n${update.evidence}\n\n以上为审查结论；GitHub 状态同步是否成功请查看运行报告。\n\n${footer}\n${tag}`,
+            body: `${compose(status, update.evidence, metadataBlock(`[View action run](${runUrl})`))}\n${tag}`,
           }),
         });
       }),
@@ -281,8 +325,8 @@ export async function publishReview({
       const tag = marker(`request ${requestCommentId}`, result.request_reply);
       const existing = comments!.value!.find(item => item.in_reply_to_id === root.id && isBot(item) && item.body.includes(tag));
       // 只回复 thread 时没有 Review 正文，覆盖缺口随回复公开。
-      const coverage = !needsReview && coverageNotice ? `${coverageNotice}\n\n` : '';
-      const body = `${notice()}\n\n${coverage}${result.request_reply!.body}\n\n${footer}\n${tag}`;
+      const coverage = !needsReview ? coverageNotice : '';
+      const body = `${compose(notice(), coverage, result.request_reply!.body, metadataBlock(footer))}\n${tag}`;
       if (existing) {
         if (existing.body !== body) await request(`/repos/${repository}/pulls/comments/${existing.id}`, {
           method: 'PATCH', body: JSON.stringify({ body }),
@@ -300,22 +344,64 @@ export async function publishReview({
     const review = await run('Review 正文', [reviews!], async () => {
       const tag = marker('summary', result);
       const existing = reviews!.value!.find(item => isBot(item) && item.body.includes(tag));
-      const body = `${tag}\n${notice()}\n\n${coverageNotice ? `${coverageNotice}\n\n` : ''}${result.body}\n\n---\n\n${footer}`;
+      // 自动总评标记与发布标记同处首行，模型正文从第二行开始，不能冒充。
+      const head = requestSource === 'automatic' ? `${tag}${automaticSummaryMarker}` : tag;
+      const body = `${head}\n${compose(notice(), coverageNotice, result.body)}\n\n---\n\n${metadataBlock(footer)}`;
       if (existing) {
         if (existing.body !== body) await request(`${route}/reviews/${existing.id}`, {
           method: 'PUT', body: JSON.stringify({ body }),
         });
-        return existing.html_url;
+        return { id: existing.id, url: existing.html_url };
       }
-      const response = await request<{ html_url: string }>(`${route}/reviews`, {
+      const response = await request<{ id: number; html_url: string }>(`${route}/reviews`, {
         method: 'POST', body: JSON.stringify({ body, commit_id: expectedHeadSha, event: 'COMMENT' }),
       });
-      return response.html_url;
+      return { id: response.id, url: response.html_url };
     });
-    reviewUrl = review.value ?? '';
+    reviewUrl = review.value?.url ?? '';
+    // 自动审查的最新总评代表当前结论，更早的自动总评折叠为 outdated，原文保留供展开和复盘。
+    // 评论请求的答复可能只覆盖局部范围，既不折叠其他总评，也不被自动总评折叠。
+    if (requestSource === 'automatic') {
+      const outdated = await run('读取旧 Review 折叠状态', [review], async () => {
+        const candidates = reviews!.value!.filter(item => isBot(item) && item.id < review.value!.id
+          && item.body.split('\n', 1)[0].endsWith(automaticSummaryMarker));
+        const folded = new Set<string>();
+        for (let index = 0; index < candidates.length; index += 100) {
+          const response: any = await request('/graphql', {
+            method: 'POST', body: JSON.stringify({
+              query: 'query($ids:[ID!]!){nodes(ids:$ids){... on PullRequestReview{id isMinimized}}}',
+              variables: { ids: candidates.slice(index, index + 100).map(item => item.node_id) },
+            }),
+          });
+          if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
+          const nodes = response.data?.nodes;
+          if (!Array.isArray(nodes) || nodes.length !== Math.min(100, candidates.length - index)
+              || nodes.some((node: any) => typeof node?.id !== 'string' || typeof node.isMinimized !== 'boolean')) {
+            throw new Error('Invalid review minimized state');
+          }
+          for (const node of nodes) if (node.isMinimized) folded.add(node.id);
+        }
+        return candidates.filter(item => !folded.has(item.node_id));
+      });
+      for (const item of outdated.value ?? []) {
+        await run(`折叠旧 Review ${item.id}`, [outdated], async () => {
+          const response: any = await request('/graphql', {
+            method: 'POST', body: JSON.stringify({
+              query: 'mutation($id:ID!){minimizeComment(input:{subjectId:$id,classifier:OUTDATED}){minimizedComment{isMinimized}}}',
+              variables: { id: item.node_id },
+            }),
+          });
+          if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
+          if (response.data?.minimizeComment?.minimizedComment?.isMinimized !== true) throw new Error('Missing minimize result');
+        });
+      }
+    }
   }
   return { reviewUrl, operations: publication.operations };
 }
+
+const statusUpdatePrefix = '**状态更新：';
+const automaticSummaryMarker = '<!-- agentic-review:automatic-summary -->';
 
 // 覆盖缺口来自可信文件进度，不取自模型正文；未审查文件全部列出，读者无需打开工作稿。
 export function coverageNotice(pending: string[], total: number) {
@@ -364,29 +450,28 @@ export async function main() {
     if (request.source !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
     const pending = pendingCoverage(coverage, requiredEnv('REVIEW_INVENTORY_DIGEST'));
     const total = coverage.ledger.filter((entry) => entry.status !== 'out_of_scope' || coverage.scope!.mode === 'full').length;
+    const sourceReviewed = coverage.ledger.filter((entry) => entry.status === 'source_reviewed').length;
+    const usage = parseReviewUsage(JSON.parse(await readFile(path.join(path.dirname(coveragePath), 'review-usage.json'), 'utf8')));
+    const footer = buildFooter({
+      runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
+      model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
+      durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
+      inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
+      outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
+      controlSha: process.env.GITHUB_SHA, priceKnown: usage.priceKnown,
+    });
+    const record = { footer, usage, result, coverage: { reviewed: total - pending.length, total, sourceReviewed } };
     const options: PublishOptions = {
-      publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result,
+      publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result, footer, runUrl: requiredEnv('REVIEW_RUN_URL'),
       repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
       botLogin: requiredEnv('REVIEW_BOT_LOGIN'), token: requiredEnv('GH_TOKEN'),
       api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
       requestSource: request.source, requestCommentId: request.comment_id ?? '',
       requestRootCommentId: request.root_comment_id ?? '',
       threadReplyOnly: request.source === 'thread' && coverage.scope.mode === 'focused',
-      coverageNotice: [
-        sourceReviewedNotice(coverage.ledger.filter((entry) => entry.status === 'source_reviewed').length),
-        coverageNotice(pending, total),
-      ].filter(Boolean).join('\n\n'),
-      footer: buildFooter({
-        runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
-        model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
-        durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
-        inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
-        outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
-        controlSha: process.env.GITHUB_SHA,
-        usage: parseReviewUsage(JSON.parse(await readFile(path.join(path.dirname(coveragePath), 'review-usage.json'), 'utf8'))),
-      }),
+      coverageNotice: [sourceReviewedNotice(sourceReviewed), coverageNotice(pending, total)].filter(Boolean).join('\n\n'),
     };
-    return { coverage, coveragePath, options, pending, total };
+    return { coverage, coveragePath, options, pending, total, record };
   });
   let reviewUrl = '';
   if (input.status === 'succeeded' && process.env.GITHUB_OUTPUT) {
@@ -410,6 +495,12 @@ export async function main() {
     },
     writeSummary: process.env.GITHUB_STEP_SUMMARY
       ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, 'GitHub 发布操作')) : undefined,
+    // 经步骤输出交给 Check completion；Agent 不能写入本步骤的输出。
+    writeCheckText: process.env.GITHUB_OUTPUT ? () => {
+      const delimiter = `check_text_${randomUUID()}`;
+      const text = checkText({ ...input.value?.record, operations: report.operations });
+      return appendFile(process.env.GITHUB_OUTPUT!, `check_text<<${delimiter}\n${text}\n${delimiter}\n`);
+    } : undefined,
     saveCoverage: input.status === 'succeeded' ? async (complete) => {
       const { coverage, coveragePath, pending } = input.value!;
       await writeFile(coveragePath, `${JSON.stringify({
