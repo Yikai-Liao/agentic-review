@@ -11,11 +11,13 @@ export type ModelUsage = {
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 };
 
-export type ReviewUsage = { turns: number; first: ModelUsage; total: ModelUsage };
+// priceKnown 为 false 表示模型没有目录单价，cost 字段全为 0 但不代表免费。
+export type ReviewUsage = { turns: number; priceKnown: boolean; first: ModelUsage; total: ModelUsage };
 
 export function parseReviewUsage(value: unknown): ReviewUsage {
   const summary = value as ReviewUsage | null;
   if (!summary || !Number.isSafeInteger(summary.turns) || summary.turns < 1) throw new Error('Invalid review usage');
+  if (typeof summary.priceKnown !== 'boolean') throw new Error('Invalid review price state');
   for (const usage of [summary.first, summary.total]) {
     if (!usage) throw new Error('Missing review usage');
     for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const) {

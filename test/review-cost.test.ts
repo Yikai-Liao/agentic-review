@@ -11,6 +11,13 @@ import { buildFooter } from '../scripts/publish-review.ts';
 import costExtension from '../.github/pi-extensions/review-cost.ts';
 import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 import { parseReviewUsage, type ModelUsage } from '../scripts/review-usage.ts';
+import { findCatalogCost, type CatalogModel } from '../scripts/review-pricing.ts';
+
+const price = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 };
+const catalog: CatalogModel[] = [{ provider: 'openai', id: 'gpt-test', cost: price }];
+// 显式注册的模型初始单价为 0；扩展在首次请求前从目录补价。
+const modelOf = (extra: object = {}) => ({ id: 'gpt-test', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...extra });
+const registry = { getAll: () => catalog };
 
 const metadata = { runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/workspace', model: 'openai/gpt-test' };
 type Step = { id?: string; name?: string; env?: Record<string, string>; run?: string };
@@ -41,11 +48,11 @@ test('不同 Review 共享 OpenAI 缓存分组，输入、服务档位与其他 
   for (const key of ['session-1', 'session-2']) {
     const original = { model: 'gpt-6.1-sol', input, prompt_cache_key: key, store: false,
       reasoning: { effort: 'high' }, service_tier: 'priority', prompt_cache_options: { ttl: '30m' } };
-    const result = request({ payload: original }, { model: { api: 'openai-responses' } });
+    const result = request({ payload: original }, { model: modelOf({ api: 'openai-responses' }), modelRegistry: registry });
     assert.deepEqual(result, { ...original, prompt_cache_key: 'agentic-review' });
     assert.equal(result.input, input);
     assert.equal(original.prompt_cache_key, key);
-    assert.equal(request({ payload: original }, { model: { api: 'anthropic-messages' } }), undefined);
+    assert.equal(request({ payload: original }, { model: modelOf({ api: 'anthropic-messages' }), modelRegistry: registry }), undefined);
   }
 });
 
@@ -59,7 +66,7 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
   const prompt = (await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)))).trim();
   handlers.get('before_agent_start')!({ prompt });
   const request = handlers.get('before_provider_request')!;
-  const ctx = { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } },
+  const ctx = { model: modelOf({ api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } }), modelRegistry: registry,
     abort: () => assert.fail('正常请求不应中止') };
   const stable = [{ role: 'developer', content: '固定系统提示' },
     { role: 'user', content: [{ type: 'input_text', text: prompt }] }];
@@ -116,7 +123,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   const request = (compacted = false) => handlers.get('before_provider_request')!({ payload: { input: [
     { role: 'user', content: [{ type: 'input_text', text: '固定规则' }] },
     { role: 'user', content: [{ type: 'input_text', text: '动态材料' }] },
-  ].slice(compacted ? 1 : 0) } }, { model: { api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } } });
+  ].slice(compacted ? 1 : 0) } }, { model: modelOf({ api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } }), modelRegistry: registry });
   const end = handlers.get('message_end')!;
   const turn = handlers.get('turn_end')!;
   const ctx = { abort: () => assert.fail('有效标准统计不应中止') };
@@ -194,7 +201,7 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   const first: ModelUsage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, reasoning: 0, totalTokens: 43230,
     cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
   const footer = buildFooter({ ...metadata, cost: 0.1505318, controlSha: 'b64df5114c7fe64a9eb7ff3361a13d36ba9305b2',
-    usage: { turns: 1, first, total: first } });
+    usage: { turns: 1, priceKnown: true, first, total: first } });
   assert.match(footer, /首轮缓存命中 4\.6%/);
   assert.match(footer, /缓存读取 \| 1,972 \| \$0\.0002/);
   assert.match(footer, /缓存写入 \| 41,123 \| \$0\.1028/);
@@ -203,11 +210,11 @@ test('footer 展示首轮命中和分项费用，零输入及缺失推理保持�
   assert.match(footer, /推理 Token：0，已包含在输出中/);
   const empty: ModelUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
-  assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /首轮缓存命中 无输入/);
-  assert.match(buildFooter({ ...metadata, usage: { turns: 1, first: empty, total: empty } }), /推理 Token：未提供/);
-  for (const value of [null, {}, { turns: 0, first, total: first },
-    { turns: 1, first, total: { ...first, cacheRead: -1 } },
-    { turns: 1, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
+  assert.match(buildFooter({ ...metadata, usage: { turns: 1, priceKnown: true, first: empty, total: empty } }), /首轮缓存命中 无输入/);
+  assert.match(buildFooter({ ...metadata, usage: { turns: 1, priceKnown: true, first: empty, total: empty } }), /推理 Token：未提供/);
+  for (const value of [null, {}, { turns: 0, priceKnown: true, first, total: first },
+    { turns: 1, priceKnown: true, first, total: { ...first, cacheRead: -1 } },
+    { turns: 1, priceKnown: true, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
     assert.throws(() => parseReviewUsage(value), /review/);
   }
 });
@@ -260,4 +267,59 @@ test('运行时注册 Responses 模型并保留原生重试，显式缓存默认
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同档位取最新版本，找不到则标记费用未知', t => {
+  const entry = (provider: string, id: string, input: number) => ({ provider, id, cost: { input, output: input * 5, cacheRead: 0, cacheWrite: 0 } });
+  const models = [entry('openai', 'gpt-5.6-terra', 2), entry('openai', 'gpt-6-terra', 3), entry('openai', 'gpt-6.1-sol', 4),
+    entry('openai', 'gpt-6.1-luna', 0), entry('bedrock', 'openai.gpt-7-terra', 9), entry('openai', 'deepseek-flash', 1)];
+  assert.equal(findCatalogCost('gpt-6.1-sol', models)?.input, 4);
+  assert.equal(findCatalogCost('deepseek-flash', models)?.input, 1);
+  assert.equal(findCatalogCost('gpt-6.1-terra', models)?.input, 3);
+  assert.equal(findCatalogCost('gpt-5.2-terra', models)?.input, 3);
+  // 零价条目是被显式注册遮住的模型，不能当作目录价格。
+  assert.equal(findCatalogCost('gpt-6.1-luna', models), undefined);
+  assert.equal(findCatalogCost('gateway/opus-alias', models), undefined);
+
+  const handlers = new Map<string, Function>();
+  costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
+  const model = modelOf({ api: 'openai-responses' });
+  handlers.get('before_provider_request')!({ payload: { input: [] } }, { model, modelRegistry: registry });
+  assert.deepEqual(model.cost, price);
+
+  // 经扩展完整处理一次请求与回合，再从它保存的 review-usage.json 生成发布结果。
+  const directory = mkdtempSync(path.join(tmpdir(), 'review-price-'));
+  const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
+  process.env.REVIEW_WORKSPACE_PATH = directory;
+  t.after(() => {
+    if (originalWorkspace === undefined) delete process.env.REVIEW_WORKSPACE_PATH;
+    else process.env.REVIEW_WORKSPACE_PATH = originalWorkspace;
+    rmSync(directory, { recursive: true, force: true });
+  });
+  t.mock.method(console, 'info', () => {});
+  const publishedFooter = (id: string) => {
+    const run = new Map<string, Function>();
+    costExtension({ on: (event, handler) => { run.set(event, handler); } });
+    const registered = modelOf({ id, api: 'openai-responses' });
+    run.get('before_provider_request')!({ payload: { input: [] } },
+      { model: registered, modelRegistry: registry, abort: () => assert.fail('缺少价格不应中止 Review') });
+    // 模拟 SDK 按注册模型当时的 cost 计算用量。
+    const rate = registered.cost.input;
+    const usage = { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1_000_000,
+      cost: { input: rate, output: 0, cacheRead: 0, cacheWrite: 0, total: rate } };
+    run.get('message_end')!({ message: { role: 'assistant', usage } }, { abort: () => assert.fail('用量有效') });
+    run.get('turn_end')!({ turnIndex: 0, message: { role: 'assistant', provider: 'openai', model: id, stopReason: 'stop', usage } });
+    const saved = parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8')));
+    return { saved, footer: buildFooter({ ...metadata, cost: rate, usage: saved }) };
+  };
+  // 有价模型：保存价格已知，费用正常显示。
+  const known = publishedFooter('gpt-test');
+  assert.equal(known.saved.priceKnown, true);
+  assert.match(known.footer, /Cost \(est\.\): \$2\.0000/);
+  // 目录没有价格的网关别名：Review 照常运行，保存价格未知，发布时费用显示“未提供”。
+  const unknown = publishedFooter('gateway/opus-alias');
+  assert.equal(unknown.saved.priceKnown, false);
+  assert.match(unknown.footer, /Cost \(est\.\): 未提供/);
+  assert.doesNotMatch(unknown.footer, /\$0\.0000/);
+  assert.throws(() => parseReviewUsage({ ...unknown.saved, priceKnown: undefined }), /Invalid review price state/);
 });

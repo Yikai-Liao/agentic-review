@@ -1,6 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { findCatalogCost, type CatalogModel, type ModelCost } from '../../scripts/review-pricing.ts';
 import { parseReviewUsage, type ModelUsage, type ReviewUsage } from '../../scripts/review-usage.ts';
 
 type AssistantMessage = {
@@ -11,7 +12,8 @@ type AssistantMessage = {
 type ExtensionAPI = {
   on(event: 'before_agent_start', handler: (event: { prompt?: string }) => void): void;
   on(event: 'before_provider_request', handler: (event: { payload: unknown }, ctx: {
-    model?: { api: string; compat?: { supportsExplicitPromptCacheMode?: boolean } };
+    model?: { id: string; api: string; cost: ModelCost; compat?: { supportsExplicitPromptCacheMode?: boolean } };
+    modelRegistry: { getAll(): readonly CatalogModel[] };
     abort(): void;
   }) => Record<string, unknown> | undefined): void;
   on(event: 'message_end', handler: (event: { message: { role: string } }, ctx: {
@@ -30,7 +32,18 @@ export default function reviewCost(pi: ExtensionAPI) {
     firstRequest = true;
   });
 
+  let priced = false;
+  let priceKnown = true;
   pi.on('before_provider_request', (event, ctx) => {
+    if (!priced && ctx.model) {
+      // 显式注册的模型没有单价；首次请求前取目录价格，之后 SDK 照常按 model.cost 与分档计费。
+      // 目录没有该模型时 Review 照常运行，但费用必须标记为未知，不能显示为 0。
+      const cost = findCatalogCost(ctx.model.id, ctx.modelRegistry.getAll());
+      if (cost) ctx.model.cost = cost;
+      else console.info('[review-price-missing]', ctx.model.id);
+      priceKnown = cost !== undefined;
+      priced = true;
+    }
     if (ctx.model?.api !== 'openai-responses') return;
     const payload = event.payload as Record<string, unknown>;
     const result: Record<string, unknown> = { ...payload, prompt_cache_key: 'agentic-review' };
@@ -78,7 +91,7 @@ export default function reviewCost(pi: ExtensionAPI) {
       const usage = (ended as AssistantMessage).usage;
       // 网关不区分写入 TTL；沿用 SDK 的官方目录估算，缓存策略不决定计价。
       // 仅校验已有标准统计，不要求网关额外返回生命周期字段。
-      parseReviewUsage({ turns: 1, first: usage, total: usage });
+      parseReviewUsage({ turns: 1, priceKnown, first: usage, total: usage });
     } catch (error) {
       usageError = error as Error;
       const workspace = process.env.REVIEW_WORKSPACE_PATH;
@@ -93,7 +106,7 @@ export default function reviewCost(pi: ExtensionAPI) {
     if (ended.role !== 'assistant') return;
     // 每回合明细已在会话 JSONL 的 assistant 消息中，这里只累计，不写入运行日志。
     const usage = structuredClone((ended as AssistantMessage).usage);
-    if (!summary) summary = { turns: 1, first: usage, total: structuredClone(usage) };
+    if (!summary) summary = { turns: 1, priceKnown, first: usage, total: structuredClone(usage) };
     else {
       summary.turns++;
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const) summary.total[key] += usage[key];

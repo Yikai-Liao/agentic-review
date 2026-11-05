@@ -92,7 +92,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     const usage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, totalTokens: 43230,
       cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
     const usagePath = path.join(workspace, 'review-usage.json');
-    await writeFile(usagePath, JSON.stringify({ turns: 1, first: usage, total: usage }));
+    await writeFile(usagePath, JSON.stringify({ turns: 1, priceKnown: true, first: usage, total: usage }));
     const publishEnv = { ...env, REPOSITORY: 'owner/repo', PULL_NUMBER: '7', BASE_SHA: base, HEAD_SHA: head,
       REVIEW_INVENTORY_DIGEST: outputs.inventory_digest, REVIEW_COMPARISON_START: outputs.comparison_start,
       REVIEW_CONTEXT_DIGEST: outputs.context_digest,
@@ -146,7 +146,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     await rm(usagePath);
     await assert.rejects(publish(), /review-usage.json/);
     assert.equal(writes.length, 0, '缺失费用分项不能发布一份看似完整的统计');
-    await writeFile(usagePath, JSON.stringify({ turns: 1, first: usage, total: usage }));
+    await writeFile(usagePath, JSON.stringify({ turns: 1, priceKnown: true, first: usage, total: usage }));
     await publish();
     assert.equal(writes.length, 1);
     assert.ok((writes[0] as { body: string }).body.includes(bodyFinding));
