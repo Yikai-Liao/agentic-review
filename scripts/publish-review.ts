@@ -343,8 +343,10 @@ export async function publishReview({
   let reviewUrl = '';
   if (needsReview) {
     const findings = result.comments.map((comment, index) => ({
-      comment, tag: marker(`finding ${index + 1} (${comment.path}:${comment.line})`, comment),
+      comment, tag: marker(`finding ${index + 1} (${comment.path}:${comment.line ?? 'summary'})`, comment),
     }));
+    const inline = findings.filter(({ comment }) => comment.line !== null);
+    const detached = findings.filter(({ comment }) => comment.line === null);
     const review = await run('Review 正文', [reviews!, comments!, threads!], async () => {
       const tag = marker('summary', result);
       const automatic = requestSource === 'automatic';
@@ -364,39 +366,51 @@ export async function publishReview({
         ...(coverage ? [`已审 ${coverage.reviewed}/${coverage.total} 个文件${coverage.sourceReviewed
           ? `（其中 ${coverage.sourceReviewed} 个由来源 PR 审过）` : ''}`] : []),
       ].join(' · ');
+      // 无法绑定 diff 行的问题没有讨论可挂，由发布器放在总评末尾，并与 inline 问题一样计入标题和索引。
+      const details = detached.length ? `**问题详情**${bodyFindingsMarker}\n\n${detached
+        .map(({ comment }) => `${renderFinding(comment)}\n\n\`${comment.path}\``).join('\n\n')}` : '';
       // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
       const head = automatic ? `${tag}${automaticSummaryMarker}` : tag;
-      const body = `${head}\n${compose(heading, notice(), coverageNotice, placeIndex(result.body, index.markdown))}\n\n---\n\n${metadataBlock(`${scope} | ${footer}`)}`;
-      const existing = reviews!.value!.find(item => isBot(item) && item.body.includes(tag));
+      const render = (first: string) => `${first}\n${compose(heading, notice(), coverageNotice,
+        placeIndex(result.body, index.markdown), details)}\n\n---\n\n${metadataBlock(`${scope} | ${footer}`)}`;
+      const firstLine = (body: string) => body.split('\n', 1)[0];
+      const existing = reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(tag));
       if (existing) {
-        // 已被后续审查取代的总评保持取代状态，重跑旧运行不能恢复它。
-        if (existing.body !== body && !isSuperseded(existing.body)) await request(`${route}/reviews/${existing.id}`, {
+        // 首行以本次标记结尾才是当前结论；已被收起或被后续运行就地更新的总评保持原样，重跑旧运行不能改写它。
+        const current = !isSuperseded(existing.body) && firstLine(existing.body).endsWith(head);
+        const body = render(firstLine(existing.body));
+        if (current && existing.body !== body) await request(`${route}/reviews/${existing.id}`, {
           method: 'PUT', body: JSON.stringify({ body }),
         });
-        return { id: existing.id, url: existing.html_url, created: false };
+        return { id: existing.id, url: existing.html_url, current };
       }
       const latest = automatic ? latestAutomaticSummary(reviews!.value!.filter(isBot)) : undefined;
       // 没有新问题、没有状态变化且结论标题不变时，就地更新最新总评，不产生新的时间线条目和通知。
-      if (latest && !result.comments.length && !result.thread_updates.length && latest.body.split('\n')[1] === heading) {
+      // 上一轮的问题详情只存在于总评正文，带问题详情的总评不能被覆盖。
+      if (latest && !result.comments.length && !result.thread_updates.length
+          && latest.body.split('\n')[1] === heading && !latest.body.includes(bodyFindingsMarker)) {
+        // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评，并据首行结尾判断自己已不是当前结论。
+        const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${head}`);
         await request(`${route}/reviews/${latest.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
-        return { id: latest.id, url: latest.html_url, created: false };
+        return { id: latest.id, url: latest.html_url, current: true };
       }
       // 新问题挂在同一条 Review 下，每轮只占一条时间线记录；行号已在提交时按 PR diff 校验。
       const response = await request<{ id: number; html_url: string }>(`${route}/reviews`, {
         method: 'POST', body: JSON.stringify({
-          body, commit_id: expectedHeadSha, event: 'COMMENT',
-          ...(findings.length ? { comments: findings.map(({ comment, tag: findingTag }) => ({
+          body: render(head), commit_id: expectedHeadSha, event: 'COMMENT',
+          ...(inline.length ? { comments: inline.map(({ comment, tag: findingTag }) => ({
             path: comment.path, line: comment.line, side: 'RIGHT', body: `${renderFinding(comment)}\n\n${findingTag}`,
             ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
           })) } : {}),
         }),
       });
-      return { id: response.id, url: response.html_url, created: true };
+      return { id: response.id, url: response.html_url, current: true };
     });
     reviewUrl = review.value?.url ?? '';
     // 最新自动总评代表当前结论；更早的自动总评正文收起为一行指向，原文保留在折叠区供展开和下一轮读取。
+    // 重跑复用当前总评时同样核对，补做上次失败的收起；比当前总评更新的 Review 不受影响。
     // 其下的讨论不受影响，仍未解决的问题照常显示。评论请求的答复只覆盖请求范围，既不收起其他总评，也不被收起。
-    if (requestSource === 'automatic' && review.value?.created) {
+    if (requestSource === 'automatic' && review.value?.current) {
       const older = reviews!.value!.filter(item => isBot(item) && item.id < review.value!.id
         && isAutomaticSummary(item.body) && !isSuperseded(item.body));
       for (const item of older) {
@@ -417,6 +431,7 @@ const statusUpdatePrefix = '**状态更新：';
 const statusMarker = '<!-- agentic-review:status -->';
 const automaticSummaryMarker = '<!-- agentic-review:automatic-summary -->';
 const supersededMarker = '<!-- agentic-review:superseded -->';
+const bodyFindingsMarker = '<!-- agentic-review:body-findings -->';
 const isAutomaticSummary = (body: string) => body.split('\n', 1)[0].endsWith(automaticSummaryMarker);
 const isSuperseded = (body: string) => body.split('\n', 2)[1]?.endsWith(supersededMarker) ?? false;
 
@@ -459,7 +474,9 @@ function summaryIndex({ result, findings, comments, allComments, threads }: {
     items.push({ group: known ? findingLabels[label as FindingLabel].group : 'fix',
       rank: known ? labelOrder.indexOf(label!) : labelOrder.length, line: `- ${line}${text}` });
   };
-  for (const comment of result.comments) add(comment.label, `${comment.label}：${comment.title}`, '🆕 ');
+  for (const comment of result.comments) {
+    add(comment.label, `${comment.label}：${comment.title}${comment.line === null ? ' · 见下方问题详情' : ''}`, '🆕 ');
+  }
   for (const root of comments) {
     if (root.in_reply_to_id != null || !root.body.includes(publicationTagPrefix) || findings.some(tag => root.body.includes(tag))) continue;
     const update = updates.get(root.id);
@@ -482,11 +499,11 @@ function summaryIndex({ result, findings, comments, allComments, threads }: {
   };
 }
 
-// 索引放在“核对了什么”或“问题详情”之前；模型正文没有这两节时放在末尾。
+// 索引放在“核对了什么”之前；模型正文没有这一节时放在末尾。
 function placeIndex(body: string, index: string) {
   if (!index) return body;
   const lines = body.split('\n');
-  const at = lines.findIndex(line => /^\*\*(核对了什么|问题详情)\*\*/.test(line.trim()));
+  const at = lines.findIndex(line => /^\*\*核对了什么\*\*/.test(line.trim()));
   return at === -1 ? `${body}\n\n${index}` : [...lines.slice(0, at), index, '', ...lines.slice(at)].join('\n');
 }
 

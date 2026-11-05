@@ -9,13 +9,17 @@ const exec = promisify(execFile);
 export function commentableRanges(diff: string) {
   const ranges = new Map<string, Array<[number, number]>>();
   let current: Array<[number, number]> | undefined;
+  // 文件头只出现在 hunk 之前；hunk 内以 `++ ` 开头的新增内容同样显示为 `+++ `，不能当作新文件。
+  let inHunk = false;
   for (const line of diff.split('\n')) {
-    if (line.startsWith('diff --git ')) current = undefined;
-    else if (line.startsWith('+++ ')) {
+    if (line.startsWith('diff --git ')) { current = undefined; inHunk = false; }
+    else if (!inHunk && line.startsWith('+++ ')) {
       const name = line.slice(4).replace(/\t$/, '').replace(/^"(.*)"$/, '$1');
       current = name === '/dev/null' ? undefined : [];
       if (current) ranges.set(name.replace(/^b\//, ''), current);
-    } else if (current && line.startsWith('@@ ')) {
+    } else if (line.startsWith('@@ ')) {
+      inHunk = true;
+      if (!current) continue;
       const match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
       if (!match) throw new Error(`Invalid diff hunk: ${line}`);
       const start = Number(match[1]);
@@ -27,17 +31,19 @@ export function commentableRanges(diff: string) {
 }
 
 export async function validateCommentLines(target: string, start: string, end: string, comments: ReviewResult['comments']) {
-  if (!comments.length) return;
+  const anchored = comments.filter(comment => comment.line !== null);
+  if (!anchored.length) return;
   const { stdout } = await exec('git', ['-C', target, '-c', 'core.quotePath=false', '--no-pager', 'diff', '--no-ext-diff',
     '--no-textconv', '-M', '--unified=3', `${start}..${end}`], { encoding: 'utf8', maxBuffer: Infinity });
   const ranges = commentableRanges(stdout);
-  for (const comment of comments) {
-    const first = comment.start_line ?? comment.line;
+  for (const comment of anchored) {
+    const line = comment.line!;
+    const first = comment.start_line ?? line;
     const file = ranges.get(comment.path);
-    if (file?.some(([low, high]) => low <= first && comment.line <= high)) continue;
-    const position = `${comment.path}:${comment.start_line === null ? '' : `${comment.start_line}-`}${comment.line}`;
+    if (file?.some(([low, high]) => low <= first && line <= high)) continue;
+    const position = `${comment.path}:${comment.start_line === null ? '' : `${comment.start_line}-`}${line}`;
     throw new Error(`Review comment ${position} is outside the PR diff. ${file?.length
       ? `Commentable line ranges in this file: ${file.map(([low, high]) => `${low}-${high}`).join(', ')}; a multi-line comment must stay within one range.`
-      : 'This file has no commentable lines in the PR diff; anchor the finding to a changed file or describe it in the review body.'}`);
+      : 'This file has no commentable lines in the PR diff; anchor the finding to a changed line, or use line: null to place it in the summary.'}`);
   }
 }

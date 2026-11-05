@@ -165,6 +165,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
       [{ ...result, comments: [{ ...result.comments[0], title: '两行\n标题' }] }, /comment title/],
       [{ ...result, comments: [{ ...result.comments[0], start_line: null, line: 10 }] }, /src\/auth\.ts:10 is outside the PR diff\. Commentable line ranges in this file: 37-45/],
       [{ ...result, comments: [{ ...result.comments[0], path: 'src/other.ts' }] }, /no commentable lines/],
+      [{ ...result, comments: [{ ...result.comments[0], line: null, start_line: 40 }] }, /start_line/],
       [{ ...result, thread_updates: [{ ...result.thread_updates[0], evidence: '第一行\n第二行原因' }] }, /thread evidence/],
       [{ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }, /thread status/],
       [{ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }, /Duplicate thread update/],
@@ -177,8 +178,11 @@ test('submit_review rejects invalid results without sealing and allows correctio
       await assert.rejects(readFile(path.join(workspace, 'review-result.json')), { code: 'ENOENT' });
     }
 
-    await tool.execute('call', result);
-    assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
+    // 无法绑定 diff 行的问题不校验行号，由发布器放进总评。
+    const accepted = { ...result, comments: [...result.comments,
+      { ...result.comments[0], path: 'docs/missing.md', line: null, start_line: null }] };
+    await tool.execute('call', accepted);
+    assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), accepted);
     await assertSubmissionFailed(tool.execute('call', result), /already submitted/);
   } finally {
     process.env = originalEnv;
@@ -477,6 +481,8 @@ test('可评论行按 GitHub 的三行上下文与改名识别计算，删除的
     '--- a/old name.ts\t', '+++ b/new name.ts\t', '@@ -10,7 +10,8 @@ fn', ' a', '+b',
     'diff --git a/gone.ts b/gone.ts', '--- a/gone.ts', '+++ /dev/null', '@@ -1,3 +0,0 @@',
     'diff --git a/one.ts b/one.ts', '--- a/one.ts', '+++ b/one.ts', '@@ -1 +1 @@', '@@ -5,0 +6,0 @@',
+    // 以 `++ ` 开头的新增内容在 hunk 中显示为 `+++ `，后续 hunk 仍属于同一文件。
+    'diff --git a/plus.md b/plus.md', '--- a/plus.md', '+++ b/plus.md', '@@ -1,2 +1,3 @@', ' a', '+++ b', '--- c', '@@ -20,3 +21,4 @@', ' d',
   ].join('\n'));
-  assert.deepEqual([...ranges], [['new name.ts', [[10, 17]]], ['one.ts', [[1, 1]]]]);
+  assert.deepEqual([...ranges], [['new name.ts', [[10, 17]]], ['one.ts', [[1, 1]]], ['plus.md', [[1, 3], [21, 24]]]]);
 });

@@ -2,7 +2,7 @@ type ThreadStatus = keyof typeof statusLabels;
 export type FindingLabel = keyof typeof findingLabels;
 export type ReviewResult = {
   body: string;
-  comments: Array<{ path: string; line: number; start_line: number | null; label: FindingLabel; title: string; body: string }>;
+  comments: Array<{ path: string; line: number | null; start_line: number | null; label: FindingLabel; title: string; body: string }>;
   thread_updates: Array<{ root_comment_id: number; status: ThreadStatus; evidence: string }>;
   request_reply: { body: string } | null;
 };
@@ -49,9 +49,12 @@ export function parseReviewResult(text: string): ReviewResult {
         comment.path.includes('\\') || comment.path.split('/').includes('..')) {
       throw new Error('Invalid review comment path');
     }
-    if (!Number.isInteger(comment.line) || comment.line < 1) throw new Error('Invalid review comment line');
-    if (comment.start_line !== null &&
-        (!Number.isInteger(comment.start_line) || comment.start_line < 1 || comment.start_line > comment.line)) {
+    // line 为 null 表示无法绑定 diff 行，发布器把它放进总评的“问题详情”。
+    if (comment.line !== null && (!Number.isInteger(comment.line) || comment.line < 1)) {
+      throw new Error('Invalid review comment line');
+    }
+    if (comment.start_line !== null && (comment.line === null ||
+        !Number.isInteger(comment.start_line) || comment.start_line < 1 || comment.start_line > comment.line)) {
       throw new Error('Invalid review comment start_line');
     }
     if (!Object.hasOwn(findingLabels, comment.label)) {

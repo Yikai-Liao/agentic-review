@@ -213,12 +213,40 @@ test('结论不变且没有新问题或状态变化时，就地更新最新总�
   assert.match(state.reviews[0].body, /只合并了 main，结论不变。/);
   assert.match(state.reviews[0].body, /审至 `ccccccc`（上次 `bbbbbbb`）/);
   assert.ok(state.reviews[0].body.includes('- P2：问题 1 · [讨论](https://github.test/comment/1002)'));
+  // 就地更新保留上一轮的发布标记：旧运行重跑找到这条总评，发现已不是当前结论，既不改写也不重复发布问题。
+  const before = mutations(state.calls).length;
+  const rerun = await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: { ...empty, comments: [result.comments[0]] } });
+  ok(rerun);
+  assert.equal(mutations(state.calls).length, before);
+  assert.match(state.reviews[0].body, /只合并了 main，结论不变。/);
   // 结论标题变化时发新 Review，旧的收起。
   await publish(state, { requestSource: 'automatic', publicationId: 'run-3', expectedHeadSha: 'd'.repeat(40), result: {
     ...empty, body: '已修复。', thread_updates: [{ root_comment_id: 1002, status: 'resolved', evidence: '修复覆盖了原触发场景。' }],
   } });
   assert.equal(state.reviews.length, 2);
   assert.equal(state.reviews[1].body.split('\n')[1], '## 自动审查：没有需要处理的问题');
+  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
+});
+
+test('无法绑定 diff 行的问题放进总评的问题详情，计入标题和索引，且该总评不被就地覆盖', async () => {
+  const state = fixture();
+  const detached: ReviewResult['comments'][number] = {
+    path: 'docs/deploy.md', line: null, start_line: null, label: 'P2', title: '部署文档漏掉新增的权限', body: '**什么情况下出错**：……',
+  };
+  const report = await publish(state, { requestSource: 'automatic', publicationId: 'run-1',
+    result: { ...empty, body: '结论。\n\n**核对了什么**\n\n- 场景：结论（`src/a.ts:1`）', comments: [detached, result.comments[0]] } });
+  ok(report);
+  const [review] = state.reviews;
+  assert.deepEqual(review.inline.map((item: any) => item.path), ['src/example.ts']);
+  assert.equal(review.body.split('\n')[1], '## 自动审查：2 个问题需要修改');
+  assert.ok(review.body.includes('- 🆕 P2：部署文档漏掉新增的权限 · 见下方问题详情'));
+  assert.match(review.body, /\*\*核对了什么\*\*[\s\S]*\*\*问题详情\*\*<!-- agentic-review:body-findings -->\n\n> \[!WARNING\]\n> \*\*P2：部署文档漏掉新增的权限\*\*\n\n\*\*什么情况下出错\*\*：……\n\n`docs\/deploy\.md`/);
+  // 问题详情只存在于正文，标题相同的下一轮也发新 Review，旧正文收进折叠区。
+  state.comments.push({ id: 1, in_reply_to_id: null, body: '> **P2：另一个问题**\n\n<!-- agentic-review-publication:x -->',
+    user: { login: 'review-app[bot]' }, html_url: 'https://github.test/comment/1' });
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, body: '结论不变。' } });
+  assert.equal(state.reviews.length, 2);
+  assert.equal(state.reviews[1].body.split('\n')[1], '## 自动审查：2 个问题需要修改');
   assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
 });
 
@@ -238,6 +266,13 @@ test('收起失败记为发布失败，不影响已发布的新总评', async ()
   const report = await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, comments: [result.comments[1]] } });
   assert.equal(report.reviewUrl, 'https://github.test/review/2');
   assert.deepEqual(report.operations.filter(item => item.status !== 'succeeded').map(item => item.id), ['收起旧 Review 1']);
+  // 重跑复用已发布的新总评，只补做失败的收起。
+  state.fail = () => undefined;
+  const rerun = await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, comments: [result.comments[1]] } });
+  ok(rerun);
+  assert.equal(state.reviews.length, 2);
+  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
+  assert.doesNotMatch(state.reviews[1].body, /superseded/);
 });
 
 test('Check 详情汇总运行、结果、覆盖、用量和未成功的发布操作', () => {

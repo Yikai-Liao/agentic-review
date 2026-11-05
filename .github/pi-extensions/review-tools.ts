@@ -125,7 +125,7 @@ export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
             type: 'object',
             properties: {
               path: { type: 'string', minLength: 1 },
-              line: { type: 'integer', minimum: 1 },
+              line: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }], description: 'PR diff 中的行号；无法绑定 diff 行时为 null，发布器把该问题放进总评的问题详情。' },
               start_line: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
               label: { type: 'string', enum: Object.keys(findingLabels) },
               title: { type: 'string', minLength: 1, maxLength: 120, description: '一行标题，写触发与后果；同时用作总评索引。' },
@@ -179,7 +179,7 @@ export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
           throw new Error(`Incomplete coverage: ${pending.length} files still pending, e.g. ${pending[0]}. Partial results are accepted only after the wrap-up notice; mark investigated files complete or continue the investigation.`);
         }
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
-        if (parsed.comments.length) {
+        if (parsed.comments.some(comment => comment.line !== null)) {
           const target = process.env.REVIEW_TARGET_PATH;
           if (!target) throw new Error('Review target path is unavailable');
           await validateCommentLines(target, coverage.request.comparison_start, coverage.request.head_sha, parsed.comments);
