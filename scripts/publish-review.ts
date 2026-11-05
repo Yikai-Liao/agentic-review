@@ -367,7 +367,18 @@ export async function publishReview({
     }));
     const inline = findings.filter(({ comment }) => comment.line !== null);
     const fileLevel = findings.filter(({ comment }) => comment.line === null);
-    const review = await run('Review 正文', [reviews!, comments!, threads!], async () => {
+    // 创建 Review 的 comments 不支持文件级讨论，只能单独发布；它与 inline 问题一样有 thread 状态，下一轮能进入索引并被关闭。
+    // 先于总评发布且总评依赖它们：总评一旦存在，列出的讨论都已存在，后续审查读取时不会漏掉它们。重跑按标记去重。
+    const posted = [];
+    for (const { comment, id, tag: findingTag } of fileLevel) {
+      posted.push(await run(id, [comments!], async () => {
+        if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
+        await request(`${route}/comments`, { method: 'POST', body: JSON.stringify({
+          body: `${renderFinding(comment)}\n\n${findingTag}`, commit_id: expectedHeadSha, path: comment.path, subject_type: 'file',
+        }) });
+      }));
+    }
+    const review = await run('Review 正文', [reviews!, comments!, threads!, ...posted], async () => {
       const automatic = requestSource === 'automatic';
       const index = summaryIndex({
         result, findings: findings.map(item => item.tag), comments: comments!.value!.filter(isBot),
@@ -418,18 +429,6 @@ export async function publishReview({
       return { id: response.id, url: response.html_url, current: true };
     });
     reviewUrl = review.value?.url ?? '';
-    // 创建 Review 的 comments 不支持文件级讨论，只能在总评之后单独发布；它与 inline 问题一样有 thread 状态，
-    // 下一轮能进入索引并被关闭。总评中列出的问题都必须有讨论，因此总评已被取代时重跑也补发，按标记去重。
-    if (review.value) {
-      for (const { comment, id, tag: findingTag } of fileLevel) {
-        await run(id, [review], async () => {
-          if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
-          await request(`${route}/comments`, { method: 'POST', body: JSON.stringify({
-            body: `${renderFinding(comment)}\n\n${findingTag}`, commit_id: expectedHeadSha, path: comment.path, subject_type: 'file',
-          }) });
-        });
-      }
-    }
     // 最新自动总评代表当前结论；更早的自动总评正文收起为一行指向，原文保留在折叠区供展开和下一轮读取。
     // 重跑复用当前总评时同样核对，补做上次失败的收起；比当前总评更新的 Review 不受影响。
     // 其下的讨论不受影响，仍未解决的问题照常显示。评论请求的答复只覆盖请求范围，既不收起其他总评，也不被收起。

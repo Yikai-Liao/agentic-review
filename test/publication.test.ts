@@ -259,7 +259,7 @@ test('结论不变且没有新问题或状态变化时，就地更新最新总�
   assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
 });
 
-test('无法绑定 diff 行的问题在总评之后发布为文件级讨论，计入标题、索引和下一轮状态', async () => {
+test('无法绑定 diff 行的问题先于总评发布为文件级讨论，计入标题、索引和下一轮状态', async () => {
   const state = fixture();
   const fileLevel: ReviewResult['comments'][number] = {
     path: 'docs/deploy.md', line: null, start_line: null, label: 'P2', title: '部署文档漏掉新增的权限', body: '**什么情况下出错**：……',
@@ -275,6 +275,8 @@ test('无法绑定 diff 行的问题在总评之后发布为文件级讨论，�
   assert.equal(posted.length, 1);
   assert.deepEqual([posted[0].body.path, posted[0].body.subject_type, posted[0].body.commit_id], ['docs/deploy.md', 'file', 'b'.repeat(40)]);
   assert.match(posted[0].body.body, /^> \[!WARNING\]\n> \*\*P2：部署文档漏掉新增的权限\*\*\n\n\*\*什么情况下出错\*\*/);
+  const order = mutations(state.calls).map(call => call.url);
+  assert.ok(order.findIndex(url => url.endsWith('/pulls/7/comments')) < order.findIndex(url => url.endsWith('/pulls/7/reviews')));
   // 重跑不重复发布。
   const before = mutations(state.calls).length;
   ok(await run());
@@ -286,7 +288,7 @@ test('无法绑定 diff 行的问题在总评之后发布为文件级讨论，�
   assert.ok(state.reviews[0].body.includes(`- P2：部署文档漏掉新增的权限 · [讨论](${thread.html_url})`));
 });
 
-test('总评被后续审查取代后重跑：补发失败的文件级讨论，但不改动讨论状态', async () => {
+test('文件级讨论发布失败时不发布总评；后续审查先完成后重跑原运行，补发的问题进入当前总评', async () => {
   const state = fixture();
   const fileLevel: ReviewResult['comments'][number] = {
     path: 'docs/deploy.md', line: null, start_line: null, label: 'P2', title: '部署文档漏掉新增的权限', body: '……',
@@ -296,22 +298,44 @@ test('总评被后续审查取代后重跑：补发失败的文件级讨论，�
     thread_updates: [{ root_comment_id: 123, status: 'resolved' as const, evidence: '鉴权检查已恢复（`src/auth.ts:3`）。' }] };
   state.fail = call => call.method === 'POST' && call.url.endsWith('/pulls/7/comments') ? new Response('unavailable', { status: 502 }) : undefined;
   const failed = await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first });
-  assert.deepEqual(failed.operations.filter(item => item.status === 'failed').map(item => item.id), ['finding 1 (docs/deploy.md:file)']);
-  assert.ok(state.resolved.has('thread-123'));
+  assert.deepEqual(failed.operations.filter(item => item.status !== 'succeeded').map(item => `${item.id} ${item.status}`),
+    ['finding 1 (docs/deploy.md:file) failed', 'Review 正文 blocked']);
+  assert.equal(state.reviews.length, 0);
   state.fail = () => undefined;
-  // 后续审查判定 123 重现，发布新总评并收起 run-1 的总评。
+  // 同一 head 的后续审查先完成：判定 123 重现，总评中没有 run-1 未发出的问题。
   ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, body: '结论。',
     thread_updates: [{ root_comment_id: 123, status: 'reintroduced', evidence: '回退提交再次跳过了鉴权检查。' }] } }));
-  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
   assert.equal(state.resolved.has('thread-123'), false);
-  // run-1 重跑：补发文件级讨论；不恢复已收起的总评，也不把 123 重新关闭。
+  // run-1 重跑是该 head 最后一次发布：讨论、总评与 thread 状态整体取代 run-2，当前总评计入补发的问题。
   ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first }));
   assert.equal(state.comments.filter(item => item.subject_type === 'file').length, 1);
-  assert.match(state.reviews[0].body.split('\n')[1], /agentic-review:superseded/);
-  assert.equal(state.resolved.has('thread-123'), false);
-  // 再次重跑不重复补发。
+  const [stale, current] = [...state.reviews].sort((a, b) => a.id - b.id);
+  assert.match(stale.body.split('\n')[1], /agentic-review:superseded/);
+  assert.equal(current.body.split('\n')[1], '## 自动审查：1 个问题需要修改');
+  assert.ok(current.body.includes('- 🆕 P2：部署文档漏掉新增的权限'));
+  assert.ok(state.resolved.has('thread-123'));
+  // 再次重跑不产生任何写入。
+  const before = mutations(state.calls).length;
   ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first }));
-  assert.equal(state.comments.filter(item => item.subject_type === 'file').length, 1);
+  assert.equal(mutations(state.calls).length, before);
+});
+
+test('总评被后续审查取代后重跑，不改动讨论状态', async () => {
+  const state = fixture();
+  const first = { ...empty, body: '结论。',
+    thread_updates: [{ root_comment_id: 123, status: 'resolved' as const, evidence: '鉴权检查已恢复（`src/auth.ts:3`）。' }] };
+  // run-1 总评已发布，但 thread 状态同步失败。
+  state.fail = call => call.body?.query?.startsWith('mutation') ? new Response('unavailable', { status: 503 }) : undefined;
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first });
+  assert.equal(state.reviews.length, 1);
+  state.fail = () => undefined;
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, body: '结论。',
+    thread_updates: [{ root_comment_id: 123, status: 'reintroduced', evidence: '回退提交再次跳过了鉴权检查。' }] } }));
+  // run-1 重跑：总评已被接管，不把 123 重新关闭，也不恢复已收起的总评。
+  const before = mutations(state.calls).length;
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: first }));
+  assert.equal(mutations(state.calls).length, before);
+  assert.equal(state.resolved.has('thread-123'), false);
 });
 
 test('部分覆盖时标题写明未审完，未审文件清单在正文前', async () => {
