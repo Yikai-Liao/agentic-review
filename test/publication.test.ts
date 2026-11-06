@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { checkText, coverageNotice, latestStartedRun, publishReview } from '../scripts/publish-review.ts';
+import { checkText, coverageNotice, latestAutomaticRun, publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
 const result: ReviewResult = {
@@ -107,12 +107,12 @@ function fixture() {
 
 function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters<typeof publishReview>[0]> = {}) {
   const runId = Number(/\d+$/.exec(override.publicationId ?? 'run-1')![0]);
-  state.started.add(runId);
+  if (override.requestSource === 'automatic') state.started.add(runId);
   return publishReview({ result, repository: 'owner/repo', pullNumber: 7, botLogin: 'review-app[bot]', token: 'write-token',
     expectedHeadSha: 'b'.repeat(40), footer: { links: '[运行记录](https://github.test/run) · [审查工作稿](https://github.test/run#artifacts)', details: 'openai/gpt-test' }, runUrl: 'https://github.test/run', publicationId: 'run-1',
     api: 'https://api.github.test', requestSource: 'thread', requestCommentId: '900', requestRootCommentId: '123',
-    // 运行号随运行身份递增：run-2 晚于 run-1 启动，重跑沿用原运行号。运行开始执行时即创建 Check，登记为已开始。
-    runId, latestStartedRun: async () => Math.max(...state.started), fetchImpl: state.fetchImpl, ...override });
+    // 插入顺序表示首次开始执行的先后；重跑沿用原运行号，不改变首次执行位置。
+    runId, latestAutomaticRun: async () => [...state.started].at(-1)!, fetchImpl: state.fetchImpl, ...override });
 }
 
 const mutations = (calls: Call[]) => calls.filter(call => call.method !== 'GET' && !call.body?.query?.startsWith('query'));
@@ -403,13 +403,15 @@ test('更新运行的唯一写入被评论请求替换后，旧运行重跑仍�
   assert.ok(state.resolved.has(`thread-${x.id}`));
 });
 
-test('运行顺序读取全部 Check 历史，旧运行重跑不会遮住同一 PR、同一 head 的新运行', async () => {
+test('按首次 Check 创建顺序取最新自动审查，忽略运行号大小、重跑及评论请求', async () => {
   const head = 'b'.repeat(40);
-  const check = (external_id: string | null, slug = 'review-app') => ({ external_id, app: { slug } });
+  let checkId = 0;
+  const check = (external_id: string | null, slug = 'review-app') => ({ id: ++checkId, external_id, app: { slug } });
   const pages = [
     [...Array.from({ length: 98 }, () => check(null)), check(`1:7:${'a'.repeat(40)}:${head}:automatic:30:1`), check(`1:7:base:${head}:pr_comment:35:2`)],
-    [check(`1:7:base:${head}:automatic:40:1`), check(`1:7:base:${head}:automatic:90:1`, 'other-app'), check(`1:8:base:${head}:automatic:80:1`),
-      check(`2:7:base:${head}:automatic:70:1`), check(`1:7:base:${'c'.repeat(40)}:automatic:60:1`), check('1:7:base:x')],
+    [check(`1:7:base:${head}:automatic:20:1`), check(`1:7:base:${head}:automatic:90:1`, 'other-app'), check(`1:8:base:${head}:automatic:80:1`),
+      check(`2:7:base:${head}:automatic:70:1`), check(`1:7:base:${'c'.repeat(40)}:automatic:60:1`), check('1:7:base:x'),
+      check(`1:7:base:${head}:automatic:30:2`), check(`1:7:base:${head}:thread:99:1`)],
   ];
   const requested: string[] = [];
   const fetchImpl = (async (input: string | URL | Request) => {
@@ -417,21 +419,48 @@ test('运行顺序读取全部 Check 历史，旧运行重跑不会遮住同一 
     requested.push(url);
     return Response.json({ check_runs: pages[Number(new URL(url).searchParams.get('page')) - 1] });
   }) as typeof fetch;
-  assert.equal(await latestStartedRun({ api: 'https://api.github.test', token: 't', repository: 'owner/repo', repositoryId: '1',
-    pullNumber: 7, headSha: head, appSlug: 'review-app', fetchImpl }), 40);
+  assert.equal(await latestAutomaticRun({ api: 'https://api.github.test', token: 't', repository: 'owner/repo', repositoryId: '1',
+    pullNumber: 7, headSha: head, appSlug: 'review-app', fetchImpl }), 20);
   assert.deepEqual(requested.map(url => new URL(url).pathname + new URL(url).search),
     [`/repos/owner/repo/commits/${head}/check-runs?filter=all&per_page=100&page=1`, `/repos/owner/repo/commits/${head}/check-runs?filter=all&per_page=100&page=2`]);
 });
 
-for (const requestSource of ['automatic', 'pr_comment', 'thread']) {
-  test(`${requestSource} 的旧运行重跑不发布问题、状态或请求回复`, async () => {
+test('较小运行号在较大运行号后首次执行时仍能发布，随后重跑旧审查仍被阻止', async () => {
+  const state = fixture();
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: empty }));
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: empty }));
+  const before = mutations(state.calls).length;
+  stale(await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: empty }));
+  assert.equal(mutations(state.calls).length, before);
+});
+
+for (const failReply of [false, true]) {
+  test(`局部请求失败=${failReply} 不取代完整审查，自动审查重新核对后保留最新讨论状态`, async () => {
     const state = fixture();
-    state.started.add(2);
-    const report = await publish(state, { requestSource });
-    stale(report);
-    assert.equal(mutations(state.calls).length, 0);
+    state.fail = call => call.body?.query?.startsWith('mutation') ? new Response('unavailable', { status: 503 }) : undefined;
+    await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: {
+      ...empty, thread_updates: [result.thread_updates[0]],
+    } });
+    state.fail = call => failReply && call.url.endsWith('/replies') ? new Response('unavailable', { status: 503 }) : undefined;
+    await publish(state, { requestSource: 'thread', publicationId: 'run-2', threadReplyOnly: true, result: {
+      ...result, comments: [], thread_updates: [{ root_comment_id: 123, status: 'reintroduced', evidence: '评论请求确认原触发仍然存在。' }],
+    } });
+    state.fail = () => undefined;
+    ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: {
+      ...empty, body: '重新核对当前讨论后，保留评论请求确认的问题状态。',
+    } }));
+    assert.equal(state.resolved.has('thread-123'), false);
   });
 }
+
+test('评论请求首次执行不因较大运行号的审查已经执行而失去答复', async () => {
+  const state = fixture();
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-9', result: empty }));
+  for (const requestSource of ['pr_comment', 'thread']) {
+    ok(await publish(state, { requestSource, publicationId: 'run-1' }));
+  }
+  assert.ok(state.comments.some(item => item.body.includes('已按请求重新核对。')));
+});
 
 test('总评已被更新运行收起后重跑，不改动讨论状态', async () => {
   const state = fixture();

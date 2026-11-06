@@ -32,8 +32,8 @@ type PublishOptions = {
   footer: Footer;
   runUrl: string;
   runId: number;
-  // 返回同一 head 上本 App 已开始执行的审查中最大的运行号。
-  latestStartedRun: () => Promise<number>;
+  // 返回同一 head 上本 App 首次开始执行最晚的自动审查运行号；评论请求不取代完整审查。
+  latestAutomaticRun: () => Promise<number>;
   publicationId: string;
   api: string;
   requestSource?: string;
@@ -224,7 +224,7 @@ export async function publishReview({
   footer,
   runUrl,
   runId,
-  latestStartedRun,
+  latestAutomaticRun,
   publicationId,
   api,
   requestSource = 'automatic',
@@ -279,13 +279,13 @@ export async function publishReview({
   // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
   const summaryHead = requestSource === 'automatic' ? `${summaryTag}${automaticSummaryMarker}` : summaryTag;
   const ownSummary = () => reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(summaryTag));
-  // 同一 PR 的审查在执行层串行，重跑沿用原运行号；同一 head 上已有运行号更大的审查开始执行，说明本运行是旧运行的重跑。
-  // 运行顺序取自开始执行时创建的 Check，不取自 PR 上可被后续写入替换的内容。后续审查的判断依据更新，
-  // 旧运行不得再写讨论、总评或收起任何总评，也不能静默跳过，因此整体记为失败。
-  const fresh = await run('确认没有更新的审查', [], async () => {
-    const newer = await latestStartedRun();
-    if (newer > runId) throw new Error(`Run ${newer} has already started reviewing this head; rerun of run ${runId} must not overwrite it`);
-  });
+  // 同一 PR 的审查在执行层串行；首次创建 Check 的先后才是执行顺序，运行号只标识身份。
+  // 后续完整自动审查取代旧自动审查，旧运行重跑整体失败；局部评论请求不取代完整审查。
+  // 重跑会重新准备当前讨论并执行 Agent，评论请求后的完整复核仍依据最新讨论判断状态。
+  const fresh = requestSource === 'automatic' ? [await run('确认没有更新的审查', [], async () => {
+    const latest = await latestAutomaticRun();
+    if (latest !== runId) throw new Error(`Run ${latest} has already started reviewing this head; rerun of run ${runId} must not overwrite it`);
+  })] : [];
 
   for (const update of result.thread_updates) {
     const id = `thread ${update.root_comment_id}`;
@@ -300,7 +300,7 @@ export async function publishReview({
     const statusLine = `**${label}**（${short(expectedHeadSha)}）：${update.evidence} ${statusTag}${statusMarker}`;
     // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
     await Promise.all([
-      run(`${id} 状态同步`, [root, threads!, fresh], async () => {
+      run(`${id} 状态同步`, [root, threads!, ...fresh], async () => {
         const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
         if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
         const shouldResolve = update.status === 'resolved';
@@ -316,7 +316,7 @@ export async function publishReview({
         if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
       }),
       // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
-      run(`${id} 状态标注`, [root, fresh], async () => {
+      run(`${id} 状态标注`, [root, ...fresh], async () => {
         if (!isBot(root.value!)) return;
         const body = root.value!.body;
         const [first, ...others] = body.split('\n\n');
@@ -326,7 +326,7 @@ export async function publishReview({
         });
       }),
       // 关闭只需标注；重现、升级需要通知人，他人发起的讨论也无法改写原文，二者改为回复。
-      run(`${id} 状态回复`, [root, fresh], async () => {
+      run(`${id} 状态回复`, [root, ...fresh], async () => {
         if (update.status === 'resolved' && isBot(root.value!)) return;
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
@@ -347,7 +347,7 @@ export async function publishReview({
   }
 
   if (requestSource === 'thread') {
-    await run('请求回复', [comments!, fresh], async () => {
+    await run('请求回复', [comments!], async () => {
       if (!/^[0-9]+$/.test(requestRootCommentId)) throw new Error('Thread request is missing its root comment');
       const root = comments!.value!.find(item => item.id === Number(requestRootCommentId) && item.in_reply_to_id == null);
       if (!root) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
@@ -380,14 +380,14 @@ export async function publishReview({
     // 先于总评发布且总评依赖它们：总评一旦存在，列出的讨论都已存在，后续审查读取时不会漏掉它们。重跑按标记去重。
     const posted = [];
     for (const { comment, id, tag: findingTag } of fileLevel) {
-      posted.push(await run(id, [comments!, fresh], async () => {
+      posted.push(await run(id, [comments!, ...fresh], async () => {
         if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
         await request(`${route}/comments`, { method: 'POST', body: JSON.stringify({
           body: `${renderFinding(comment)}\n\n${findingTag}`, commit_id: expectedHeadSha, path: comment.path, subject_type: 'file',
         }) });
       }));
     }
-    const review = await run('Review 正文', [reviews!, comments!, threads!, fresh, ...posted], async () => {
+    const review = await run('Review 正文', [reviews!, comments!, threads!, ...fresh, ...posted], async () => {
       const automatic = requestSource === 'automatic';
       const index = summaryIndex({
         result, findings: findings.map(item => item.tag), comments: comments!.value!.filter(isBot),
@@ -458,23 +458,33 @@ export async function publishReview({
 }
 
 // 审查 job 在执行层串行队列中开始执行时创建 Check，external_id 为 仓库ID:PR:base:head:来源:运行号:尝试次数，只有可信 workflow 写入。
-export async function latestStartedRun({ api, token, repository, repositoryId, pullNumber, headSha, appSlug, fetchImpl }: {
+export async function latestAutomaticRun({ api, token, repository, repositoryId, pullNumber, headSha, appSlug, fetchImpl }: {
   api: string; token: string; repository: string; repositoryId: string; pullNumber: number; headSha: string; appSlug: string;
   fetchImpl: typeof fetch;
 }) {
-  let latest = 0;
+  const firstChecks = new Map<number, number>();
   for (let page = 1; ; page++) {
     // 默认 latest 只保留最近的同名 Check；旧运行重跑的新 Check 会遮住较新运行，必须读取全部历史。
-    const body = await github<{ check_runs?: Array<{ external_id?: string | null; app?: { slug?: string } | null }> }>(fetchImpl, api, token,
+    const body = await github<{ check_runs?: Array<{ id: number; external_id?: string | null; app?: { slug?: string } | null }> }>(fetchImpl, api, token,
       `/repos/${repository}/commits/${headSha}/check-runs?filter=all&per_page=100&page=${page}`);
     if (!Array.isArray(body.check_runs)) throw new Error('Invalid check run page');
     for (const check of body.check_runs) {
       const parts = check.app?.slug === appSlug ? check.external_id?.split(':') ?? [] : [];
       if (parts.length === 7 && parts[0] === repositoryId && parts[1] === String(pullNumber) && parts[3] === headSha
-        && /^[0-9]+$/.test(parts[5])) latest = Math.max(latest, Number(parts[5]));
+        && parts[4] === 'automatic' && /^[0-9]+$/.test(parts[5])) {
+        const runId = Number(parts[5]);
+        firstChecks.set(runId, Math.min(firstChecks.get(runId) ?? Infinity, check.id));
+      }
     }
-    if (body.check_runs.length < 100) return latest;
+    if (body.check_runs.length < 100) break;
   }
+  let latest = 0;
+  let lastCheck = 0;
+  for (const [runId, checkId] of firstChecks) {
+    if (checkId > lastCheck) { latest = runId; lastCheck = checkId; }
+  }
+  if (!latest) throw new Error('No automatic review Check found for this head');
+  return latest;
 }
 
 const publicationTagPrefix = '<!-- agentic-review-publication:';
@@ -614,7 +624,7 @@ export async function main() {
     const options: PublishOptions = {
       publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result, footer, runUrl: requiredEnv('REVIEW_RUN_URL'),
       runId: Number(requiredEnv('REVIEW_RUN_ID')),
-      latestStartedRun: () => latestStartedRun({ api: process.env.GITHUB_API_URL ?? 'https://api.github.com', token: requiredEnv('GH_TOKEN'),
+      latestAutomaticRun: () => latestAutomaticRun({ api: process.env.GITHUB_API_URL ?? 'https://api.github.com', token: requiredEnv('GH_TOKEN'),
         repository: request.repository, repositoryId: requiredEnv('REVIEW_REPOSITORY_ID'), pullNumber: request.pull_number,
         headSha: request.head_sha, appSlug: requiredEnv('REVIEW_BOT_LOGIN').replace(/\[bot\]$/, ''), fetchImpl: fetch }),
       repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
