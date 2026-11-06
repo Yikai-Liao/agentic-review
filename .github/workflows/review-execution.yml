@@ -396,6 +396,7 @@ jobs:
           REVIEW_PUBLISHER_ARCHIVE: ${{ steps.review-context.outputs.publisher_archive }}
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
+          REVIEW_REPOSITORY_ID: ${{ inputs.repository_id }}
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
           HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}

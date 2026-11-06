@@ -15,12 +15,24 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
   const writes: unknown[] = [];
   let failReview = false;
   let failCollapse = false;
+  let latestRun = 20;
+  let failChecks = false;
   let failCoveragePath: string | undefined;
   const reviews: Array<{ id: number; body: string; html_url: string; user: { login: string } }> = [];
   const server = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk;
     response.setHeader('Content-Type', 'application/json');
+    if (request.method === 'GET' && request.url?.includes('/check-runs?')) {
+      const url = new URL(request.url, 'http://127.0.0.1');
+      assert.equal(url.searchParams.get('filter'), 'all');
+      const head = url.pathname.split('/')[5];
+      response.statusCode = failChecks ? 503 : 200;
+      response.end(JSON.stringify(failChecks ? { message: 'checks unavailable' } : { check_runs: [{
+        external_id: `1:7:base:${head}:${source}:${latestRun}:1`, app: { slug: 'review-app' },
+      }] }));
+      return;
+    }
     if (request.method === 'GET' && request.url?.startsWith('/repos/owner/repo/pulls/7/reviews?')) {
       response.end(JSON.stringify(reviews));
       return;
@@ -74,7 +86,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     const outputPath = path.join(directory, 'outputs');
     const env = {
       ...process.env, REVIEW_TARGET_PATH: target, REVIEW_ATTRIBUTION_PATH: attributionPath, REVIEW_CONTEXT_PATH: contextPath, REVIEW_PROGRESS_PATH: progressPath,
-      REVIEW_REPOSITORY: 'owner/repo', REVIEW_PULL_NUMBER: '7', REVIEW_BASE_SHA: base, REVIEW_HEAD_SHA: head,
+      REVIEW_REPOSITORY: 'owner/repo', REVIEW_REPOSITORY_ID: '1', REVIEW_PULL_NUMBER: '7', REVIEW_BASE_SHA: base, REVIEW_HEAD_SHA: head,
       REVIEW_TRIGGER_SOURCE: source, GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath,
       REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: '', REVIEW_COMMENT_ID: source === 'automatic' ? '' : '123',
       REVIEW_COMMENT_ROOT_ID: source === 'automatic' ? '' : '123',
@@ -167,6 +179,19 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     assert.equal(published.complete_audit, source === 'automatic');
     assert.equal(published.request.text, env.REVIEW_COMMENT_BODY);
     assert.equal(await readFile(contextPath, 'utf8'), sealedContext);
+    // 新运行已开始或 Check 读取失败时，CLI 均退出失败且不写入 PR，也不保留覆盖完成状态。
+    for (const checksUnavailable of [false, true]) {
+      latestRun = 21;
+      failChecks = checksUnavailable;
+      const before: number = writes.length;
+      await assert.rejects(publish(), checksUnavailable ? /checks unavailable/ : /has already started reviewing this head/);
+      assert.equal(writes.length, before);
+      const blocked = JSON.parse(await readFile(coveragePath, 'utf8'));
+      assert.equal(blocked.status, 'draft');
+      assert.equal(blocked.complete_audit, false);
+    }
+    latestRun = 20;
+    failChecks = false;
     // 两类请求的身份与完成状态均已验证；共享 CLI 故障链只执行一次。
     if (source === 'pr_comment') return;
 

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { checkText, coverageNotice, publishReview } from '../scripts/publish-review.ts';
+import { checkText, coverageNotice, latestStartedRun, publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
 
 const result: ReviewResult = {
@@ -30,11 +30,13 @@ function fixture() {
     calls: Call[]; comments: any[]; reviews: any[]; resolved: Set<string>;
     fail: (call: Call) => Response | undefined;
     afterWrite: (call: Call) => void;
+    started: Set<number>;
     fetchImpl: typeof fetch;
   } = {
     calls, comments, reviews, resolved,
     fail: (_call: Call): Response | undefined => undefined,
     afterWrite: (_call: Call) => {},
+    started: new Set<number>(),
     fetchImpl: (async (input, init) => {
       const call = { url: String(input), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined };
       calls.push(call);
@@ -104,11 +106,13 @@ function fixture() {
 }
 
 function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters<typeof publishReview>[0]> = {}) {
+  const runId = Number(/\d+$/.exec(override.publicationId ?? 'run-1')![0]);
+  state.started.add(runId);
   return publishReview({ result, repository: 'owner/repo', pullNumber: 7, botLogin: 'review-app[bot]', token: 'write-token',
     expectedHeadSha: 'b'.repeat(40), footer: { links: '[运行记录](https://github.test/run) · [审查工作稿](https://github.test/run#artifacts)', details: 'openai/gpt-test' }, runUrl: 'https://github.test/run', publicationId: 'run-1',
     api: 'https://api.github.test', requestSource: 'thread', requestCommentId: '900', requestRootCommentId: '123',
-    // 运行号随运行身份递增：run-2 晚于 run-1 启动，重跑沿用原运行号。
-    runId: Number(/\d+$/.exec(override.publicationId ?? 'run-1')![0]), fetchImpl: state.fetchImpl, ...override });
+    // 运行号随运行身份递增：run-2 晚于 run-1 启动，重跑沿用原运行号。运行开始执行时即创建 Check，登记为已开始。
+    runId, latestStartedRun: async () => Math.max(...state.started), fetchImpl: state.fetchImpl, ...override });
 }
 
 const mutations = (calls: Call[]) => calls.filter(call => call.method !== 'GET' && !call.body?.query?.startsWith('query'));
@@ -117,7 +121,7 @@ const ok = (report: Awaited<ReturnType<typeof publishReview>>) =>
 // 旧运行重跑：前置校验失败，其后的写入全部未执行。
 const stale = (report: Awaited<ReturnType<typeof publishReview>>) => {
   assert.deepEqual(report.operations.filter(item => item.status === 'failed').map(item => item.id), ['确认没有更新的审查']);
-  assert.match(report.operations.find(item => item.status === 'failed')!.error!, /has already written to this PR/);
+  assert.match(report.operations.find(item => item.status === 'failed')!.error!, /has already started reviewing this head/);
 };
 
 test('新问题随总评在同一条 Review 中发布，标题行和索引由发布器生成', async () => {
@@ -141,7 +145,7 @@ test('新问题随总评在同一条 Review 中发布，标题行和索引由发
   assert.match(review.inline[1].body, /^> \[!IMPORTANT\]\n> \*\*需人工确认：登录失败时静默跳过审计\*\*/);
   assert.match(review.inline[0].body, /agentic-review-publication:/);
   const lines = review.body.split('\n');
-  assert.match(lines[0], /^<!-- agentic-review-publication:[0-9a-f]{64} automatic-run:1 --><!-- agentic-review:automatic-summary -->$/);
+  assert.match(lines[0], /^<!-- agentic-review-publication:[0-9a-f]+ --><!-- agentic-review:automatic-summary -->$/);
   assert.equal(lines[1], '## 自动审查：1 个问题需要修改，1 项需要你确认');
   // 索引位于模型正文的“核对了什么”之前，只列标题。
   assert.ok(review.body.includes('### 合并后的行为\n\n- 行为。\n\n### 需要修改\n\n- 🆕 P1：过期会话仍能删除记录\n\n### 需要你确认\n\n- 🆕 需人工确认：登录失败时静默跳过审计\n\n### 可选改进\n\n- 🆕 改进机会：重复查询可以合并\n\n### 核对了什么'));
@@ -158,7 +162,7 @@ test('历史问题：仍未关闭的进入索引，本轮关闭的标注状态�
     ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'resolved', evidence: '新断言覆盖了原触发（`src/example.ts:2`）。' }],
   } });
   ok(report);
-  assert.match(closing.body, /^\*\*✅ 已关闭\*\*（`ccccccc`）：新断言覆盖了原触发（`src\/example\.ts:2`）。 <!-- agentic-review-publication:[0-9a-f]+ automatic-run:\d+ --><!-- agentic-review:status -->\n\n> \[!WARNING\]\n> \*\*P2：问题 2\*\*/);
+  assert.match(closing.body, /^\*\*✅ 已关闭\*\*（`ccccccc`）：新断言覆盖了原触发（`src\/example\.ts:2`）。 <!-- agentic-review-publication:[0-9a-f]+ --><!-- agentic-review:status -->\n\n> \[!WARNING\]\n> \*\*P2：问题 2\*\*/);
   assert.ok(state.resolved.has(`thread-${closing.id}`));
   assert.equal(state.comments.some(item => item.in_reply_to_id === closing.id), false);
   const latest = state.reviews.at(-1).body;
@@ -168,7 +172,7 @@ test('历史问题：仍未关闭的进入索引，本轮关闭的标注状态�
   await publish(state, { requestSource: 'automatic', publicationId: 'run-3', expectedHeadSha: 'd'.repeat(40), result: {
     ...empty, body: '结论。', thread_updates: [{ root_comment_id: closing.id, status: 'reintroduced', evidence: '回退提交再次删除了该断言。' }],
   } });
-  assert.match(closing.body, /^\*\*🔁 问题重现\*\*（`ddddddd`）：回退提交再次删除了该断言。 <!-- agentic-review-publication:[0-9a-f]+ automatic-run:\d+ --><!-- agentic-review:status -->\n\n> \[!WARNING\]/);
+  assert.match(closing.body, /^\*\*🔁 问题重现\*\*（`ddddddd`）：回退提交再次删除了该断言。 <!-- agentic-review-publication:[0-9a-f]+ --><!-- agentic-review:status -->\n\n> \[!WARNING\]/);
   assert.equal(closing.body.match(/agentic-review:status/g).length, 1);
   // 重现需要通知人：重开讨论并回复。
   assert.equal(state.resolved.has(`thread-${closing.id}`), false);
@@ -250,8 +254,7 @@ test('结论不变且没有新问题或状态变化时，就地更新最新总�
   assert.match(state.reviews[0].body, /只合并了 main，结论不变。/);
   assert.match(state.reviews[0].body, /审至 `ccccccc`（上次 `bbbbbbb`）/);
   assert.ok(state.reviews[0].body.includes('- P2：问题 1 · [讨论](https://github.test/comment/1002)'));
-  // 就地更新保留上一轮的发布标记并换上本运行号：旧运行重跑明确失败，既不改写也不重复发布问题。
-  assert.match(state.reviews[0].body.split('\n')[0], / automatic-run:1 --><!-- agentic-review-publication:[0-9a-f]{64} automatic-run:2 --><!-- agentic-review:automatic-summary -->$/);
+  // 就地更新保留上一轮的发布标记；旧运行重跑明确失败，既不改写也不重复发布问题。
   const before = mutations(state.calls).length;
   stale(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: { ...empty, comments: [result.comments[0]] } }));
   assert.equal(mutations(state.calls).length, before);
@@ -368,6 +371,67 @@ test('更新运行只改了讨论状态、总评未发出时，旧运行重跑�
   assert.equal(mutations(state.calls).length, before);
   assert.equal(state.resolved.has('thread-123'), false);
 });
+
+test('更新运行的唯一写入被评论请求替换后，旧运行重跑仍停止写入，新运行照常更新状态', async () => {
+  const state = fixture();
+  const fileLevel: ReviewResult['comments'][number] = {
+    path: 'docs/deploy.md', line: null, start_line: null, label: 'P2', title: '部署文档漏掉新增的权限', body: '……',
+  };
+  const first = { ...empty, body: '结论。', comments: [result.comments[0]] };
+  // run-1 发布问题 X，但关闭 456 的状态同步失败（456 是他人发起的讨论）。
+  const firstWithUpdate = { ...first, thread_updates: [{ root_comment_id: 456, status: 'resolved' as const, evidence: '已修复（`src/a.ts:1`）。' }] };
+  state.fail = call => call.body?.query?.startsWith('mutation') ? new Response('unavailable', { status: 503 }) : undefined;
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: firstWithUpdate });
+  const x = state.comments.find(item => item.user.login === 'review-app[bot]' && item.line != null)!;
+  // run-2 只写下关闭 X 的状态标注；文件级讨论失败，总评未发出。
+  state.fail = call => call.method === 'POST' && call.url.endsWith('/pulls/7/comments') ? new Response('unavailable', { status: 502 }) : undefined;
+  await publish(state, { requestSource: 'automatic', publicationId: 'run-2', result: { ...empty, body: '结论。', comments: [fileLevel],
+    thread_updates: [{ root_comment_id: x.id, status: 'resolved', evidence: '修复覆盖了原触发（`src/example.ts:2`）。' }] } });
+  state.fail = () => undefined;
+  // run-3 的评论请求判定 X 重现，替换了 run-2 的标注。
+  ok(await publish(state, { requestSource: 'pr_comment', publicationId: 'run-3', requestCommentId: '900', requestRootCommentId: '',
+    result: { ...empty, body: '按请求复核。', thread_updates: [{ root_comment_id: x.id, status: 'reintroduced', evidence: '回退提交再次引入了原问题。' }] } }));
+  assert.match(x.body, /^\*\*🔁 问题重现\*\*/);
+  // run-1 重跑：不关闭 456，不改写 X。
+  const before = mutations(state.calls).length;
+  stale(await publish(state, { requestSource: 'automatic', publicationId: 'run-1', result: firstWithUpdate }));
+  assert.equal(mutations(state.calls).length, before);
+  assert.equal(state.resolved.has('thread-456'), false);
+  // 之后的新运行照常更新状态。
+  ok(await publish(state, { requestSource: 'automatic', publicationId: 'run-4', expectedHeadSha: 'c'.repeat(40), result: {
+    ...empty, body: '结论。', thread_updates: [{ root_comment_id: x.id, status: 'resolved', evidence: '再次修复（`src/example.ts:2`）。' }] } }));
+  assert.ok(state.resolved.has(`thread-${x.id}`));
+});
+
+test('运行顺序读取全部 Check 历史，旧运行重跑不会遮住同一 PR、同一 head 的新运行', async () => {
+  const head = 'b'.repeat(40);
+  const check = (external_id: string | null, slug = 'review-app') => ({ external_id, app: { slug } });
+  const pages = [
+    [...Array.from({ length: 98 }, () => check(null)), check(`1:7:${'a'.repeat(40)}:${head}:automatic:30:1`), check(`1:7:base:${head}:pr_comment:35:2`)],
+    [check(`1:7:base:${head}:automatic:40:1`), check(`1:7:base:${head}:automatic:90:1`, 'other-app'), check(`1:8:base:${head}:automatic:80:1`),
+      check(`2:7:base:${head}:automatic:70:1`), check(`1:7:base:${'c'.repeat(40)}:automatic:60:1`), check('1:7:base:x')],
+  ];
+  const requested: string[] = [];
+  const fetchImpl = (async (input: string | URL | Request) => {
+    const url = String(input);
+    requested.push(url);
+    return Response.json({ check_runs: pages[Number(new URL(url).searchParams.get('page')) - 1] });
+  }) as typeof fetch;
+  assert.equal(await latestStartedRun({ api: 'https://api.github.test', token: 't', repository: 'owner/repo', repositoryId: '1',
+    pullNumber: 7, headSha: head, appSlug: 'review-app', fetchImpl }), 40);
+  assert.deepEqual(requested.map(url => new URL(url).pathname + new URL(url).search),
+    [`/repos/owner/repo/commits/${head}/check-runs?filter=all&per_page=100&page=1`, `/repos/owner/repo/commits/${head}/check-runs?filter=all&per_page=100&page=2`]);
+});
+
+for (const requestSource of ['automatic', 'pr_comment', 'thread']) {
+  test(`${requestSource} 的旧运行重跑不发布问题、状态或请求回复`, async () => {
+    const state = fixture();
+    state.started.add(2);
+    const report = await publish(state, { requestSource });
+    stale(report);
+    assert.equal(mutations(state.calls).length, 0);
+  });
+}
 
 test('总评已被更新运行收起后重跑，不改动讨论状态', async () => {
   const state = fixture();
@@ -493,12 +557,32 @@ test('发布前独立读取并行，thread 列表直接提供状态而不逐条�
   assert.ok(state.resolved.has('thread-123') && state.resolved.has('thread-456'));
 });
 
-test('同一 thread 先写状态原因再同步状态，正文包含同步失败', async () => {
+test('同一 thread 的状态与回复并行，正文等待两项结束并包含失败结果', { timeout: 5000 }, async () => {
   const state = fixture();
+  const originalFetch = state.fetchImpl;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let bothStarted!: () => void;
+  const ready = new Promise<void>(resolve => { bothStarted = resolve; });
+  const started = new Set<string>();
+  state.fetchImpl = (async (input, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const kind = body?.query?.startsWith('mutation') ? 'state'
+      : String(input).endsWith('/comments/123/replies') ? 'evidence' : null;
+    if (kind) {
+      started.add(kind);
+      if (started.size === 2) bothStarted();
+      await gate;
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
   state.fail = call => call.body?.query?.startsWith('mutation') ? new Response('unavailable', { status: 503 }) : undefined;
-  const report = await publish(state, { requestSource: 'automatic', result: { ...empty, thread_updates: [result.thread_updates[0]] } });
-  const writes = mutations(state.calls).map(call => call.body?.query?.startsWith('mutation') ? 'state' : call.url);
-  assert.ok(writes.findIndex(item => item.endsWith('/comments/123/replies')) < writes.indexOf('state'));
+  const pending = publish(state, { requestSource: 'automatic', result: { ...empty, thread_updates: [result.thread_updates[0]] } });
+  await ready;
+  assert.equal(state.reviews.length, 0);
+  release();
+  const report = await pending;
+  assert.ok(state.comments.some(item => item.body.includes('状态更新：')));
   assert.equal(state.resolved.size, 0);
   assert.equal(report.operations.find(item => item.id === 'thread 123 状态同步')?.status, 'failed');
   assert.equal(report.operations.find(item => item.id === 'thread 123 状态回复')?.status, 'succeeded');
@@ -528,8 +612,7 @@ for (const [name, matches] of [
     state.fail = call => { if (matches(call)) throw new Error('未预料的传输故障'); return undefined; };
     const report = await publish(state);
     assert.equal(report.operations.filter(item => item.status === 'failed').length, 1, JSON.stringify(report));
-    // 状态同步要等原因写入，回复失败时同一 thread 的同步不执行；其他 thread 不受影响。
-    assert.equal(report.operations.filter(item => item.status === 'blocked').length, name === 'thread 状态回复' ? 1 : 0, JSON.stringify(report));
+    assert.equal(report.operations.filter(item => item.status === 'blocked').length, 0, JSON.stringify(report));
     assert.ok(state.resolved.has('thread-456'));
     assert.ok(report.operations.some(item => item.id === 'Review 正文'));
   });
@@ -556,8 +639,8 @@ for (const kind of ['comments', 'threads', 'reviews'] as const) {
       assert.equal(state.resolved.size, 0);
       assert.ok(state.comments.some(item => item.body.includes('状态更新：')));
     } else {
-      // 状态写入要先确认本运行的总评未被后续审查接管，读取失败时不写。
-      assert.equal(state.resolved.size, 0);
+      // 讨论状态不依赖 Review 列表，读取失败只阻断总评。
+      assert.equal(state.resolved.size, 2);
     }
   });
 }
@@ -679,6 +762,8 @@ test('部分覆盖只回复 thread 时，未审文件列在回复中；同时发
 test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成功', async () => {
   const workflow = readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8');
   const execution = parse(workflow).jobs.review.steps;
+  assert.equal(execution.find((step: { id?: string }) => step.id === 'publish-review').env.REVIEW_REPOSITORY_ID,
+    '${{ inputs.repository_id }}');
   const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = Object.fromEntries([
     'pi-review', 'review-context', 'review-check', 'review-workspace',
     'publication-token', 'publish-review', 'diagnostic-workspace',

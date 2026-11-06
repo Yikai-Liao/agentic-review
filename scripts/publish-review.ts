@@ -32,6 +32,8 @@ type PublishOptions = {
   footer: Footer;
   runUrl: string;
   runId: number;
+  // 返回同一 head 上本 App 已开始执行的审查中最大的运行号。
+  latestStartedRun: () => Promise<number>;
   publicationId: string;
   api: string;
   requestSource?: string;
@@ -222,6 +224,7 @@ export async function publishReview({
   footer,
   runUrl,
   runId,
+  latestStartedRun,
   publicationId,
   api,
   requestSource = 'automatic',
@@ -247,10 +250,8 @@ export async function publishReview({
   const route = `/repos/${repository}/pulls/${pullNumber}`;
   const request = <T>(endpoint: string, init?: RequestInit) => github<T>(fetchImpl, api, token, endpoint, init);
   const isBot = (item: { user?: { login?: string } }) => item.user?.login?.toLowerCase() === botLogin.toLowerCase();
-  // 自动审查的每项写入都在发布标记中带运行号，后续运行据此判断 PR 上是否已有更新运行的写入。
   const marker = (id: string, content: unknown) => `${publicationTagPrefix}${createHash('sha256')
-    .update(JSON.stringify([publicationId, repository, pullNumber, expectedHeadSha, id, content])).digest('hex')}${
-    requestSource === 'automatic' ? ` automatic-run:${runId}` : ''} -->`;
+    .update(JSON.stringify([publicationId, repository, pullNumber, expectedHeadSha, id, content])).digest('hex')} -->`;
   const short = (sha: string) => `\`${sha.slice(0, 7)}\``;
   const needsReview = !threadReplyOnly || result.comments.length > 0;
   // 总评的问题索引取自当前讨论状态，因此发布总评也需要评论和 thread 列表。
@@ -278,13 +279,13 @@ export async function publishReview({
   // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
   const summaryHead = requestSource === 'automatic' ? `${summaryTag}${automaticSummaryMarker}` : summaryTag;
   const ownSummary = () => reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(summaryTag));
-  // 同一 PR 的自动审查由并发组串行执行，重跑沿用原运行号；PR 上已有运行号更大的写入，说明本运行是旧运行的重跑。
-  // 后续审查的判断依据更新，旧运行不得再写讨论、总评或收起任何总评，也不能静默跳过，因此整体记为失败。
-  const fresh = requestSource === 'automatic' ? [await run('确认没有更新的审查', [reviews!, comments!], async () => {
-    const newer = Math.max(0, ...[...reviews!.value!, ...comments!.value!].filter(isBot).flatMap(item =>
-      [...item.body.matchAll(automaticRunPattern)].map(match => Number(match[1]))));
-    if (newer > runId) throw new Error(`Run ${newer} has already written to this PR; rerun of run ${runId} must not overwrite it`);
-  })] : [];
+  // 同一 PR 的审查在执行层串行，重跑沿用原运行号；同一 head 上已有运行号更大的审查开始执行，说明本运行是旧运行的重跑。
+  // 运行顺序取自开始执行时创建的 Check，不取自 PR 上可被后续写入替换的内容。后续审查的判断依据更新，
+  // 旧运行不得再写讨论、总评或收起任何总评，也不能静默跳过，因此整体记为失败。
+  const fresh = await run('确认没有更新的审查', [], async () => {
+    const newer = await latestStartedRun();
+    if (newer > runId) throw new Error(`Run ${newer} has already started reviewing this head; rerun of run ${runId} must not overwrite it`);
+  });
 
   for (const update of result.thread_updates) {
     const id = `thread ${update.root_comment_id}`;
@@ -297,10 +298,25 @@ export async function publishReview({
     // 标注带本运行的发布标记，重跑时据此认出自己写入的标注。
     const statusTag = marker(`${id} status`, update);
     const statusLine = `**${label}**（${short(expectedHeadSha)}）：${update.evidence} ${statusTag}${statusMarker}`;
-    // 标注与回复互不依赖；状态同步不留文字，等原因写入后再执行，旧运行重跑据此看得到更新运行的每次改动。
-    const [annotation, reply] = await Promise.all([
+    // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
+    await Promise.all([
+      run(`${id} 状态同步`, [root, threads!, fresh], async () => {
+        const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
+        if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
+        const shouldResolve = update.status === 'resolved';
+        if (thread.isResolved === shouldResolve) return;
+        const mutation = shouldResolve
+          ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
+          : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
+        const response: any = await request('/graphql', {
+          method: 'POST', body: JSON.stringify({ query: mutation, variables: { thread: thread.id } }),
+        });
+        if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
+        const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
+        if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
+      }),
       // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
-      run(`${id} 状态标注`, [root, ...fresh], async () => {
+      run(`${id} 状态标注`, [root, fresh], async () => {
         if (!isBot(root.value!)) return;
         const body = root.value!.body;
         const [first, ...others] = body.split('\n\n');
@@ -310,7 +326,7 @@ export async function publishReview({
         });
       }),
       // 关闭只需标注；重现、升级需要通知人，他人发起的讨论也无法改写原文，二者改为回复。
-      run(`${id} 状态回复`, [root, ...fresh], async () => {
+      run(`${id} 状态回复`, [root, fresh], async () => {
         if (update.status === 'resolved' && isBot(root.value!)) return;
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
@@ -328,25 +344,10 @@ export async function publishReview({
         });
       }),
     ]);
-    await run(`${id} 状态同步`, [root, threads!, ...fresh, annotation, reply], async () => {
-      const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
-      if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
-      const shouldResolve = update.status === 'resolved';
-      if (thread.isResolved === shouldResolve) return;
-      const mutation = shouldResolve
-        ? 'mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id}}}'
-        : 'mutation($thread:ID!){unresolveReviewThread(input:{threadId:$thread}){thread{id}}}';
-      const response: any = await request('/graphql', {
-        method: 'POST', body: JSON.stringify({ query: mutation, variables: { thread: thread.id } }),
-      });
-      if (response.errors?.length) throw new Error(`GitHub GraphQL: ${JSON.stringify(response.errors)}`);
-      const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
-      if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
-    });
   }
 
   if (requestSource === 'thread') {
-    await run('请求回复', [comments!], async () => {
+    await run('请求回复', [comments!, fresh], async () => {
       if (!/^[0-9]+$/.test(requestRootCommentId)) throw new Error('Thread request is missing its root comment');
       const root = comments!.value!.find(item => item.id === Number(requestRootCommentId) && item.in_reply_to_id == null);
       if (!root) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
@@ -379,14 +380,14 @@ export async function publishReview({
     // 先于总评发布且总评依赖它们：总评一旦存在，列出的讨论都已存在，后续审查读取时不会漏掉它们。重跑按标记去重。
     const posted = [];
     for (const { comment, id, tag: findingTag } of fileLevel) {
-      posted.push(await run(id, [comments!, ...fresh], async () => {
+      posted.push(await run(id, [comments!, fresh], async () => {
         if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
         await request(`${route}/comments`, { method: 'POST', body: JSON.stringify({
           body: `${renderFinding(comment)}\n\n${findingTag}`, commit_id: expectedHeadSha, path: comment.path, subject_type: 'file',
         }) });
       }));
     }
-    const review = await run('Review 正文', [reviews!, comments!, threads!, ...fresh, ...posted], async () => {
+    const review = await run('Review 正文', [reviews!, comments!, threads!, fresh, ...posted], async () => {
       const automatic = requestSource === 'automatic';
       const index = summaryIndex({
         result, findings: findings.map(item => item.tag), comments: comments!.value!.filter(isBot),
@@ -419,7 +420,7 @@ export async function publishReview({
       const latest = automatic ? latestAutomaticSummary(reviews!.value!.filter(isBot)) : undefined;
       // 没有新问题、没有状态变化且结论标题不变时，就地更新最新总评，不产生新的时间线条目和通知。
       if (latest && !result.comments.length && !result.thread_updates.length && latest.body.split('\n')[1] === heading) {
-        // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评；本运行的标记带更大的运行号，旧运行据此停止写入。
+        // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评。
         const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${summaryHead}`);
         await request(`${route}/reviews/${latest.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
         return { id: latest.id, url: latest.html_url };
@@ -456,13 +457,32 @@ export async function publishReview({
   return { reviewUrl, operations: publication.operations };
 }
 
+// 审查 job 在执行层串行队列中开始执行时创建 Check，external_id 为 仓库ID:PR:base:head:来源:运行号:尝试次数，只有可信 workflow 写入。
+export async function latestStartedRun({ api, token, repository, repositoryId, pullNumber, headSha, appSlug, fetchImpl }: {
+  api: string; token: string; repository: string; repositoryId: string; pullNumber: number; headSha: string; appSlug: string;
+  fetchImpl: typeof fetch;
+}) {
+  let latest = 0;
+  for (let page = 1; ; page++) {
+    // 默认 latest 只保留最近的同名 Check；旧运行重跑的新 Check 会遮住较新运行，必须读取全部历史。
+    const body = await github<{ check_runs?: Array<{ external_id?: string | null; app?: { slug?: string } | null }> }>(fetchImpl, api, token,
+      `/repos/${repository}/commits/${headSha}/check-runs?filter=all&per_page=100&page=${page}`);
+    if (!Array.isArray(body.check_runs)) throw new Error('Invalid check run page');
+    for (const check of body.check_runs) {
+      const parts = check.app?.slug === appSlug ? check.external_id?.split(':') ?? [] : [];
+      if (parts.length === 7 && parts[0] === repositoryId && parts[1] === String(pullNumber) && parts[3] === headSha
+        && /^[0-9]+$/.test(parts[5])) latest = Math.max(latest, Number(parts[5]));
+    }
+    if (body.check_runs.length < 100) return latest;
+  }
+}
+
 const publicationTagPrefix = '<!-- agentic-review-publication:';
 const statusUpdatePrefix = '**状态更新：';
 const statusMarker = '<!-- agentic-review:status -->';
 const automaticSummaryMarker = '<!-- agentic-review:automatic-summary -->';
 const supersededMarker = '<!-- agentic-review:superseded -->';
 const isAutomaticSummary = (body: string) => body.split('\n', 1)[0].endsWith(automaticSummaryMarker);
-const automaticRunPattern = /<!-- agentic-review-publication:[0-9a-f]{64} automatic-run:(\d+) -->/g;
 const isSuperseded = (body: string) => body.split('\n', 2)[1]?.endsWith(supersededMarker) ?? false;
 
 function latestAutomaticSummary<T extends { id: number; body: string }>(reviews: T[]) {
@@ -593,7 +613,10 @@ export async function main() {
     const record = { footer, usage, result, coverage: counts };
     const options: PublishOptions = {
       publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result, footer, runUrl: requiredEnv('REVIEW_RUN_URL'),
-      runId: Number(requiredEnv('GITHUB_RUN_ID')),
+      runId: Number(requiredEnv('REVIEW_RUN_ID')),
+      latestStartedRun: () => latestStartedRun({ api: process.env.GITHUB_API_URL ?? 'https://api.github.com', token: requiredEnv('GH_TOKEN'),
+        repository: request.repository, repositoryId: requiredEnv('REVIEW_REPOSITORY_ID'), pullNumber: request.pull_number,
+        headSha: request.head_sha, appSlug: requiredEnv('REVIEW_BOT_LOGIN').replace(/\[bot\]$/, ''), fetchImpl: fetch }),
       repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
       previousHeadSha: process.env.REVIEW_CHECKPOINT_HEAD ?? '',
       botLogin: requiredEnv('REVIEW_BOT_LOGIN'), token: requiredEnv('GH_TOKEN'),
