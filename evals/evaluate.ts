@@ -93,7 +93,7 @@ export async function prepare(root: string, id: string) {
     taskNames.push(task);
     const rules = [...config.vary, ...config.shared].map(file => `evals/experiments/${id}/rules/${variant}/${file}`);
     const inputs = cases.map(item => `## ${item.id}（${item.kind}）\n\n${item.input}\n\n输出文件：evals/experiments/${id}/outputs/${variant}/r${repeat}/${item.id}.md\n`).join('\n');
-    const content = `# 固定事实文本生成\n\n模型：${config.model}；思考级别：${config.reasoning}。每个任务使用全新上下文。\n\n只读取以下生效输出规则，不读取其他实验材料：\n\n${rules.map(file => `- ${file}`).join('\n')}\n\n按规则表达下列独立案例的固定审查判断。summary 只生成总评 Markdown，finding 生成单条 finding，evidence 生成后续状态说明。不要重新审查代码、运行目标代码、访问链接、调用提交/发布工具或生成 JSON。不要读取其他生成器的输出、评判或期望答案，也不要调用其他 Agent。使用 apply_patch 写指定文件。\n\n${inputs}`;
+    const content = `# 固定事实文本生成\n\n模型：${config.model}；思考级别：${config.reasoning}。每个任务使用全新上下文。\n\n只读取以下生效输出规则，不读取其他实验材料：\n\n${rules.map(file => `- ${file}`).join('\n')}\n\n按规则表达下列独立案例的固定审查判断。summary 只生成总评中由审查者撰写的 \`body\`，标题、问题索引、审查位置和运行信息由发布器生成；finding 首行写 \`**标签：标题**\`，空一行后写正文；evidence 在状态变化时只写一行状态原因，在显式 thread 请求时写回复正文。不要重新审查代码、运行目标代码、访问链接、调用提交/发布工具或生成 JSON。不要读取其他生成器的输出、评判或期望答案，也不要调用其他 Agent。使用 apply_patch 写指定文件。\n\n${inputs}`;
     await save(dir, task, content);
     files[task] = content;
   }

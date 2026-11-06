@@ -1,10 +1,10 @@
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { createPublication, finishPublication, publicationSummary } from './publication.ts';
+import { createHash, randomUUID } from 'node:crypto';
+import { createPublication, finishPublication, publicationSummary, type PublicationOperation } from './publication.ts';
 import { parseReviewCoverage, pendingCoverage } from './review-coverage.ts';
 import { access, appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { parseReviewResult, statusLabels, type ReviewResult } from './review-result.ts';
+import { findingLabels, parseReviewResult, statusLabels, type FindingLabel, type ReviewResult } from './review-result.ts';
 import { parseReviewUsage, reviewMetadataStart, reviewMetadataEnd, type ReviewUsage } from './review-usage.ts';
 
 type FooterMetadata = {
@@ -17,8 +17,10 @@ type FooterMetadata = {
   outputTokens?: number;
   cost?: number;
   controlSha?: string;
-  usage?: ReviewUsage;
+  priceKnown?: boolean;
 };
+// 页脚分两行：第一行是可点开的链接与审查位置，第二行是运行信息。
+export type Footer = { links: string; details: string };
 type PublishOptions = {
   result: ReviewResult;
   repository: string;
@@ -26,13 +28,19 @@ type PublishOptions = {
   botLogin: string;
   token: string;
   expectedHeadSha: string;
-  footer: string;
+  previousHeadSha?: string;
+  footer: Footer;
+  runUrl: string;
+  runId: number;
+  // 返回同一 head 上本 App 首次开始执行最晚的自动审查运行号；评论请求不取代完整审查。
+  latestAutomaticRun: () => Promise<number>;
   publicationId: string;
   api: string;
   requestSource?: string;
   requestCommentId?: string;
   requestRootCommentId?: string;
   threadReplyOnly?: boolean;
+  coverage?: { reviewed: number; total: number; sourceReviewed: number };
   coverageNotice?: string;
   fetchImpl?: typeof fetch;
   publication?: ReturnType<typeof createPublication>;
@@ -119,7 +127,7 @@ function formatDuration(value: number) {
   seconds %= 3600;
   const minutes = Math.floor(seconds / 60);
   seconds %= 60;
-  return [hours && `${hours}h`, minutes && `${minutes}m`, `${seconds}s`].filter(Boolean).join(' ');
+  return [hours && `${hours} 小时`, minutes && `${minutes} 分`, `${seconds} 秒`].filter(Boolean).join(' ');
 }
 
 export function buildFooter({
@@ -132,37 +140,76 @@ export function buildFooter({
   outputTokens,
   cost,
   controlSha,
-  usage,
-}: FooterMetadata) {
-  const parts = [`[View action run](${runUrl})`, `[审查工作稿](${workspaceUrl})`, `Model: ${model}`];
-  if (thinkingLevel && thinkingLevel !== 'off') parts[2] += ` (thinking: ${thinkingLevel})`;
-  if (Number.isFinite(durationSeconds)) parts.push(`Time: ${formatDuration(durationSeconds!)}`);
+  priceKnown,
+}: FooterMetadata): Footer {
+  const details = [thinkingLevel && thinkingLevel !== 'off' ? `${model}（推理 ${thinkingLevel}）` : model];
+  if (Number.isFinite(durationSeconds)) details.push(`用时 ${formatDuration(durationSeconds!)}`);
   if (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)) {
-    parts.push(`Tokens: ${formatNumber(inputTokens! + outputTokens!)}`);
+    details.push(`${formatNumber(inputTokens! + outputTokens!)} token`);
   }
-  if (cost === undefined || usage?.priceKnown === false) parts.push('Cost (est.): 未提供');
+  if (cost === undefined || priceKnown === false) details.push('费用未提供');
   else {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Invalid review cost');
-    parts.push(`Cost (est.): ${cost > 0 && cost < 0.0001 ? '<$0.0001' : `$${cost.toFixed(4)}`}`);
+    details.push(`费用约 ${dollars(cost)}`);
   }
-  if (controlSha) parts.push(`Rules: ${controlSha.slice(0, 7)}`);
-  if (!usage) return parts.join(' | ');
+  if (controlSha) details.push(`规则 \`${controlSha.slice(0, 7)}\``);
+  return { links: `${runLinkText(runUrl)} · [审查工作稿](${workspaceUrl})`, details: details.join(' · ') };
+}
+
+const runLinkText = (runUrl: string) => `[运行记录](${runUrl})`;
+const dollars = (value: number) => value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
+
+// 固定标记让下一轮输入剔除运行信息；费用明细写入 Check 供复盘。
+const metadataBlock = (text: string) => `${reviewMetadataStart}\n${text}\n${reviewMetadataEnd}`;
+
+export function usageDetails(usage: ReviewUsage) {
   parseReviewUsage(usage);
-  const first = usage.first;
-  const total = usage.total;
+  const { first, total } = usage;
   const firstInput = first.input + first.cacheRead + first.cacheWrite;
   const hit = firstInput === 0 ? '无输入' : `${(100 * first.cacheRead / firstInput).toFixed(1)}%`;
-  const dollars = (value: number) => !usage.priceKnown ? '未提供' : value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
+  const cost = (value: number) => usage.priceKnown ? dollars(value) : '未提供';
   const tokens = (value: number) => value.toLocaleString('en-US');
-  return [reviewMetadataStart, parts.join(' | '), '', '<details>',
-    `<summary>费用分析：${usage.turns} 个审查回合；首轮缓存命中 ${hit}</summary>`, '',
+  return [
+    `${usage.turns} 个审查回合；首轮缓存命中 ${hit}。`, '',
     '| 审查回合用量 | Token | 费用估算 |', '| --- | ---: | ---: |',
     ...([
       ['普通输入', 'input'], ['缓存读取', 'cacheRead'], ['缓存写入', 'cacheWrite'], ['输出（含推理）', 'output'],
-    ] as const).map(([label, key]) => `| ${label} | ${tokens(total[key])} | ${dollars(total.cost[key])} |`), '',
+    ] as const).map(([label, key]) => `| ${label} | ${tokens(total[key])} | ${cost(total.cost[key])} |`), '',
     `首轮输入：普通 ${tokens(first.input)}；缓存读取 ${tokens(first.cacheRead)}；缓存写入 ${tokens(first.cacheWrite)}。`,
     total.reasoning === undefined ? '推理 Token：未提供。' : `推理 Token：${tokens(total.reasoning)}，已包含在输出中。`,
-    '以上为审查回合统计；总费用采用 Action 汇总。', '', '</details>', reviewMetadataEnd,
+    '以上为审查回合统计；总费用采用 Action 汇总。',
+  ].join('\n');
+}
+
+type CheckRecord = {
+  footer?: Footer;
+  usage?: ReviewUsage;
+  coverage?: { reviewed: number; total: number; sourceReviewed: number };
+  result?: ReviewResult;
+  operations: PublicationOperation[];
+};
+
+// Check 随提交长期保留并可经 API 查询，是复盘运行数据的固定来源；PR 正文只面向读者。
+// 操作数受结果 schema 的条目上限约束，不含错误原文，正文远低于 Check output 上限。
+export function checkText({ footer, usage, coverage, result, operations }: CheckRecord) {
+  const counts = (['succeeded', 'failed', 'blocked'] as const)
+    .map(status => [status, operations.filter(item => item.status === status)] as const);
+  const labels = { succeeded: '成功', failed: '失败', blocked: '前置失败，未执行' };
+  const statusCounts = result && (Object.keys(statusLabels) as Array<keyof typeof statusLabels>)
+    .map(status => [statusLabels[status], result.thread_updates.filter(item => item.status === status).length] as const)
+    .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join('，');
+  return [
+    ...(footer ? ['## 运行', '', footer.links, '', footer.details, ''] : []),
+    ...(result ? ['## 审查结果', '',
+      `新问题 ${result.comments.length} 条；历史问题状态变化 ${result.thread_updates.length} 条${statusCounts ? `（${statusCounts}）` : ''}。`, ''] : []),
+    ...(coverage ? ['## 覆盖', '',
+      `已审查 ${coverage.reviewed}/${coverage.total} 个文件；来源 PR 已审而未重复审查 ${coverage.sourceReviewed} 个。`, ''] : []),
+    ...(usage ? ['## 用量', '', usageDetails(usage), ''] : []),
+    '## 发布操作', '',
+    counts.map(([status, items]) => `${labels[status]} ${items.length}`).join('；') + '。',
+    ...counts.filter(([status]) => status !== 'succeeded').flatMap(([status, items]) =>
+      items.map(item => `- ${labels[status]}：${item.id}`)),
+    '', '错误详情见本次运行的 Actions 摘要与 `publication-report.json`。',
   ].join('\n');
 }
 
@@ -173,13 +220,18 @@ export async function publishReview({
   botLogin,
   token,
   expectedHeadSha,
+  previousHeadSha = '',
   footer,
+  runUrl,
+  runId,
+  latestAutomaticRun,
   publicationId,
   api,
   requestSource = 'automatic',
   requestCommentId = '',
   requestRootCommentId = '',
   threadReplyOnly = false,
+  coverage,
   coverageNotice = '',
   fetchImpl = fetch,
   publication = createPublication(),
@@ -188,51 +240,52 @@ export async function publishReview({
   if (!Number.isInteger(pullNumber) || pullNumber < 1) throw new Error('Invalid pull number');
   if (!/^[A-Za-z0-9-]+\[bot\]$/.test(botLogin)) throw new Error('Invalid review bot login');
   if (!/^[0-9a-f]{40}$/.test(expectedHeadSha)) throw new Error('Invalid review head');
+  if (previousHeadSha && !/^[0-9a-f]{40}$/.test(previousHeadSha)) throw new Error('Invalid previous review head');
 
   if (!publicationId) throw new Error('Missing publication identity');
+  if (!Number.isSafeInteger(runId) || runId < 1) throw new Error('Invalid review run id');
   // 整体 schema 是公共前置条件；操作异常不影响其他独立写入。
   parseReviewResult(JSON.stringify(result));
   const { run } = publication;
   const route = `/repos/${repository}/pulls/${pullNumber}`;
   const request = <T>(endpoint: string, init?: RequestInit) => github<T>(fetchImpl, api, token, endpoint, init);
   const isBot = (item: { user?: { login?: string } }) => item.user?.login?.toLowerCase() === botLogin.toLowerCase();
-  const marker = (id: string, content: unknown) => `<!-- agentic-review-publication:${createHash('sha256')
+  const marker = (id: string, content: unknown) => `${publicationTagPrefix}${createHash('sha256')
     .update(JSON.stringify([publicationId, repository, pullNumber, expectedHeadSha, id, content])).digest('hex')} -->`;
-  const needsComments = result.comments.length > 0 || result.thread_updates.length > 0 || requestSource === 'thread';
+  const short = (sha: string) => `\`${sha.slice(0, 7)}\``;
   const needsReview = !threadReplyOnly || result.comments.length > 0;
+  // 总评的问题索引取自当前讨论状态，因此发布总评也需要评论和 thread 列表。
+  const needsComments = needsReview || result.thread_updates.length > 0 || requestSource === 'thread';
   const [comments, threads, reviews] = await Promise.all([
     needsComments ? run('读取 PR 评论', [], () =>
       listPullRecords<ReviewComment>(fetchImpl, api, token, `${route}/comments`)) : undefined,
-    result.thread_updates.length ? run('读取 PR thread', [], () =>
+    needsReview || result.thread_updates.length ? run('读取 PR thread', [], () =>
       reviewThreads(fetchImpl, api, token, repository, pullNumber)) : undefined,
     needsReview ? run('读取已发布 Review', [], () => listPullRecords<{
       id: number; body: string; html_url: string; user?: { login?: string };
     }>(fetchImpl, api, token, `${route}/reviews`)) : undefined,
   ]);
+  // 只有失败需要提醒读者；全部成功时 GitHub 上的状态本身就是执行结果。
   const notice = () => {
     const failed = publication.operations.filter(item => item.status !== 'succeeded').length;
     return failed
-      ? `> [!WARNING]\n> 发布未全部完成：${failed} 项操作失败或因前置失败未执行。下文是审查判断，不能据此认定 finding 已发布或 thread 已关闭；实际执行结果见运行报告。`
-      : '> 下文为审查判断；GitHub 发布和 thread 同步的实际执行结果见运行报告。';
+      ? `> [!WARNING]\n> 发布未全部完成：${failed} 项操作失败或因前置失败未执行。下文是审查判断，不能据此认定问题已发布或讨论已关闭；实际执行结果见 Check 详情。`
+      : '';
   };
-
-  for (const [index, comment] of result.comments.entries()) {
-    const id = `finding ${index + 1} (${comment.path}:${comment.line})`;
-    await run(id, [comments!], async () => {
-      const tag = marker(id, comment);
-      const existing = comments!.value!.find(item => isBot(item) && item.in_reply_to_id == null && item.body.includes(tag));
-      if (existing) return existing.html_url;
-      const response = await request<{ html_url: string }>(`${route}/comments`, {
-        method: 'POST',
-        body: JSON.stringify({
-          path: comment.path, line: comment.line,
-          commit_id: expectedHeadSha, side: 'RIGHT', body: `${comment.body}\n\n${tag}`,
-          ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
-        }),
-      });
-      return response.html_url;
-    });
-  }
+  const compose = (...parts: string[]) => parts.filter(Boolean).join('\n\n');
+  const runLink = metadataBlock(runLinkText(runUrl));
+  const firstLine = (body: string) => body.split('\n', 1)[0];
+  const summaryTag = marker('summary', result);
+  // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
+  const summaryHead = requestSource === 'automatic' ? `${summaryTag}${automaticSummaryMarker}` : summaryTag;
+  const ownSummary = () => reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(summaryTag));
+  // 同一 PR 的审查在执行层串行；首次创建 Check 的先后才是执行顺序，运行号只标识身份。
+  // 后续完整自动审查取代旧自动审查，旧运行重跑整体失败；局部评论请求不取代完整审查。
+  // 重跑会重新准备当前讨论并执行 Agent，评论请求后的完整复核仍依据最新讨论判断状态。
+  const fresh = requestSource === 'automatic' ? [await run('确认没有更新的审查', [], async () => {
+    const latest = await latestAutomaticRun();
+    if (latest !== runId) throw new Error(`Run ${latest} has already started reviewing this head; rerun of run ${runId} must not overwrite it`);
+  })] : [];
 
   for (const update of result.thread_updates) {
     const id = `thread ${update.root_comment_id}`;
@@ -241,9 +294,13 @@ export async function publishReview({
       if (!found) throw new Error(`${update.root_comment_id} is not a root comment in this PR`);
       return found;
     });
-    // 状态同步与证据回复并行；两项均结束后再汇总失败并发布最终正文。
+    const label = statusLabels[update.status];
+    // 标注带本运行的发布标记，重跑时据此认出自己写入的标注。
+    const statusTag = marker(`${id} status`, update);
+    const statusLine = `**${label}**（${short(expectedHeadSha)}）：${update.evidence} ${statusTag}${statusMarker}`;
+    // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
     await Promise.all([
-      run(`${id} 状态同步`, [root, threads!], async () => {
+      run(`${id} 状态同步`, [root, threads!, ...fresh], async () => {
         const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
         if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
         const shouldResolve = update.status === 'resolved';
@@ -258,16 +315,32 @@ export async function publishReview({
         const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
         if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
       }),
-      run(`${id} 证据回复`, [root], async () => {
+      // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
+      run(`${id} 状态标注`, [root, ...fresh], async () => {
+        if (!isBot(root.value!)) return;
+        const body = root.value!.body;
+        const [first, ...others] = body.split('\n\n');
+        const next = `${statusLine}\n\n${first.endsWith(statusMarker) ? others.join('\n\n') : body}`;
+        if (next !== body) await request(`/repos/${repository}/pulls/comments/${root.value!.id}`, {
+          method: 'PATCH', body: JSON.stringify({ body: next }),
+        });
+      }),
+      // 关闭只需标注；重现、升级需要通知人，他人发起的讨论也无法改写原文，二者改为回复。
+      run(`${id} 状态回复`, [root, ...fresh], async () => {
+        if (update.status === 'resolved' && isBot(root.value!)) return;
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
         if (replies.some(item => item.body.includes(tag))) return;
-        const status = `**Pi thread 状态更新：${statusLabels[update.status]}**`;
-        if (replies.filter(item => item.body.startsWith('**Pi thread 状态更新：')).at(-1)?.body.startsWith(status)) return;
+        const status = `${statusUpdatePrefix}${label}**`;
+        // 最新状态相同时不重复。本 bot 的问题关闭时只改标注、不回复，最新状态以标注为准；
+        // 标注由本运行写入时说明是重跑，回复仍需补发。
+        const annotation = root.value!.body.split('\n\n', 1)[0];
+        const unchanged = isBot(root.value!)
+          ? annotation.endsWith(statusMarker) && annotation.startsWith(`**${label}**`) && !annotation.includes(statusTag)
+          : replies.filter(item => item.body.startsWith(statusUpdatePrefix)).at(-1)?.body.startsWith(status);
+        if (unchanged) return;
         await request(`${route}/comments/${update.root_comment_id}/replies`, {
-          method: 'POST', body: JSON.stringify({
-            body: `${status}\n\n${update.evidence}\n\n以上为审查结论；GitHub 状态同步是否成功请查看运行报告。\n\n${footer}\n${tag}`,
-          }),
+          method: 'POST', body: JSON.stringify({ body: `${compose(status, update.evidence, runLink)}\n${tag}` }),
         });
       }),
     ]);
@@ -281,8 +354,8 @@ export async function publishReview({
       const tag = marker(`request ${requestCommentId}`, result.request_reply);
       const existing = comments!.value!.find(item => item.in_reply_to_id === root.id && isBot(item) && item.body.includes(tag));
       // 只回复 thread 时没有 Review 正文，覆盖缺口随回复公开。
-      const coverage = !needsReview && coverageNotice ? `${coverageNotice}\n\n` : '';
-      const body = `${notice()}\n\n${coverage}${result.request_reply!.body}\n\n${footer}\n${tag}`;
+      const coverageGap = !needsReview ? coverageNotice : '';
+      const body = `${compose(notice(), coverageGap, result.request_reply!.body, runLink)}\n${tag}`;
       if (existing) {
         if (existing.body !== body) await request(`/repos/${repository}/pulls/comments/${existing.id}`, {
           method: 'PATCH', body: JSON.stringify({ body }),
@@ -297,24 +370,201 @@ export async function publishReview({
 
   let reviewUrl = '';
   if (needsReview) {
-    const review = await run('Review 正文', [reviews!], async () => {
-      const tag = marker('summary', result);
-      const existing = reviews!.value!.find(item => isBot(item) && item.body.includes(tag));
-      const body = `${tag}\n${notice()}\n\n${coverageNotice ? `${coverageNotice}\n\n` : ''}${result.body}\n\n---\n\n${footer}`;
+    const findings = result.comments.map((comment, index) => ({
+      comment, id: `finding ${index + 1} (${comment.path}:${comment.line ?? 'file'})`,
+      tag: marker(`finding ${index + 1} (${comment.path}:${comment.line ?? 'file'})`, comment),
+    }));
+    const inline = findings.filter(({ comment }) => comment.line !== null);
+    const fileLevel = findings.filter(({ comment }) => comment.line === null);
+    // 创建 Review 的 comments 不支持文件级讨论，只能单独发布；它与 inline 问题一样有 thread 状态，下一轮能进入索引并被关闭。
+    // 先于总评发布且总评依赖它们：总评一旦存在，列出的讨论都已存在，后续审查读取时不会漏掉它们。重跑按标记去重。
+    const posted = [];
+    for (const { comment, id, tag: findingTag } of fileLevel) {
+      posted.push(await run(id, [comments!, ...fresh], async () => {
+        if (comments!.value!.some(item => isBot(item) && item.body.includes(findingTag))) return;
+        await request(`${route}/comments`, { method: 'POST', body: JSON.stringify({
+          body: `${renderFinding(comment)}\n\n${findingTag}`, commit_id: expectedHeadSha, path: comment.path, subject_type: 'file',
+        }) });
+      }));
+    }
+    const review = await run('Review 正文', [reviews!, comments!, threads!, ...fresh, ...posted], async () => {
+      const automatic = requestSource === 'automatic';
+      const index = summaryIndex({
+        result, findings: findings.map(item => item.tag), comments: comments!.value!.filter(isBot),
+        allComments: comments!.value!, threads: threads!.value!,
+      });
+      const pending = coverage ? coverage.total - coverage.reviewed : 0;
+      const heading = `## 自动审查：${[
+        ...(pending ? [`未审完（已审 ${coverage!.reviewed}/${coverage!.total} 个文件）`] : []),
+        ...(index.fix ? [`${index.fix} 个问题需要修改`] : []),
+        ...(index.confirm ? [`${index.confirm} 项需要你确认`] : []),
+        ...(index.fix || index.confirm ? [] : [pending ? '已审部分没有需要处理的问题' : '没有需要处理的问题']),
+      ].join('，')}`;
+      const scope = [
+        `审至 ${short(expectedHeadSha)}${previousHeadSha && previousHeadSha !== expectedHeadSha ? `（上次 ${short(previousHeadSha)}）` : ''}`,
+        ...(coverage ? [`已审 ${coverage.reviewed}/${coverage.total} 个文件${coverage.sourceReviewed
+          ? `（其中 ${coverage.sourceReviewed} 个由来源 PR 审过）` : ''}`] : []),
+      ].join(' · ');
+      // GitHub 评论把单个换行渲染为换行，两行运行信息不需要空行分隔。
+      const render = (first: string) => `${first}\n${compose(heading, notice(), coverageNotice,
+        placeIndex(result.body, index.markdown))}\n\n---\n\n${metadataBlock(`${footer.links} · ${scope}\n${footer.details}`)}`;
+      // 重跑找到自己的总评时只更新发布结果；被更新运行收起或就地更新的情况已由前置校验拦下。
+      const existing = ownSummary();
       if (existing) {
+        const body = render(firstLine(existing.body));
         if (existing.body !== body) await request(`${route}/reviews/${existing.id}`, {
           method: 'PUT', body: JSON.stringify({ body }),
         });
-        return existing.html_url;
+        return { id: existing.id, url: existing.html_url };
       }
-      const response = await request<{ html_url: string }>(`${route}/reviews`, {
-        method: 'POST', body: JSON.stringify({ body, commit_id: expectedHeadSha, event: 'COMMENT' }),
+      const latest = automatic ? latestAutomaticSummary(reviews!.value!.filter(isBot)) : undefined;
+      // 没有新问题、没有状态变化且结论标题不变时，就地更新最新总评，不产生新的时间线条目和通知。
+      if (latest && !result.comments.length && !result.thread_updates.length && latest.body.split('\n')[1] === heading) {
+        // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评。
+        const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${summaryHead}`);
+        await request(`${route}/reviews/${latest.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+        return { id: latest.id, url: latest.html_url };
+      }
+      // 新问题挂在同一条 Review 下，每轮只占一条时间线记录；行号已在提交时按 PR diff 校验。
+      const response = await request<{ id: number; html_url: string }>(`${route}/reviews`, {
+        method: 'POST', body: JSON.stringify({
+          body: render(summaryHead), commit_id: expectedHeadSha, event: 'COMMENT',
+          ...(inline.length ? { comments: inline.map(({ comment, tag: findingTag }) => ({
+            path: comment.path, line: comment.line, side: 'RIGHT', body: `${renderFinding(comment)}\n\n${findingTag}`,
+            ...(comment.start_line === null ? {} : { start_line: comment.start_line, start_side: 'RIGHT' }),
+          })) } : {}),
+        }),
       });
-      return response.html_url;
+      return { id: response.id, url: response.html_url };
     });
-    reviewUrl = review.value ?? '';
+    reviewUrl = review.value?.url ?? '';
+    // 最新自动总评代表当前结论；更早的自动总评正文收起为一行指向，原文保留在折叠区供展开和下一轮读取。
+    // 重跑复用当前总评时同样核对，补做上次失败的收起。
+    // 其下的讨论不受影响，仍未解决的问题照常显示。评论请求的答复只覆盖请求范围，既不收起其他总评，也不被收起。
+    if (requestSource === 'automatic' && review.value) {
+      const older = reviews!.value!.filter(item => isBot(item) && item.id < review.value!.id
+        && isAutomaticSummary(item.body) && !isSuperseded(item.body));
+      for (const item of older) {
+        await run(`收起旧 Review ${item.id}`, [review], async () => {
+          const [first, heading, ...rest] = item.body.split('\n');
+          const body = [first, `> 已被[${short(expectedHeadSha)} 的审查](${review.value!.url})取代。${supersededMarker}`, '',
+            `<details><summary>原总评：${heading.replace(/^## /, '')}</summary>`, '', heading, ...rest, '', '</details>'].join('\n');
+          await request(`${route}/reviews/${item.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+        });
+      }
+    }
   }
   return { reviewUrl, operations: publication.operations };
+}
+
+// 审查 job 在执行层串行队列中开始执行时创建 Check，external_id 为 仓库ID:PR:base:head:来源:运行号:尝试次数，只有可信 workflow 写入。
+export async function latestAutomaticRun({ api, token, repository, repositoryId, pullNumber, headSha, appSlug, fetchImpl }: {
+  api: string; token: string; repository: string; repositoryId: string; pullNumber: number; headSha: string; appSlug: string;
+  fetchImpl: typeof fetch;
+}) {
+  const firstChecks = new Map<number, number>();
+  for (let page = 1; ; page++) {
+    // 默认 latest 只保留最近的同名 Check；旧运行重跑的新 Check 会遮住较新运行，必须读取全部历史。
+    const body = await github<{ check_runs?: Array<{ id: number; external_id?: string | null; app?: { slug?: string } | null }> }>(fetchImpl, api, token,
+      `/repos/${repository}/commits/${headSha}/check-runs?filter=all&per_page=100&page=${page}`);
+    if (!Array.isArray(body.check_runs)) throw new Error('Invalid check run page');
+    for (const check of body.check_runs) {
+      const parts = check.app?.slug === appSlug ? check.external_id?.split(':') ?? [] : [];
+      if (parts.length === 7 && parts[0] === repositoryId && parts[1] === String(pullNumber) && parts[3] === headSha
+        && parts[4] === 'automatic' && /^[0-9]+$/.test(parts[5])) {
+        const runId = Number(parts[5]);
+        firstChecks.set(runId, Math.min(firstChecks.get(runId) ?? Infinity, check.id));
+      }
+    }
+    if (body.check_runs.length < 100) break;
+  }
+  let latest = 0;
+  let lastCheck = 0;
+  for (const [runId, checkId] of firstChecks) {
+    if (checkId > lastCheck) { latest = runId; lastCheck = checkId; }
+  }
+  if (!latest) throw new Error('No automatic review Check found for this head');
+  return latest;
+}
+
+const publicationTagPrefix = '<!-- agentic-review-publication:';
+const statusUpdatePrefix = '**状态更新：';
+const statusMarker = '<!-- agentic-review:status -->';
+const automaticSummaryMarker = '<!-- agentic-review:automatic-summary -->';
+const supersededMarker = '<!-- agentic-review:superseded -->';
+const isAutomaticSummary = (body: string) => body.split('\n', 1)[0].endsWith(automaticSummaryMarker);
+const isSuperseded = (body: string) => body.split('\n', 2)[1]?.endsWith(supersededMarker) ?? false;
+
+function latestAutomaticSummary<T extends { id: number; body: string }>(reviews: T[]) {
+  return reviews.filter(item => isAutomaticSummary(item.body) && !isSuperseded(item.body))
+    .reduce<T | undefined>((latest, item) => !latest || item.id > latest.id ? item : latest, undefined);
+}
+
+export function renderFinding(comment: ReviewResult['comments'][number]) {
+  return `> [!${findingLabels[comment.label].alert}]\n> **${comment.label}：${comment.title}**\n\n${comment.body}`;
+}
+
+// 历史问题的标签和标题取自发布器写入的标题行，索引与讨论使用同一标题。
+function findingHeader(body: string) {
+  const match = body.match(/^> \*\*([^*\n：]+)：([^\n]+)\*\*$/m);
+  return match ? { label: match[1], title: match[2] } : undefined;
+}
+
+function rootText(body: string) {
+  const header = findingHeader(body);
+  if (header) return `${header.label}：${header.title}`;
+  const line = body.split('\n').map(item => item.replace(/^[>#*\s-]+|\*+$/g, '').trim())
+    .find(item => item && !item.startsWith('<!--') && !item.startsWith('[!')) ?? '讨论';
+  return line.length > 80 ? `${line.slice(0, 80)}…` : line;
+}
+
+const groupNames = { fix: '需要修改', confirm: '需要你确认', improve: '可选改进' } as const;
+const labelOrder = Object.keys(findingLabels);
+
+// 问题索引是确定的事实：本轮新问题加上仍未关闭的历史问题，标题原样取自讨论。
+function summaryIndex({ result, findings, comments, allComments, threads }: {
+  result: ReviewResult; findings: string[]; comments: ReviewComment[]; allComments: ReviewComment[]; threads: ReviewThread[];
+}) {
+  const updates = new Map(result.thread_updates.map(update => [update.root_comment_id, update]));
+  const resolved = new Map(threads.map(thread => [thread.comments.nodes[0]?.databaseId, thread.isResolved]));
+  const marks = { resolved: '', severity_increased: '⚠️ ', reintroduced: '🔁 ' } as const;
+  const items: Array<{ group: keyof typeof groupNames; rank: number; line: string }> = [];
+  const add = (label: string | undefined, text: string, line: string) => {
+    const known = label !== undefined && Object.hasOwn(findingLabels, label);
+    items.push({ group: known ? findingLabels[label as FindingLabel].group : 'fix',
+      rank: known ? labelOrder.indexOf(label!) : labelOrder.length, line: `- ${line}${text}` });
+  };
+  for (const comment of result.comments) {
+    add(comment.label, `${comment.label}：${comment.title}`, '🆕 ');
+  }
+  for (const root of comments) {
+    if (root.in_reply_to_id != null || !root.body.includes(publicationTagPrefix) || findings.some(tag => root.body.includes(tag))) continue;
+    const update = updates.get(root.id);
+    if (update ? update.status === 'resolved' : resolved.get(root.id) !== false) continue;
+    add(findingHeader(root.body)?.label, `${rootText(root.body)} · [讨论](${root.html_url})`, update ? marks[update.status] : '');
+  }
+  items.sort((a, b) => a.rank - b.rank);
+  const closed = result.thread_updates.filter(update => update.status === 'resolved').map(update => {
+    const root = allComments.find(item => item.id === update.root_comment_id);
+    return `- ${root ? `${rootText(root.body)} · [讨论](${root.html_url})` : `讨论 ${update.root_comment_id}`}`;
+  });
+  const sections: Array<[string, string[]]> = (Object.keys(groupNames) as Array<keyof typeof groupNames>)
+    .map(group => [groupNames[group], items.filter(item => item.group === group).map(item => item.line)]);
+  sections.push(['本轮关闭', closed]);
+  return {
+    fix: items.filter(item => item.group === 'fix').length,
+    confirm: items.filter(item => item.group === 'confirm').length,
+    markdown: sections.filter(([, lines]) => lines.length)
+      .map(([name, lines]) => `### ${name}\n\n${lines.join('\n')}`).join('\n\n'),
+  };
+}
+
+// 索引放在“核对了什么”之前；模型正文没有这一节时放在末尾。
+function placeIndex(body: string, index: string) {
+  if (!index) return body;
+  const lines = body.split('\n');
+  const at = lines.findIndex(line => line.trim() === '### 核对了什么');
+  return at === -1 ? `${body}\n\n${index}` : [...lines.slice(0, at), index, '', ...lines.slice(at)].join('\n');
 }
 
 // 覆盖缺口来自可信文件进度，不取自模型正文；未审查文件全部列出，读者无需打开工作稿。
@@ -330,11 +580,6 @@ export function coverageNotice(pending: string[], total: number) {
     '',
     '</details>',
   ].join('\n');
-}
-
-// 跳过数量取自可信文件进度，叠加审查文件仍在待审范围内，不属于这里的计数。
-export function sourceReviewedNotice(count: number) {
-  return count ? `> ${count} 个文件因来源 PR 已审而未重复审查。` : '';
 }
 
 function optionalNumber(value: string | undefined) {
@@ -364,29 +609,34 @@ export async function main() {
     if (request.source !== 'thread' && result.request_reply !== null) throw new Error('Non-thread review cannot include request_reply');
     const pending = pendingCoverage(coverage, requiredEnv('REVIEW_INVENTORY_DIGEST'));
     const total = coverage.ledger.filter((entry) => entry.status !== 'out_of_scope' || coverage.scope!.mode === 'full').length;
+    const sourceReviewed = coverage.ledger.filter((entry) => entry.status === 'source_reviewed').length;
+    const usage = parseReviewUsage(JSON.parse(await readFile(path.join(path.dirname(coveragePath), 'review-usage.json'), 'utf8')));
+    const footer = buildFooter({
+      runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
+      model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
+      durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
+      inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
+      outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
+      controlSha: process.env.GITHUB_SHA, priceKnown: usage.priceKnown,
+    });
+    const counts = { reviewed: total - pending.length, total, sourceReviewed };
+    const record = { footer, usage, result, coverage: counts };
     const options: PublishOptions = {
-      publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result,
+      publication, publicationId: requiredEnv('REVIEW_RUN_URL'), result, footer, runUrl: requiredEnv('REVIEW_RUN_URL'),
+      runId: Number(requiredEnv('REVIEW_RUN_ID')),
+      latestAutomaticRun: () => latestAutomaticRun({ api: process.env.GITHUB_API_URL ?? 'https://api.github.com', token: requiredEnv('GH_TOKEN'),
+        repository: request.repository, repositoryId: requiredEnv('REVIEW_REPOSITORY_ID'), pullNumber: request.pull_number,
+        headSha: request.head_sha, appSlug: requiredEnv('REVIEW_BOT_LOGIN').replace(/\[bot\]$/, ''), fetchImpl: fetch }),
       repository: request.repository, pullNumber: request.pull_number, expectedHeadSha: request.head_sha,
+      previousHeadSha: process.env.REVIEW_CHECKPOINT_HEAD ?? '',
       botLogin: requiredEnv('REVIEW_BOT_LOGIN'), token: requiredEnv('GH_TOKEN'),
       api: process.env.GITHUB_API_URL ?? 'https://api.github.com',
       requestSource: request.source, requestCommentId: request.comment_id ?? '',
       requestRootCommentId: request.root_comment_id ?? '',
       threadReplyOnly: request.source === 'thread' && coverage.scope.mode === 'focused',
-      coverageNotice: [
-        sourceReviewedNotice(coverage.ledger.filter((entry) => entry.status === 'source_reviewed').length),
-        coverageNotice(pending, total),
-      ].filter(Boolean).join('\n\n'),
-      footer: buildFooter({
-        runUrl: requiredEnv('REVIEW_RUN_URL'), workspaceUrl: requiredEnv('REVIEW_WORKSPACE_URL'),
-        model: requiredEnv('REVIEW_MODEL'), thinkingLevel: process.env.REVIEW_THINKING_LEVEL,
-        durationSeconds: optionalNumber(process.env.REVIEW_DURATION_SECONDS),
-        inputTokens: optionalNumber(process.env.REVIEW_INPUT_TOKENS),
-        outputTokens: optionalNumber(process.env.REVIEW_OUTPUT_TOKENS), cost: optionalNumber(process.env.REVIEW_COST),
-        controlSha: process.env.GITHUB_SHA,
-        usage: parseReviewUsage(JSON.parse(await readFile(path.join(path.dirname(coveragePath), 'review-usage.json'), 'utf8'))),
-      }),
+      coverage: counts, coverageNotice: coverageNotice(pending, total),
     };
-    return { coverage, coveragePath, options, pending, total };
+    return { coverage, coveragePath, options, pending, total, record };
   });
   let reviewUrl = '';
   if (input.status === 'succeeded' && process.env.GITHUB_OUTPUT) {
@@ -410,6 +660,12 @@ export async function main() {
     },
     writeSummary: process.env.GITHUB_STEP_SUMMARY
       ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, 'GitHub 发布操作')) : undefined,
+    // 经步骤输出交给 Check completion；Agent 不能写入本步骤的输出。
+    writeCheckText: process.env.GITHUB_OUTPUT ? () => {
+      const delimiter = `check_text_${randomUUID()}`;
+      const text = checkText({ ...input.value?.record, operations: report.operations });
+      return appendFile(process.env.GITHUB_OUTPUT!, `check_text<<${delimiter}\n${text}\n${delimiter}\n`);
+    } : undefined,
     saveCoverage: input.status === 'succeeded' ? async (complete) => {
       const { coverage, coveragePath, pending } = input.value!;
       await writeFile(coveragePath, `${JSON.stringify({

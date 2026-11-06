@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { parse } from 'yaml';
-import { buildFooter } from '../scripts/publish-review.ts';
+import { buildFooter, usageDetails } from '../scripts/publish-review.ts';
 import costExtension from '../.github/pi-extensions/review-cost.ts';
 import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 import { parseReviewUsage, type ModelUsage } from '../scripts/review-usage.ts';
@@ -27,8 +27,8 @@ const workflowPath = new URL('../.github/workflows/review-execution.yml', import
 test('费用估算保留低成本调用，区分零费用、缺失和无效统计', () => {
   for (const [cost, expected] of [
     [0.00424, '$0.0042'], [1.23678, '$1.2368'], [0.000001, '<$0.0001'], [0, '$0.0000'],
-  ] as const) assert.ok(buildFooter({ ...metadata, cost }).endsWith(`Cost (est.): ${expected}`));
-  assert.ok(buildFooter(metadata).endsWith('Cost (est.): 未提供'));
+  ] as const) assert.ok(buildFooter({ ...metadata, cost }).details.endsWith(`费用约 ${expected}`));
+  assert.ok(buildFooter(metadata).details.endsWith('费用未提供'));
   for (const cost of [-0.1, NaN, Infinity]) assert.throws(() => buildFooter({ ...metadata, cost }), /Invalid review cost/);
 });
 
@@ -150,7 +150,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   const saved = parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8')));
   assert.equal(saved.total.cacheWrite, 9000);
   assert.ok(Math.abs(saved.total.cost.total - 0.0367) < 1e-12);
-  assert.doesNotMatch(buildFooter({ ...metadata, usage: saved }), /缓存写入生命周期/);
+  assert.doesNotMatch(usageDetails(saved), /缓存写入生命周期/);
 
   // 标准统计本身损坏仍须中止并撤掉旧文件，不能用上一轮统计掩盖失败。
   request();
@@ -197,21 +197,22 @@ test('逐轮费用保留失败及推理分项，只保存无正文的累计与�
   assert.equal(parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8'))).total.reasoning, undefined);
 });
 
-test('footer 展示首轮命中和分项费用，零输入及缺失推理保持准确', () => {
+test('footer 链接与运行信息各占一行，用量明细展示首轮命中和分项费用，零输入及缺失推理保持准确', () => {
   const first: ModelUsage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, reasoning: 0, totalTokens: 43230,
     cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
-  const footer = buildFooter({ ...metadata, cost: 0.1505318, controlSha: 'b64df5114c7fe64a9eb7ff3361a13d36ba9305b2',
-    usage: { turns: 1, priceKnown: true, first, total: first } });
-  assert.match(footer, /首轮缓存命中 4\.6%/);
-  assert.match(footer, /缓存读取 \| 1,972 \| \$0\.0002/);
-  assert.match(footer, /缓存写入 \| 41,123 \| \$0\.1028/);
-  assert.match(footer, /Cost \(est\.\): \$0\.1505/);
-  assert.match(footer, /Rules: b64df51/);
-  assert.match(footer, /推理 Token：0，已包含在输出中/);
+  const footer = buildFooter({ ...metadata, cost: 0.1505318, controlSha: 'b64df5114c7fe64a9eb7ff3361a13d36ba9305b2' });
+  assert.doesNotMatch(footer.links + footer.details, /\n/);
+  assert.match(footer.details, /费用约 \$0\.1505/);
+  assert.match(footer.details, /规则 `b64df51`/);
+  const details = usageDetails({ turns: 1, priceKnown: true, first, total: first });
+  assert.match(details, /首轮缓存命中 4\.6%/);
+  assert.match(details, /缓存读取 \| 1,972 \| \$0\.0002/);
+  assert.match(details, /缓存写入 \| 41,123 \| \$0\.1028/);
+  assert.match(details, /推理 Token：0，已包含在输出中/);
   const empty: ModelUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
-  assert.match(buildFooter({ ...metadata, usage: { turns: 1, priceKnown: true, first: empty, total: empty } }), /首轮缓存命中 无输入/);
-  assert.match(buildFooter({ ...metadata, usage: { turns: 1, priceKnown: true, first: empty, total: empty } }), /推理 Token：未提供/);
+  assert.match(usageDetails({ turns: 1, priceKnown: true, first: empty, total: empty }), /首轮缓存命中 无输入/);
+  assert.match(usageDetails({ turns: 1, priceKnown: true, first: empty, total: empty }), /推理 Token：未提供/);
   for (const value of [null, {}, { turns: 0, priceKnown: true, first, total: first },
     { turns: 1, priceKnown: true, first, total: { ...first, cacheRead: -1 } },
     { turns: 1, priceKnown: true, first, total: { ...first, cost: { ...first.cost, total: Infinity } } }]) {
@@ -310,16 +311,16 @@ test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同
     run.get('message_end')!({ message: { role: 'assistant', usage } }, { abort: () => assert.fail('用量有效') });
     run.get('turn_end')!({ turnIndex: 0, message: { role: 'assistant', provider: 'openai', model: id, stopReason: 'stop', usage } });
     const saved = parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8')));
-    return { saved, footer: buildFooter({ ...metadata, cost: rate, usage: saved }) };
+    return { saved, footer: `${buildFooter({ ...metadata, cost: rate, priceKnown: saved.priceKnown }).details}\n${usageDetails(saved)}` };
   };
   // 有价模型：保存价格已知，费用正常显示。
   const known = publishedFooter('gpt-test');
   assert.equal(known.saved.priceKnown, true);
-  assert.match(known.footer, /Cost \(est\.\): \$2\.0000/);
+  assert.match(known.footer, /费用约 \$2\.0000/);
   // 目录没有价格的网关别名：Review 照常运行，保存价格未知，发布时费用显示“未提供”。
   const unknown = publishedFooter('gateway/opus-alias');
   assert.equal(unknown.saved.priceKnown, false);
-  assert.match(unknown.footer, /Cost \(est\.\): 未提供/);
+  assert.match(unknown.footer, /费用未提供/);
   assert.doesNotMatch(unknown.footer, /\$0\.0000/);
   assert.throws(() => parseReviewUsage({ ...unknown.saved, priceKnown: undefined }), /Invalid review price state/);
 });

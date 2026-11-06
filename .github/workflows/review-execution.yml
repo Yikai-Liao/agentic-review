@@ -396,11 +396,14 @@ jobs:
           REVIEW_PUBLISHER_ARCHIVE: ${{ steps.review-context.outputs.publisher_archive }}
           GH_TOKEN: ${{ steps.publication-token.outputs.token }}
           REPOSITORY: ${{ inputs.repository }}
+          REVIEW_REPOSITORY_ID: ${{ inputs.repository_id }}
           PULL_NUMBER: ${{ inputs.pull_number }}
           BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
           HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
           REVIEW_INVENTORY_DIGEST: ${{ steps.review-context.outputs.inventory_digest }}
           REVIEW_COMPARISON_START: ${{ steps.review-context.outputs.comparison_start }}
+          # 总评页脚标出上次完整审查的提交，读者据此判断本轮看了哪段变化。
+          REVIEW_CHECKPOINT_HEAD: ${{ steps.review-context.outputs.checkpoint_head }}
           REVIEW_RUN_ID: ${{ github.run_id }}
           REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
           REVIEW_TRIGGER_SOURCE: ${{ inputs.trigger_source }}
@@ -484,6 +487,8 @@ jobs:
           COMPLETION_WORKSPACE_OUTCOME: ${{ steps.review-workspace.outcome }}
           COVERAGE_PENDING: ${{ steps.publish-review.outputs.coverage_pending }}
           COVERAGE_TOTAL: ${{ steps.publish-review.outputs.coverage_total }}
+          # 运行、用量与发布结果的长期记录；发布器未运行到输出时为空。
+          CHECK_TEXT: ${{ steps.publish-review.outputs.check_text }}
           REVIEW_JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
@@ -510,5 +515,5 @@ jobs:
               status: 'completed',
               conclusion,
               completed_at: new Date().toISOString(),
-              output: { title: outputs[conclusion][0], summary: outputs[conclusion][1] },
+              output: { title: outputs[conclusion][0], summary: outputs[conclusion][1], ...(process.env.CHECK_TEXT ? { text: process.env.CHECK_TEXT } : {}) },
             });

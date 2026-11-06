@@ -1,7 +1,8 @@
 import { open, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { parseReviewResult, type ReviewResult } from '../../scripts/review-result.ts';
+import { findingLabels, parseReviewResult, type ReviewResult } from '../../scripts/review-result.ts';
+import { validateCommentLines } from '../../scripts/review-diff-lines.ts';
 import { pendingCoverage, readReviewProgress } from '../../scripts/review-coverage.ts';
 import { budgetMessages, reviewBudgetSeconds, reviewPhase } from '../../scripts/review-budget.ts';
 import { persistReviewProgress, validateReviewScope, type ReviewScopeDecision } from '../../scripts/review-request.ts';
@@ -117,18 +118,20 @@ export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
     parameters: {
       type: 'object',
       properties: {
-        body: { type: 'string', minLength: 1, description: '按中央正文模板生成的完整 Markdown 总评。' },
+        body: { type: 'string', minLength: 1, description: '总评中由模型撰写的部分；标题、问题索引和页脚由发布器生成。' },
         comments: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
               path: { type: 'string', minLength: 1 },
-              line: { type: 'integer', minimum: 1 },
+              line: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }], description: 'PR diff 中的行号；无法绑定 diff 行时为 null，作为 path 文件上的文件级讨论发布，path 须是 PR 改动的文件。' },
               start_line: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
-              body: { type: 'string', minLength: 1 },
+              label: { type: 'string', enum: Object.keys(findingLabels) },
+              title: { type: 'string', minLength: 1, maxLength: 120, description: '一行标题，写触发与后果；同时用作总评索引。' },
+              body: { type: 'string', minLength: 1, description: '标题之后的正文；Alert 和标题行由发布器生成。' },
             },
-            required: ['path', 'line', 'start_line', 'body'],
+            required: ['path', 'line', 'start_line', 'label', 'title', 'body'],
             additionalProperties: false,
           },
         },
@@ -139,7 +142,7 @@ export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
             properties: {
               root_comment_id: { type: 'integer', minimum: 1 },
               status: { type: 'string', enum: ['resolved', 'severity_increased', 'reintroduced'] },
-              evidence: { type: 'string', minLength: 10 },
+              evidence: { type: 'string', minLength: 10, maxLength: 500, description: '一行状态原因，写进原问题首行的状态标注。' },
             },
             required: ['root_comment_id', 'status', 'evidence'],
             additionalProperties: false,
@@ -176,6 +179,11 @@ export default function reviewTools(pi: ExtensionAPI, now = Date.now) {
           throw new Error(`Incomplete coverage: ${pending.length} files still pending, e.g. ${pending[0]}. Partial results are accepted only after the wrap-up notice; mark investigated files complete or continue the investigation.`);
         }
         if ((coverage.request.source === 'thread') !== (parsed.request_reply !== null)) throw new Error('Review request_reply does not match request source');
+        if (parsed.comments.length) {
+          const target = process.env.REVIEW_TARGET_PATH;
+          if (!target) throw new Error('Review target path is unavailable');
+          await validateCommentLines(target, coverage.request.comparison_start, coverage.request.head_sha, parsed.comments);
+        }
         // 先独占创建封存文件，失败的并发调用不能覆盖工作稿副本。
         const sealed = await open(resultPath, 'wx', 0o600);
         try {

@@ -40,6 +40,7 @@ export function createPublication() {
 export async function finishPublication(publication: ReturnType<typeof createPublication>, outlets: {
   saveReport: () => Promise<void>;
   writeSummary?: () => Promise<void>;
+  writeCheckText?: () => Promise<void>;
   saveCoverage?: (complete: boolean) => Promise<void>;
 }) {
   if (outlets.writeSummary) await publication.run('写入 Actions 摘要', [], outlets.writeSummary);
@@ -47,10 +48,19 @@ export async function finishPublication(publication: ReturnType<typeof createPub
     const complete = publication.operations.every(item => item.status === 'succeeded');
     await publication.run('保存覆盖状态', [], () => outlets.saveCoverage!(complete));
   }
-  // 最后才序列化报告，纳入摘要和覆盖状态的实际结果。报告自身的存储结果由进程日志记录。
-  const report = await publication.run('保存发布报告', [], outlets.saveReport);
-  if (report.status !== 'succeeded' && outlets.saveCoverage) {
+  let rolledBack = false;
+  const rollback = async () => {
+    if (!outlets.saveCoverage || rolledBack) return;
+    rolledBack = true;
     await publication.run('撤回覆盖完成状态', [], () => outlets.saveCoverage!(false));
+  };
+  // 报告纳入摘要和覆盖状态的实际结果；报告自身的存储结果由进程日志和 Check 详情记录。
+  const report = await publication.run('保存发布报告', [], outlets.saveReport);
+  if (report.status !== 'succeeded') await rollback();
+  // Check 详情是长期记录，最后写入以列出此前全部操作，包括报告存储与覆盖撤回；自身失败由进程日志记录。
+  if (outlets.writeCheckText) {
+    const check = await publication.run('写入 Check 详情', [], outlets.writeCheckText);
+    if (check.status !== 'succeeded') await rollback();
   }
 }
 
