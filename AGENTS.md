@@ -20,7 +20,7 @@
 - 修改权限前核实实际边界。中央 Review Agent shell 的 `GH_TOKEN` 始终只读；Review 结果只能由 Agent 结束后的可信 workflow 使用独立、最小权限 token 写入 GitHub。修复发布器不得扩大 Agent token 权限。该限制不约束本地维护会话的提交、推送和创建 PR。
 - 可信 workflow 在 Agent 启动前将可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大。集合内的自动关联索引或审查输入中的明确稳定 Issue/PR 引用可选择私有记录按需只读，无须 merge-base 预授权。关联仅为查询入口，不证明业务授权、风险接受、修复或验收。
 - PR 评论和 Review 回复中的明确决定即时构成可信确认，无须早于当前变化，也不检查作者身份、association 或额外权限。
-- 本仓库由可信维护者私有维护，控制面是可信代码，不是防御恶意贡献者的沙箱。中央 workflow 从控制面 ref 加载规则与工具，目标 PR 仅作静态输入，不执行目标代码。
+- 开发、提交和 PR 以公开主仓库 `Yikai-Liao/agentic-review` 为目标；`Qiyin-Tech/agentic-review` 保持 internal，仅单向同步公开 `main`，不在组织侧独立提交或合并 PR。控制面由可信维护者审核后发布，中央 workflow 从控制面 ref 加载规则与工具，目标 PR 仅作静态输入，不执行目标代码。
 - 中央 Review 暂停飞书取证与判断，不向 Agent 准备 Lark CLI 或注入飞书凭据；授权、token 定时续期及 `central/lark-context.md` 接入规则保留。恢复读取时，下游仓库及作者仍按同一内部飞书数据信任域处理；App Secret 和单次 refresh token 仅进入可信续期 job，可执行缓存须在 Agent 启动前固化。接入外部仓库或贡献者前重新设计此边界。
 
 ## 协作与语言
