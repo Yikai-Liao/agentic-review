@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   refresh:
+    if: ${{ vars.AGENTIC_REVIEW_PRODUCTION == 'true' }}
     environment: lark-rotation
     concurrency:
       group: lark-user-token-refresh

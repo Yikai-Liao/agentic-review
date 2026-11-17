@@ -44,6 +44,7 @@ concurrency:
 
 jobs:
   review:
+    if: ${{ vars.AGENTIC_REVIEW_PRODUCTION == 'true' }}
     uses: ./.github/workflows/review-execution.yml
     secrets: inherit
     with:

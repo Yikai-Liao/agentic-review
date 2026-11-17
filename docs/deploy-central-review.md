@@ -1,5 +1,17 @@
 # 部署中央 PR Review
 
+## 主仓库与生产同步
+
+`Yikai-Liao/agentic-review` 是公开开发主仓库，`Qiyin-Tech/agentic-review` 是独立的 internal 生产仓库。生产 Worker 保持 `CONTROL_REPOSITORY=Qiyin-Tech/agentic-review`、`ALLOWED_OWNER=Qiyin-Tech`，App 安装和生产凭据继续留在组织侧。
+
+中央 Review 和飞书续期仅在 repository variable `AGENTIC_REVIEW_PRODUCTION=true` 时运行；公开主仓库不设置此变量，也不保存生产 Secrets。其他部署者在自己的中央仓库显式启用此变量。
+
+组织仓库的 `sync-upstream.yml` 每五分钟尝试从公开主仓库快进同步 `main`，也支持 `workflow_dispatch`。GitHub 定时调度可能延迟；同步成功前生产仍运行上一次同步的版本。同步使用只绑定组织仓库的可写 deploy key，私钥存入组织仓库的 `UPSTREAM_SYNC_SSH_KEY` Secret，不进入 Review Agent。同步不创建合并提交、不强推、不删除分支，也不复制 PR、Issue、Actions 记录或 Secrets。组织分支分叉或上游改写历史会使同步明确失败。
+
+组织仓库的 `main` 使用仓库级规则：禁止强推和删除；更新仅允许 deploy key 绕过，以便保持上游 commit SHA，阻止组织侧直接提交或合并 PR 造成分叉。组织级 `Protect Default Branch` 对此仓库排除，其他仓库不变。不要新增其他可写 deploy key；GitHub 的此类规则豁免针对 deploy key 类型，不能只选择某一把 key。公开主仓库的 `main` 合并权限决定进入生产的代码。
+
+所有修改先进入公开主仓库。组织侧的旧 PR、Issue 和运行记录保留作历史查询，新开发不再在组织侧合并。
+
 ## 1. Dispatcher App
 
 在中央仓库所属 organization 创建 Dispatcher GitHub App：

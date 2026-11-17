@@ -2,6 +2,8 @@
 
 agentic-review 提供可独立安装的 Review Skill，也提供基于 GitHub App 的中央 PR Review 服务。
 
+开发主仓库为 [Yikai-Liao/agentic-review](https://github.com/Yikai-Liao/agentic-review)，开发、PR 和 Issue 在此进行。`Qiyin-Tech/agentic-review` 保持 internal，承载生产中央 Review，每五分钟尝试快进同步公开主仓库的 `main`；GitHub 定时调度可能延迟，也可手动运行 `Sync Public Upstream`。同步保留原始 commit SHA，不同步 PR、Issue、运行记录或凭据；组织侧不单独提交代码，出现分叉时同步失败。配置见[主仓库与生产同步](docs/deploy-central-review.md#主仓库与生产同步)。
+
 Skill 支持审查需求、架构、开发计划和代码，按需组合意图对齐、可维护性、可靠性、安全和验证等视角，各层级共用证据、结论与复核方法。Skill 名称为 `agentic-review`。
 
 - **本地使用**：安装 Skill，审查已有文档或代码变化。
@@ -14,7 +16,7 @@ Skill 支持审查需求、架构、开发计划和代码，按需组合意图�
 安装 main 发布版本时，在目标项目根目录执行：
 
 ```bash
-npx skills add Qiyin-Tech/agentic-review --skill agentic-review --yes
+npx skills add Yikai-Liao/agentic-review --skill agentic-review --yes
 ```
 
 使用尚未合入 main 的开发分支时，在隔离项目中复制当前 checkout 的整个 `skills/agentic-review/` 到 `.agents/skills/agentic-review/`，再显式调用 `$agentic-review`。上面的安装命令始终选择 main；同一宿主只加载一份同名 Skill。
