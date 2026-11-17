@@ -12,6 +12,8 @@
 
 所有修改先进入公开主仓库。组织侧的旧 PR、Issue 和运行记录保留作历史查询，新开发不再在组织侧合并。
 
+需要立即同步时执行 `gh workflow run sync-upstream.yml --repo Qiyin-Tech/agentic-review`，随后查看该仓库的 `Sync Public Upstream` 运行结果，并比较两个仓库的 `main` SHA。同步失败时保留生产当前版本，按错误修复上游或组织侧分叉后再运行。
+
 ## 1. Dispatcher App
 
 在中央仓库所属 organization 创建 Dispatcher GitHub App：
