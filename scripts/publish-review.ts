@@ -245,7 +245,7 @@ export async function publishReview({
   coverage,
   coverageNotice = '',
   fetchImpl = fetch,
-  publication = createPublication(),
+  publication = createPublication(language),
 }: PublishOptions) {
   if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repository)) throw new Error('Invalid repository');
   if (!Number.isInteger(pullNumber) || pullNumber < 1) throw new Error('Invalid pull number');
@@ -268,11 +268,11 @@ export async function publishReview({
   // 总评的问题索引取自当前讨论状态，因此发布总评也需要评论和 thread 列表。
   const needsComments = needsReview || result.thread_updates.length > 0 || requestSource === 'thread';
   const [comments, threads, reviews] = await Promise.all([
-    needsComments ? run('读取 PR 评论', [], () =>
+    needsComments ? run(reviewText(language, '读取 PR 评论', 'Read PR comments'), [], () =>
       listPullRecords<ReviewComment>(fetchImpl, api, token, `${route}/comments`)) : undefined,
-    needsReview || result.thread_updates.length ? run('读取 PR thread', [], () =>
+    needsReview || result.thread_updates.length ? run(reviewText(language, '读取 PR thread', 'Read PR threads'), [], () =>
       reviewThreads(fetchImpl, api, token, repository, pullNumber)) : undefined,
-    needsReview ? run('读取已发布 Review', [], () => listPullRecords<{
+    needsReview ? run(reviewText(language, '读取已发布 Review', 'Read published reviews'), [], () => listPullRecords<{
       id: number; body: string; html_url: string; user?: { login?: string };
     }>(fetchImpl, api, token, `${route}/reviews`)) : undefined,
   ]);
@@ -296,14 +296,14 @@ export async function publishReview({
   // 同一 PR 的审查在执行层串行；首次创建 Check 的先后才是执行顺序，运行号只标识身份。
   // 后续完整自动审查取代旧自动审查，旧运行重跑整体失败；局部评论请求不取代完整审查。
   // 重跑会重新准备当前讨论并执行 Agent，评论请求后的完整复核仍依据最新讨论判断状态。
-  const fresh = requestSource === 'automatic' ? [await run('确认没有更新的审查', [], async () => {
+  const fresh = requestSource === 'automatic' ? [await run(reviewText(language, '确认没有更新的审查', 'Check for newer reviews'), [], async () => {
     const latest = await latestAutomaticRun();
     if (latest !== runId) throw new Error(`Run ${latest} has already started reviewing this head; rerun of run ${runId} must not overwrite it`);
   })] : [];
 
   for (const update of result.thread_updates) {
     const id = `thread ${update.root_comment_id}`;
-    const root = await run(`${id} 归属校验`, [comments!], async () => {
+    const root = await run(reviewText(language, `${id} 归属校验`, `${id} ownership validation`), [comments!], async () => {
       const found = comments!.value!.find(item => item.id === update.root_comment_id && item.in_reply_to_id == null);
       if (!found) throw new Error(`${update.root_comment_id} is not a root comment in this PR`);
       return found;
@@ -314,7 +314,7 @@ export async function publishReview({
     const statusLine = reviewText(language, `**${label}**（${short(expectedHeadSha)}）：${update.evidence}`, `**${label}** (${short(expectedHeadSha)}): ${update.evidence}`) + ` ${statusTag}${statusMarker}`;
     // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
     await Promise.all([
-      run(`${id} 状态同步`, [root, threads!, ...fresh], async () => {
+      run(reviewText(language, `${id} 状态同步`, `${id} status synchronization`), [root, threads!, ...fresh], async () => {
         const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
         if (!thread) throw new Error(`${update.root_comment_id} has no review thread in this PR`);
         const shouldResolve = update.status === 'resolved';
@@ -330,7 +330,7 @@ export async function publishReview({
         if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
       }),
       // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
-      run(`${id} 状态标注`, [root, ...fresh], async () => {
+      run(reviewText(language, `${id} 状态标注`, `${id} status annotation`), [root, ...fresh], async () => {
         if (!isBot(root.value!)) return;
         const body = root.value!.body;
         const [first, ...others] = body.split('\n\n');
@@ -340,7 +340,7 @@ export async function publishReview({
         });
       }),
       // 关闭只需标注；重现、升级需要通知人，他人发起的讨论也无法改写原文，二者改为回复。
-      run(`${id} 状态回复`, [root, ...fresh], async () => {
+      run(reviewText(language, `${id} 状态回复`, `${id} status reply`), [root, ...fresh], async () => {
         if (update.status === 'resolved' && isBot(root.value!)) return;
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
@@ -361,7 +361,7 @@ export async function publishReview({
   }
 
   if (requestSource === 'thread') {
-    await run('请求回复', [comments!], async () => {
+    await run(reviewText(language, '请求回复', 'Reply to request'), [comments!], async () => {
       if (!/^[0-9]+$/.test(requestRootCommentId)) throw new Error('Thread request is missing its root comment');
       const root = comments!.value!.find(item => item.id === Number(requestRootCommentId) && item.in_reply_to_id == null);
       if (!root) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
@@ -401,7 +401,7 @@ export async function publishReview({
         }) });
       }));
     }
-    const review = await run('Review 正文', [reviews!, comments!, threads!, ...fresh, ...posted], async () => {
+    const review = await run(reviewText(language, 'Review 正文', 'Review body'), [reviews!, comments!, threads!, ...fresh, ...posted], async () => {
       const automatic = requestSource === 'automatic';
       const index = summaryIndex({
         result, findings: findings.map(item => item.tag), comments: comments!.value!.filter(isBot),
@@ -460,7 +460,7 @@ export async function publishReview({
       const older = reviews!.value!.filter(item => isBot(item) && item.id < review.value!.id
         && isAutomaticSummary(item.body) && !isSuperseded(item.body));
       for (const item of older) {
-        await run(`收起旧 Review ${item.id}`, [review], async () => {
+        await run(reviewText(language, `收起旧 Review ${item.id}`, `Collapse previous Review ${item.id}`), [review], async () => {
           const [first, heading, ...rest] = item.body.split('\n');
           const body = [first, reviewText(language, `> 已被[${short(expectedHeadSha)} 的审查](${review.value!.url})取代。`, `> Superseded by the [review of ${short(expectedHeadSha)}](${review.value!.url}).`) + supersededMarker, '',
             `<details><summary>${reviewText(language, '原总评：', 'Previous review: ')}${heading.replace(/^## /, '')}</summary>`, '', heading, ...rest, '', '</details>'].join('\n');
@@ -611,8 +611,8 @@ function requiredEnv(name: string) {
 
 export async function main() {
   const language = parseReviewLanguage(process.env.REVIEW_LANGUAGE);
-  const publication = createPublication();
-  const input = await publication.run('发布前校验', [], async () => {
+  const publication = createPublication(language);
+  const input = await publication.run(reviewText(language, '发布前校验', 'Pre-publication validation'), [], async () => {
     const resultPath = requiredEnv('REVIEW_RESULT_PATH');
     await access(resultPath).catch(() => {
       throw new Error('Agent 结束时没有调用 submit_review，没有可发布的审查结果');
@@ -667,10 +667,10 @@ export async function main() {
     try {
       reviewUrl = (await publishReview(input.value!.options)).reviewUrl;
     } catch (error) {
-      await publication.run('发布器初始化或调度', [], async () => { throw error; });
+      await publication.run(reviewText(language, '发布器初始化或调度', 'Publisher initialization or scheduling'), [], async () => { throw error; });
     }
   } else {
-    await publication.run('发布写入', [input], async () => {});
+    await publication.run(reviewText(language, '发布写入', 'Publish writes'), [input], async () => {});
   }
   const report = { reviewUrl, operations: publication.operations };
   await finishPublication(publication, {
@@ -679,7 +679,7 @@ export async function main() {
       await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
     },
     writeSummary: process.env.GITHUB_STEP_SUMMARY
-      ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, 'GitHub 发布操作')) : undefined,
+      ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, reviewText(language, 'GitHub 发布操作', 'GitHub publication operations'), language)) : undefined,
     // 经步骤输出交给 Check completion；Agent 不能写入本步骤的输出。
     writeCheckText: process.env.GITHUB_OUTPUT ? () => {
       const delimiter = `check_text_${randomUUID()}`;
@@ -695,7 +695,7 @@ export async function main() {
       })}\n`, { encoding: 'utf8', mode: 0o600 });
     } : undefined,
   });
-  const summary = publicationSummary(report.operations);
+  const summary = publicationSummary(report.operations, reviewText(language, '发布', 'Publication'), language);
   console.log(`Review URL: ${report.reviewUrl}`);
   if (report.operations.some(item => item.status !== 'succeeded')) {
     console.error(summary);

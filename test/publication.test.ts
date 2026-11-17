@@ -144,6 +144,40 @@ test('英文发布覆盖问题、索引和状态；历史英文标签在续审�
   assert.match(state.reviews.at(-1).body, /## 自动审查：1 项需要你确认/);
 });
 
+test('中英文发布失败都能在 Check 中读出失败操作与被阻断的后续操作', async () => {
+  for (const language of ['en', 'zh-CN'] as const) {
+    const state = fixture();
+    state.fail = call => call.method === 'GET' && call.url.includes('/comments?')
+      ? new Response('unavailable', { status: 503 }) : undefined;
+    const report = await publish(state, { language, requestSource: 'automatic', result: empty });
+    const text = checkText({ language, operations: report.operations });
+    assert.ok(report.operations.some(item => item.status === 'failed'));
+    if (language === 'en') {
+      assert.match(text, /Failed: Read PR comments/);
+      assert.match(text, /Blocked by a failed prerequisite: Review body/);
+      assert.doesNotMatch(text, /[\u3400-\u9fff]/);
+    } else {
+      assert.match(text, /失败：读取 PR 评论/);
+      assert.match(text, /前置失败，未执行：Review 正文/);
+    }
+  }
+});
+
+test('英文发布报告保存失败时，覆盖撤回与存储操作仍以英文记录', async () => {
+  const publication = createPublication('en');
+  let completion: boolean | undefined;
+  await finishPublication(publication, {
+    saveReport: async () => { throw new Error('storage unavailable'); },
+    saveCoverage: async value => { completion = value; },
+    writeCheckText: async () => {},
+  });
+  assert.equal(completion, false);
+  const text = checkText({ language: 'en', operations: publication.operations });
+  assert.match(text, /Failed: Save publication report/);
+  assert.ok(publication.operations.some(item => item.id === 'Revoke coverage completion' && item.status === 'succeeded'));
+  assert.doesNotMatch(text, /[\u3400-\u9fff]/);
+});
+
 const mutations = (calls: Call[]) => calls.filter(call => call.method !== 'GET' && !call.body?.query?.startsWith('query'));
 const ok = (report: Awaited<ReturnType<typeof publishReview>>) =>
   assert.ok(report.operations.every(item => item.status === 'succeeded'), JSON.stringify(report.operations));
