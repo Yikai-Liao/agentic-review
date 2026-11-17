@@ -18,13 +18,13 @@ test('resume preserves the index and completed files while reopening the request
       baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
     const ranges = [{ targets: ['complete pull request'], comparison_start: request.base_sha, comparison_end: request.head_sha }];
     const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published',
-      scope: { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '', ranges },
+      scope: { kind: 'pr', mode: 'full', rationale: 'Full review', explicit_text: '', ranges },
       ledger: ['auth.ts', 'billing.ts', 'cache.ts', 'api.ts', 'main.ts', 'test.ts', 'README.md']
         .map((file) => ({ path: file, status: 'complete' })) };
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
-    writeFileSync(path.join(previousPath, 'notes.md'), '历史索引与 finding 摘要');
-    writeFileSync(path.join(previousPath, 'review-result.json'), '{"body":"上一轮结论","comments":[],"thread_updates":[],"request_reply":null}');
-    const progress: ReviewProgress = { scope: { mode: 'focused', rationale: '复核当前 thread', explicit_text: '', ranges },
+    writeFileSync(path.join(previousPath, 'notes.md'), 'Earlier index and finding summary');
+    writeFileSync(path.join(previousPath, 'review-result.json'), '{"body":"Previous conclusion","comments":[],"thread_updates":[],"request_reply":null}');
+    const progress: ReviewProgress = { scope: { mode: 'focused', rationale: 'Recheck the current thread', explicit_text: '', ranges },
       ledger: previous.ledger.map((entry) => ({ path: entry.path, status: 'pending' })) };
     const reset = () => writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify(progress));
     reset();
@@ -34,11 +34,11 @@ test('resume preserves the index and completed files while reopening the request
     assert.deepEqual(manifest.pending_files, ['auth.ts']);
     assert.equal(restored.ledger.filter((entry: any) => entry.status === 'complete').length, 6);
     assert.equal(manifest.inherited_from_run, '10:1');
-    assert.equal(readFileSync(manifest.paths.notes!, 'utf8'), '历史索引与 finding 摘要');
-    assert.equal(readFileSync(manifest.paths.previous_result!, 'utf8'), '{"body":"上一轮结论","comments":[],"thread_updates":[],"request_reply":null}');
+    assert.equal(readFileSync(manifest.paths.notes!, 'utf8'), 'Earlier index and finding summary');
+    assert.equal(readFileSync(manifest.paths.previous_result!, 'utf8'), '{"body":"Previous conclusion","comments":[],"thread_updates":[],"request_reply":null}');
     assert.equal(JSON.parse(readFileSync(path.join(previousPath, 'review-coverage.json'), 'utf8')).ledger[0].status, 'complete');
 
-    // 新 head 的改动可能影响其他文件的契约：证据保留，完成状态由本轮影响判断重新确认。
+    // A new head may affect other files' contracts: evidence is kept, and completion is reconfirmed by this round's impact judgment.
     reset();
     const changed = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, previousPath,
       readChanges: (before, after) => {
@@ -50,9 +50,9 @@ test('resume preserves the index and completed files while reopening the request
     assert.equal(changed.pending_files.length, 7);
     assert.deepEqual(changed.changed_paths, ['auth.ts', 'new-file.ts']);
     assert.equal(changed.same_base, true);
-    assert.equal(readFileSync(changed.paths.notes!, 'utf8'), '历史索引与 finding 摘要');
+    assert.equal(readFileSync(changed.paths.notes!, 'utf8'), 'Earlier index and finding summary');
 
-    // 差分读取失败必须停止，不能把未知变化表示成空增量或完成继承。
+    // A failed diff read must stop; unknown changes never become an empty increment or inherited completion.
     reset();
     assert.throws(() => prepareReviewWorkspace({ workspace,
       context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, previousPath,
@@ -61,24 +61,24 @@ test('resume preserves the index and completed files while reopening the request
     assert.equal(JSON.parse(readFileSync(path.join(workspace, 'review-progress.json'), 'utf8'))
       .ledger.every((entry: { status: string }) => entry.status === 'pending'), true);
 
-    // 发布后请求重新审查，不能凭相同快照自动视为完成。
+    // A re-review request after publication is not complete just because the snapshot is the same.
     reset();
     const repeated = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
     assert.equal(repeated.pending_files.length, 7);
 
-    // 上一轮在时间预算内只发布了部分结论：同一快照的评论请求只接着审查未审文件。
+    // The previous round published only partial conclusions within its time budget: a comment request on the same snapshot continues with unreviewed files only.
     const partial = { ...previous, ledger: previous.ledger.map((entry, index) => index < 2 ? { ...entry, status: 'pending' as const } : entry) };
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(partial));
     reset();
     const continued = prepareReviewWorkspace({ workspace, context: { request: { ...context.request, source: 'pr_comment' } }, previousPath });
     assert.deepEqual(continued.pending_files, ['auth.ts', 'billing.ts']);
-    // 部分发布后出现新提交：已发布部分中未直接变化的文件仍算完成，直接变化的文件重新待审。
+    // New commits after a partial publication: published files that did not change directly stay complete; directly changed files are pending again.
     reset();
     const advanced = prepareReviewWorkspace({ workspace,
       context: { request: { ...context.request, source: 'pr_comment', head_sha: 'c'.repeat(40) } }, previousPath,
       readChanges: () => ['cache.ts'] });
     assert.deepEqual(advanced.pending_files, ['auth.ts', 'billing.ts', 'cache.ts']);
-    // 差分未知时不能把旧完成项当作仍然有效。
+    // With an unknown diff, earlier completed entries are not treated as still valid.
     reset();
     const unknown = prepareReviewWorkspace({ workspace,
       context: { request: { ...context.request, source: 'pr_comment', head_sha: 'c'.repeat(40) } }, previousPath,
@@ -86,7 +86,7 @@ test('resume preserves the index and completed files while reopening the request
     assert.equal(unknown.pending_files.length, 7);
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
 
-    // 上次失败也不免除新 PR 评论的复核义务；相同范围的排除项仍保留。
+    // A previous failure does not waive rechecking for a new PR comment; exclusions for the same scope are kept.
     previous.status = 'draft';
     previous.request = { ...previous.request, source: 'pr_comment', comment_id: '1', root_comment_id: '1' };
     previous.scope!.mode = 'focused';
@@ -104,7 +104,7 @@ test('resume preserves the index and completed files while reopening the request
   }
 });
 
-test('thread 请求延续上一轮的来源已审文件，只重开被讨论的文件', () => {
+test('A thread request carries over the previous round\'s source-reviewed files and reopens only the discussed file', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-thread-source-'));
   try {
     const previousPath = path.join(directory, 'previous');
@@ -115,10 +115,10 @@ test('thread 请求延续上一轮的来源已审文件，只重开被讨论的�
       baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
     const ranges = [{ targets: ['complete pull request'], comparison_start: request.base_sha, comparison_end: request.head_sha }];
     const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published',
-      scope: { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '', ranges },
+      scope: { kind: 'pr', mode: 'full', rationale: 'Full review', explicit_text: '', ranges },
       ledger: [{ path: 'auth.ts', status: 'source_reviewed' }, { path: 'billing.ts', status: 'source_reviewed' }, { path: 'cache.ts', status: 'complete' }] };
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
-    const progress: ReviewProgress = { scope: { mode: 'focused', rationale: '复核当前 thread', explicit_text: '', ranges },
+    const progress: ReviewProgress = { scope: { mode: 'focused', rationale: 'Recheck the current thread', explicit_text: '', ranges },
       ledger: previous.ledger.map((entry) => ({ path: entry.path, status: 'pending' })) };
     writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify(progress));
     const context = { request: { ...request, run_id: '11', source: 'thread' as const, comment_id: '2', root_comment_id: '1' } };
@@ -131,7 +131,7 @@ test('thread 请求延续上一轮的来源已审文件，只重开被讨论的�
   }
 });
 
-test('一份工作稿和上一轮结果足以恢复调查，新快照仍保持待核定', () => {
+test('One working draft and the previous result are enough to resume, and a new snapshot still awaits confirmation', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-notes-'));
   try {
     const previousPath = path.join(directory, 'previous');
@@ -140,14 +140,14 @@ test('一份工作稿和上一轮结果足以恢复调查，新快照仍保持�
     mkdirSync(workspace);
     const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 7,
       baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
-    const scope = { kind: 'pr' as const, mode: 'full' as const, rationale: '完整审查', explicit_text: '',
+    const scope = { kind: 'pr' as const, mode: 'full' as const, rationale: 'Full review', explicit_text: '',
       ranges: [{ targets: ['complete pull request'], comparison_start: request.base_sha, comparison_end: request.head_sha }] };
     const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published', scope,
       ledger: [{ path: 'auth.ts', status: 'complete' }] };
     writeFileSync(path.join(previousPath, 'review-coverage.json'), JSON.stringify(previous));
-    const result = JSON.stringify({ body: '正文中的 finding 和完整证明。', comments: [], thread_updates: [], request_reply: null });
+    const result = JSON.stringify({ body: 'Findings with full proof in the body.', comments: [], thread_updates: [], request_reply: null });
     writeFileSync(path.join(previousPath, 'review-result.json'), result);
-    writeFileSync(path.join(previousPath, 'notes.md'), '已排除疑点的前提、待续读位置和结果引用。');
+    writeFileSync(path.join(previousPath, 'notes.md'), 'Premises of ruled-out suspicions, where to resume reading, and result references.');
     const reset = () => writeFileSync(path.join(workspace, 'review-progress.json'), JSON.stringify({ scope,
       ledger: [{ path: 'auth.ts', status: 'pending' }] }));
     reset();
@@ -157,7 +157,7 @@ test('一份工作稿和上一轮结果足以恢复调查，新快照仍保持�
     assert.deepEqual(JSON.parse(readFileSync(restored.paths.progress, 'utf8')).ledger,
       [{ path: 'auth.ts', status: 'complete' }]);
     assert.equal(readFileSync(restored.paths.previous_result!, 'utf8'), result);
-    assert.equal(readFileSync(restored.paths.notes, 'utf8'), '已排除疑点的前提、待续读位置和结果引用。');
+    assert.equal(readFileSync(restored.paths.notes, 'utf8'), 'Premises of ruled-out suspicions, where to resume reading, and result references.');
     reset();
     const changed = prepareReviewWorkspace({ workspace, previousPath,
       context: { request: { ...context.request, head_sha: 'c'.repeat(40) } }, readChanges: () => ['auth.ts'] });
@@ -167,7 +167,7 @@ test('一份工作稿和上一轮结果足以恢复调查，新快照仍保持�
   }
 });
 
-test('automatic 增量延续未改完成项，新变化待审，间接影响可按需重开', async () => {
+test('An automatic increment carries over unchanged completed entries, new changes are pending, and indirect impact can be reopened on demand', async () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-lazy-resume-'));
   try {
     const previousPath = path.join(directory, 'previous');
@@ -177,19 +177,19 @@ test('automatic 增量延续未改完成项，新变化待审，间接影响可�
     const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 7,
       baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), runId: '10' });
     const previous: ReviewCoverage = { ...initialReviewCoverage(request), status: 'published', complete_audit: true,
-      scope: { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '',
+      scope: { kind: 'pr', mode: 'full', rationale: 'Full review', explicit_text: '',
         ranges: [{ targets: ['complete pull request'], comparison_start: request.base_sha, comparison_end: request.head_sha }] },
       ledger: ['auth.ts', 'caller.ts', 'README.md'].map(file => ({ path: file, status: 'complete' })) };
     const coveragePath = path.join(previousPath, 'review-coverage.json');
     writeFileSync(coveragePath, JSON.stringify(previous));
-    writeFileSync(path.join(previousPath, 'notes.md'), '鉴权入口与调用关系的既有调查。');
+    writeFileSync(path.join(previousPath, 'notes.md'), 'Earlier investigation of the auth entry and its callers.');
     const current = buildReviewRequest({ repository: 'owner/repo', pullNumber: 7,
       baseSha: request.base_sha, headSha: 'c'.repeat(40), runId: '11' });
     const files = [...previous.ledger.map(entry => entry.path), 'new.ts'];
     const progressPath = path.join(workspace, 'review-progress.json');
     const contextPath = path.join(directory, 'review-context.json');
     const reset = () => writeFileSync(progressPath, JSON.stringify({
-      scope: { mode: 'full', rationale: '完整审查', explicit_text: '',
+      scope: { mode: 'full', rationale: 'Full review', explicit_text: '',
         ranges: [{ targets: ['complete pull request'], comparison_start: current.base_sha, comparison_end: current.head_sha }] },
       ledger: files.map(file => ({ path: file, status: 'pending' })),
     }));
@@ -202,17 +202,17 @@ test('automatic 增量延续未改完成项，新变化待审，间接影响可�
     assert.deepEqual(coverage.ledger.filter(entry => entry.status === 'complete').map(entry => entry.path), ['caller.ts', 'README.md']);
     await assert.rejects(validateCoverageCompletion(coverage, inventoryDigest(files)), /Incomplete coverage: auth.ts/);
 
-    // 新鉴权实现改变调用约定时，Agent 可重开未直接修改的 caller；发布校验仍会阻止未完成项。
+    // When a new auth implementation changes the calling convention, the agent may reopen callers that did not change directly; publication validation still blocks unfinished entries.
     coverage.ledger.forEach(entry => { entry.status = entry.path === 'caller.ts' ? 'pending' : 'complete'; });
     await assert.rejects(validateCoverageCompletion(coverage, inventoryDigest(files)), /Incomplete coverage: caller.ts/);
     coverage.ledger.find(entry => entry.path === 'caller.ts')!.status = 'complete';
     await validateCoverageCompletion(coverage, inventoryDigest(files));
 
     for (const [name, context, readChanges, prior] of [
-      ['不同 base', { request: { ...current, base_sha: 'd'.repeat(40) } }, () => ['auth.ts'], previous],
-      ['未知增量', { request: current }, () => null, previous],
-      ['显式 PR 请求', { request: { ...current, source: 'pr_comment' as const, comment_id: '2', root_comment_id: '2' } }, () => ['auth.ts'], previous],
-      ['未完成审查', { request: current }, () => ['auth.ts'], { ...previous, status: 'draft' as const, complete_audit: false }],
+      ['different base', { request: { ...current, base_sha: 'd'.repeat(40) } }, () => ['auth.ts'], previous],
+      ['unknown increment', { request: current }, () => null, previous],
+      ['explicit PR request', { request: { ...current, source: 'pr_comment' as const, comment_id: '2', root_comment_id: '2' } }, () => ['auth.ts'], previous],
+      ['unfinished review', { request: current }, () => ['auth.ts'], { ...previous, status: 'draft' as const, complete_audit: false }],
     ] as const) {
       reset();
       writeFileSync(coveragePath, JSON.stringify(prior));

@@ -44,12 +44,12 @@ async function fixture(t: TestContext, source: 'automatic' | 'pr_comment' | 'thr
   await mkdir(previous); await mkdir(requested);
   const request = buildReviewRequest({ repository: 'owner/repo', pullNumber: 7, baseSha: base, headSha: oldHead, runId: '10' });
   const coverage = { ...initialReviewCoverage(request), status: 'published', complete_audit: true,
-    scope: { kind: 'pr', mode: 'full', rationale: '完整审查', explicit_text: '',
+    scope: { kind: 'pr', mode: 'full', rationale: 'Full review', explicit_text: '',
       ranges: [{ targets: ['complete pull request'], comparison_start: base, comparison_end: oldHead }] },
     ledger: [{ path: 'auth.ts', status: 'complete' }] };
   await writeFile(path.join(previous, 'review-coverage.json'), JSON.stringify(coverage));
-  await writeFile(path.join(previous, 'notes.md'), 'level: code\n旧鉴权变化已调查。');
-  await writeFile(path.join(previous, 'review-result.json'), JSON.stringify({ body: '旧结论', comments: [], thread_updates: [], request_reply: null }));
+  await writeFile(path.join(previous, 'notes.md'), 'level: code\nThe earlier auth change was investigated.');
+  await writeFile(path.join(previous, 'review-result.json'), JSON.stringify({ body: 'Earlier conclusion', comments: [], thread_updates: [], request_reply: null }));
   await cp(previous, requested, { recursive: true });
   await writeFile(path.join(requested, 'review-coverage.json'), JSON.stringify({ ...coverage, status: 'draft', complete_audit: false,
     request: { ...request, head_sha: requestedHead, source: 'pr_comment', comment_id: '123', root_comment_id: '123', run_id: '9' },
@@ -69,10 +69,10 @@ async function fixture(t: TestContext, source: 'automatic' | 'pr_comment' | 'thr
       }
       assert.equal(req.headers.authorization, 'Bearer target-readonly');
       if (req.url === '/repos/owner/repo/issues/comments/456') {
-        res.end(JSON.stringify({ id: 456, body: '请继续审查', issue_url: `http://127.0.0.1:${(server.address() as { port: number }).port}/repos/owner/repo/issues/7` })); return;
+        res.end(JSON.stringify({ id: 456, body: 'Please continue the review', issue_url: `http://127.0.0.1:${(server.address() as { port: number }).port}/repos/owner/repo/issues/7` })); return;
       }
       if (req.url === '/repos/owner/repo/pulls/comments/456') {
-        res.end(JSON.stringify({ id: 456, in_reply_to_id: 123, body: '请复核',
+        res.end(JSON.stringify({ id: 456, in_reply_to_id: 123, body: 'Please recheck',
           pull_request_url: `http://127.0.0.1:${(server.address() as { port: number }).port}/repos/owner/repo/pulls/7` })); return;
       }
       assert.equal(req.url, '/graphql');
@@ -84,7 +84,7 @@ async function fixture(t: TestContext, source: 'automatic' | 'pr_comment' | 'thr
         const sha = variables[key];
         repository[`c${key.slice(3)}`] = /AssociatedPullRequests|MergedSources/.test(query)
           ? { oid: sha, associatedPullRequests: { nodes: [], pageInfo: { hasNextPage: false } } }
-          // GitHub 默认只展示同名最新 Check；当前 head 的新 IN_PROGRESS 会遮住旧成功项。
+          // GitHub shows only the latest Check with a given name; a new IN_PROGRESS on the current head hides the earlier success.
           : { oid: sha, checkSuites: { nodes: sha === history.head && (sha !== head || /\bcheckType\s*:\s*ALL\b/.test(query))
             ? [{ app: { slug: 'review-app' }, checkRuns: { nodes: [{
             name: 'Agentic Review / audit', externalId: `1:7:${base}:${history.head}:automatic:10:1`, status: 'COMPLETED', conclusion: 'SUCCESS',
@@ -110,26 +110,26 @@ if(args[0]==='run' && args[1]==='download') {
   if(args.includes('graphql')) console.log(JSON.stringify([{data:{repository:{pullRequest:{reviewThreads:{
     nodes:thread?[{id:'thread-123',isResolved:false,isOutdated:false,resolvedBy:null,comments:{nodes:[{databaseId:123}]}}]:[],pageInfo:{hasNextPage:false,endCursor:null}
   }}}}}]));
-  else console.log(JSON.stringify([thread&&args.some(arg=>arg.includes('/pulls/7/comments?'))?[{id:123,body:'原问题',path:'auth.ts'},{id:456,in_reply_to_id:123,body:'请复核',path:'auth.ts'}]:[]]));
+  else console.log(JSON.stringify([thread&&args.some(arg=>arg.includes('/pulls/7/comments?'))?[{id:123,body:'Original issue',path:'auth.ts'},{id:456,in_reply_to_id:123,body:'Please recheck',path:'auth.ts'}]:[]]));
 } else throw Error('unexpected gh command '+args.join(' '));
 `, { mode: 0o755 });
   const workspace = path.join(directory, 'run'); const temporary = path.join(directory, 'temp');
   await mkdir(workspace); await mkdir(temporary);
   const snapshot = path.join(temporary, 'snapshot.json');
   await writeFile(snapshot, JSON.stringify({ repository: 'owner/repo', pullNumber: '7', baseSha: base, headSha: head,
-    metadata: { title: '冻结标题', body: '复用首次快照的说明。' } }));
+    metadata: { title: 'Frozen title', body: 'Description reused from the first snapshot.' } }));
   const outputs = path.join(directory, 'outputs');
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 'target-readonly', CONTROL_TOKEN: 'control-readonly',
     GITHUB_WORKSPACE: workspace, RUNNER_TEMP: temporary, GITHUB_REPOSITORY: 'control/review', GITHUB_SERVER_URL: `file://${path.join(directory, 'git')}`,
     GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputs, GITHUB_API_URL: api, GITHUB_GRAPHQL_URL: `${api}/graphql`,
     REVIEW_REPOSITORY: 'owner/repo', REVIEW_REPOSITORY_ID: '1', REVIEW_PULL_NUMBER: '7', REVIEW_TRIGGER_SOURCE: source, REVIEW_LANGUAGE: 'zh-CN',
-    REVIEW_COMMENT_ID: source === 'automatic' ? '' : '456', REVIEW_COMMENT_ROOT_ID: source === 'thread' ? '123' : source === 'automatic' ? '' : '456', REVIEW_COMMENT_BODY: '请继续审查',
+    REVIEW_COMMENT_ID: source === 'automatic' ? '' : '456', REVIEW_COMMENT_ROOT_ID: source === 'thread' ? '123' : source === 'automatic' ? '' : '456', REVIEW_COMMENT_BODY: 'Please continue the review',
     REVIEW_SNAPSHOT_PATH: snapshot, REVIEW_APP_SLUG: 'review-app', FIXTURE_SOURCE: source, FIXTURE_AUDIT: previous, FIXTURE_REQUESTED: requested };
   return { env, workspace, temporary, outputs, previous, head, history, prepare: (extra: Record<string, string> = {}) =>
     exec(process.execPath, ['scripts/prepare-review-context.ts'], { env: { ...env, ...extra } }) };
 }
 
-for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`完整准备入口：${source} 恢复正确范围、复用快照并交付可用输入`, async t => {
+for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`Full preparation entry: ${source} restores the right scope, reuses the snapshot, and delivers usable input`, async t => {
   const f = await fixture(t, source);
   await f.prepare();
   const context = JSON.parse(await readFile(path.join(f.temporary, 'review-context/review-context.json'), 'utf8'));
@@ -147,11 +147,11 @@ for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`完�
   }
   const materials = JSON.parse(await readFile(path.join(f.temporary, 'review-input.json'), 'utf8')).materials;
   const metadata = materials.find((material: { title: string }) => material.title === 'Untrusted PR metadata');
-  assert.match(await readFile(metadata.path, 'utf8'), /冻结标题/);
+  assert.match(await readFile(metadata.path, 'utf8'), /Frozen title/);
   const output = await readFile(f.outputs, 'utf8');
   const publisher = output.match(/^publisher_archive=(.+)$/m)?.[1];
   assert.ok(publisher);
-  // Linux 的单个环境字符串上限为 128 KiB，真实发布载荷须可由 Runner 传给后续 Action。
+  // Linux caps a single environment string at 128 KiB; the real publication payload must pass from the runner to later Actions.
   assert.ok(Buffer.byteLength(`REVIEW_PUBLISHER_ARCHIVE=${publisher}\0`) <= 128 * 1024);
   const restored = await mkdtemp(path.join(f.temporary, 'publisher-'));
   execFileSync('tar', ['-xzf', '-', '-C', restored], { input: Buffer.from(publisher, 'base64') });
@@ -167,7 +167,7 @@ for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`完�
   assert.doesNotMatch(config, /target-readonly|extraheader|credential/);
 });
 
-test('同一快照新建的进行中 Check 不遮住旧成功审查，完整准备入口延续全部完成项', async t => {
+test('A new in-progress Check on the same snapshot does not hide the earlier successful review, and full preparation carries over all completed entries', async t => {
   const f = await fixture(t, 'automatic');
   f.history.head = f.head;
   const file = path.join(f.previous, 'review-coverage.json');
@@ -185,7 +185,7 @@ test('同一快照新建的进行中 Check 不遮住旧成功审查，完整准�
   assert.deepEqual(progress.ledger, [{ path: 'auth.ts', status: 'complete' }, { path: 'view.ts', status: 'complete' }]);
 });
 
-test('讨论读取失败仍先固定本次请求和范围，准备入口报错且不交付 Prompt', async t => {
+test('A failed discussion read still pins this request and scope first; preparation fails and delivers no prompt', async t => {
   const f = await fixture(t, 'automatic');
   await assert.rejects(f.prepare({ FAIL_DISCUSSION: 'true' }), /discussion unavailable/);
   const output = await readFile(f.outputs, 'utf8');
@@ -196,7 +196,7 @@ test('讨论读取失败仍先固定本次请求和范围，准备入口报错�
   assert.deepEqual(progress.ledger.map((entry: { status: string }) => entry.status), ['pending', 'pending']);
 });
 
-test('下载到的完成工作区不属于选中运行时，阻断接入基线和 Agent 启动', async t => {
+test('A downloaded completed workspace from another run blocks baseline adoption and agent startup', async t => {
   const f = await fixture(t, 'automatic');
   const file = path.join(f.previous, 'review-coverage.json');
   const coverage = JSON.parse(await readFile(file, 'utf8'));

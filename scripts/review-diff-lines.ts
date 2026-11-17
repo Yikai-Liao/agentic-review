@@ -4,12 +4,13 @@ import type { ReviewResult } from './review-result.ts';
 
 const exec = promisify(execFile);
 
-// 新问题随总评在一次 Review 中发布，任一行号落在 PR diff 之外都会让整条 Review 被 GitHub 拒绝；
-// 提交时按与 GitHub 相同的三行上下文和改名识别核对，让模型在发布前修正位置。
+// New findings are published with the summary in one review, and GitHub rejects the whole review if any line
+// falls outside the PR diff; submission checks lines with GitHub's three-line context and rename detection so
+// the model can fix positions before publication.
 export function commentableRanges(diff: string) {
   const ranges = new Map<string, Array<[number, number]>>();
   let current: Array<[number, number]> | undefined;
-  // 文件头只出现在 hunk 之前；hunk 内以 `++ ` 开头的新增内容同样显示为 `+++ `，不能当作新文件。
+  // File headers appear only before hunks; an added line starting with `++ ` inside a hunk also shows as `+++ ` and is not a new file.
   let inHunk = false;
   for (const line of diff.split('\n')) {
     if (line.startsWith('diff --git ')) { current = undefined; inHunk = false; }
@@ -30,7 +31,7 @@ export function commentableRanges(diff: string) {
   return ranges;
 }
 
-// Git 对含双引号、反斜杠或控制字符的路径使用 C 风格引号，八进制转义按字节还原。
+// Git C-quotes paths with double quotes, backslashes, or control characters; octal escapes decode as bytes.
 export function unquotePath(name: string) {
   if (!name.startsWith('"')) return name;
   if (name.length < 2 || !name.endsWith('"')) throw new Error(`Invalid quoted diff path: ${name}`);
@@ -48,7 +49,7 @@ export async function validateCommentLines(target: string, start: string, end: s
   if (!comments.length) return;
   const git = (...args: string[]) => exec('git', ['-C', target, '-c', 'core.quotePath=false', '--no-pager', 'diff', '--no-ext-diff',
     '--no-textconv', '-M', ...args, `${start}..${end}`], { encoding: 'utf8', maxBuffer: Infinity });
-  // 文件级讨论只能挂在 PR 改动的文件上，包括删除、改名和二进制文件。
+  // File-level discussions attach only to files changed by the PR, including deleted, renamed, and binary files.
   if (comments.some(comment => comment.line === null)) {
     const files = new Set((await git('--name-only', '-z')).stdout.split('\0').filter(Boolean));
     const outside = comments.find(comment => comment.line === null && !files.has(comment.path));

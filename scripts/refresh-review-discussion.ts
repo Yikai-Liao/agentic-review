@@ -32,7 +32,7 @@ export function groupReviewThreads(discussion: DiscussionThreads) {
     const root = String(state.root_comment_id);
     groups.set(root, { root_comment_id: root, state, comments: [] });
   }
-  // REST 评论和 GraphQL 状态可能暂时不同步；两侧原文入口都保留。
+  // REST comments and GraphQL state may briefly disagree; keep the original entries from both.
   for (const comment of discussion.inline_comments) {
     const root = String(comment.in_reply_to_id ?? comment.id);
     const group = groups.get(root) ?? { root_comment_id: root, state: null, comments: [] };
@@ -45,12 +45,12 @@ export function groupReviewThreads(discussion: DiscussionThreads) {
 const selectFields = (record: Record<string, unknown>, fields: readonly string[]) =>
   Object.fromEntries(fields.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]));
 
-// 当前 PR、关联 PR 和讨论刷新共用证据表示；审查正文与定位保留，
-// 不把每条评论重复的用户头像、关注列表和 API 导航地址带进模型上下文。
+// The current PR, related PRs, and discussion refresh share one evidence shape: review text and positions are kept,
+// while avatars, follower lists, and API navigation URLs repeated on every comment stay out of the model context.
 function discussionEvidence(record: RecordWithId): RecordWithId {
   const { url, node_id, issue_url, pull_request_url, _links, user, performed_via_github_app, ...evidence } = record;
-  // 新增统计只供人分析；不让自己的 footer 在下一轮变成付费审查材料。
-  // 按当前 App 身份限定，人工回复或其他机器人的同名标记仍是证据原文。
+  // Run statistics are for humans only; our own footer must not become paid review material next round.
+  // Limited to the current app identity: the same markers from humans or other bots remain evidence.
   if (process.env.REVIEW_APP_SLUG && (user as { login?: string } | null)?.login === `${process.env.REVIEW_APP_SLUG}[bot]`
     && typeof evidence.body === 'string') {
     const start = evidence.body.lastIndexOf(reviewMetadataStart);
@@ -72,7 +72,7 @@ export async function readDiscussion(repository: string, pull: string, run: Run 
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[1-9]\d*$/.test(pull)) throw new Error('Invalid PR target');
   if (baseline && (baseline.repository !== repository || baseline.pull !== pull ||
       !Number.isFinite(Date.parse(baseline.since)))) throw new Error('Invalid discussion baseline');
-  // 固定启动基线；重叠一秒覆盖 GitHub 秒精度的边界，再用指纹剔除重复。
+  // Fixed startup baseline; a one-second overlap covers GitHub's second-precision boundary, and fingerprints drop duplicates.
   const since = new Date(Math.floor(Date.now() / 1000) * 1000 - 1000).toISOString();
   const discussion: Discussion = { issue_comments: [], inline_comments: [], reviews: [], threads: [] };
   const routes = [
@@ -89,10 +89,10 @@ export async function readDiscussion(repository: string, pull: string, run: Run 
       }
     } }
   }`;
-  // 四种记录各自完整分页，彼此独立；固定基线仍早于全部请求。
+  // The four record kinds paginate fully and independently; the fixed baseline still precedes every request.
   const responses = await Promise.all([
     ...routes.map(([kind, route]) => {
-      // Reviews 没有 since 参数；只在本地比对后输出变化。
+      // Reviews have no since parameter; compare locally and print only changes.
       const filter = baseline && kind !== 'reviews' ? `&since=${encodeURIComponent(baseline.since)}` : '';
       return run('gh', ['api', '--paginate', '--slurp', `repos/${repository}/${route}?per_page=100${filter}`]);
     }),
@@ -126,7 +126,7 @@ export async function readDiscussion(repository: string, pull: string, run: Run 
         isOutdated: thread.isOutdated, resolvedBy: thread.resolvedBy?.login ?? null });
     }
   }
-  // thread 已完整分页读取；缺失 ID 是删除变化，不能被后面的增量过滤抹掉。
+  // Threads were read with full pagination; a missing ID is a deletion and must not be erased by the later increment filter.
   const currentThreadIds = new Set(discussion.threads.map(thread => thread.id));
   const removedThreadIds = Object.keys(baseline?.fingerprints.threads ?? {})
     .filter(id => !currentThreadIds.has(id));

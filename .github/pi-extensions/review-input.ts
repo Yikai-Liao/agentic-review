@@ -20,7 +20,7 @@ export default function reviewInput(pi: ExtensionAPI) {
       const content = reviewInputContext(file, ctx.model, { system: event.systemPrompt, prompt: event.prompt, tools });
       return { message: { customType: 'review-input', content, display: false } };
     } catch (error) {
-      // Pi 的普通 hook 异常只会记日志；输入准备失败时停止本轮，避免继续审查。
+      // Pi only logs ordinary hook errors; stop the round when input preparation fails instead of reviewing on.
       ctx.abort();
       throw error;
     }

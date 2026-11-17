@@ -1,52 +1,52 @@
-# 验证：能否区分正确与错误，证据是否足够
+# Verification: Telling Right from Wrong, and Whether Evidence Suffices
 
-验证审查区分两个问题：验收本身是否作出错误判断，以及当前需要验证的保证是否已有足够证据。按阶段安排在后续完成的验证，在到期前保持计划状态。
+Verification review separates two questions: does acceptance itself judge wrongly, and do the guarantees due now have enough evidence? Verification scheduled for a later stage stays planned until due.
 
-本文件提供两种可以分别选择的方法。具体结论仍按[共同证据要求](../findings.md)判断，不能根据“验证审查”这个名字直接决定问题类型。
+This file offers two methods chosen separately. Conclusions follow the [shared evidence requirements](../findings.md); the name "verification review" does not decide the finding kind.
 
-## 先选分支，明确当前需要验证什么
+## Choose the Branch and What Must Be Verified Now
 
-**验收有效性**检查现有验收是否放过错误或拒绝合法行为，由各层默认范围或明确请求触发。**验证充分性**检查现有证据能否支持当前保证，只在明确委托，或相关验证已到应完成的阶段时触发。
+**Acceptance validity** checks whether existing acceptance lets errors through or rejects legitimate behavior; each level's default scope or an explicit request triggers it. **Verification sufficiency** checks whether existing evidence supports current guarantees; it triggers only on explicit request or when the related verification is due.
 
-依据来自原始目标、有效决定、真实外部约定或明确审计授权，不以覆盖率、测试数或绿色 CI 定义需要支持的保证。
+Grounds come from the original goal, valid decisions, real external contracts, or explicit audit authorization; coverage, test counts, or green CI do not define which guarantees need support.
 
-| 层级 | 怎样检查 |
+| Level | How to check |
 |---|---|
-| 需求 | 验收会不会接受不能满足真实用户目标的产物；不要求现在实现测试 |
-| 架构 | 场景演练、能力实验或分析能否区分当前依赖的错误假设或机制 |
-| 开发计划 | 验收任务是否观察最终能力及必要连接，并在相关工作依赖结果前产生证据 |
-| 代码 | 输入沿生产路径得到实际结果，测试另行取得预期并作出判断；错误是否被放过，合法变化是否被拒绝 |
+| Requirements | Would acceptance accept an artifact that fails the real user goal? No tests required yet |
+| Architecture | Can scenario walkthroughs, capability experiments, or analysis distinguish the wrong assumptions or mechanisms now relied on? |
+| Plan | Do acceptance tasks observe the final capability and necessary connections, and produce evidence before dependent work? |
+| Code | Input reaches an actual result along the production path while the test obtains its expectation separately; are errors let through or legitimate changes rejected? |
 
-对每项相关保证，查清可能怎样失效、有什么保护、验证观察什么、如何判定。代码中已有测试失真或过约束，使用[测试审查](../levels/code/test-contracts.md)的对应分支，不自动同时审查测试冗余。
+For each relevant guarantee, establish how it can fail, what protects it, what verification observes, and how it decides. Test distortion or overconstraint in code uses the matching branch of [test review](../levels/code/test-contracts.md), without automatically reviewing test redundancy.
 
-## 证明现有验收会作出错误判断
+## Proving Acceptance Judges Wrongly
 
-这类问题属于缺陷（defect）。给出一种满足现有验收、却违反独立目标的实际错误；或者给出保持目标、却被验收拒绝的合法变化。定位真正的观察或判定问题。
+This is a `defect`. Give a real error that satisfies existing acceptance yet violates an independent goal, or a legitimate change that keeps the goal yet is rejected. Locate the actual observation or verdict problem.
 
-测试名字、模拟对象（mock）和实现复杂度只用于定位调查。结论要说明实际结果与测试预期分别从哪里来，为什么错误最终仍会得到通过，或合法结果为什么失败。
+Test names, mocks, and implementation complexity only locate the investigation. The conclusion states where the actual result and the expectation each come from, and why the error still passes or the legitimate result fails.
 
-## 证明当前验证缺少必要的区分能力
+## Proving Current Verification Cannot Distinguish the Error
 
-验证缺口（verification-gap）的成立条件见[共同证据要求](../findings.md)。调查时，从真实校验、状态、边界或故障条件构造局部错误，追踪现有验证为何无法识别，再找出能够区分它、同时保留相邻合法行为的最小观察。
+The `verification-gap` bar is in the [shared evidence requirements](../findings.md). Construct a local error from real validation, state, boundaries, or failure conditions, trace why existing verification cannot detect it, and find the smallest observation that distinguishes it while keeping adjacent legitimate behavior.
 
-例如，启用前必须验证重试 ID 保持不变。当前实现将 ID 生成放在重试外，但唯一测试只执行一次成功调用。如果把生成移入重试体，原测试仍会通过；观察响应丢失后两次请求的 ID，就能检查这项保证。该结论是验证缺口；生产实现的状态仍按当前代码另行判断。
+Example: before enabling, retry IDs must be verified stable. The implementation generates the ID outside the retry, but the only test runs one successful call. Moving generation into the retry body still passes; observing the IDs of two requests after a lost response checks the guarantee. That is a verification gap; the production implementation is judged separately from current code.
 
-若目前只批准架构探索，并安排在启用前由指定任务执行有效验证，则当前状态是验证已排期。普通代码 Review 形成验证缺口 finding，须有当前已到期的验证要求和一种现有验证会放过的相关错误。
+If only architecture exploration is approved and a named task performs valid verification before enabling, the current status is "verification scheduled". An ordinary code review raises a verification-gap finding only with a verification requirement due now and a relevant error existing verification would miss.
 
-## 检查其他证据是否已经覆盖
+## Is It Already Covered Elsewhere?
 
-读取相关原始证据，不因没搜到某个测试名就判断无覆盖。检查其他层的集成或契约测试是否能识别同一种错误，mock 的责任是否只到最近的未替换调用方，以及新增观察是否重复既有信号。
+Read the related original evidence; not finding a test by name does not mean no coverage. Check whether integration or contract tests at other layers catch the same error, whether a mock's responsibility stops at the nearest unreplaced caller, and whether a new observation duplicates an existing signal.
 
-另一层的测试是否能承担明确要求的独立边界验证，取决于验证目标及实际路径。只有观察和判定覆盖同一保证时才能替代。
+Whether a test at another layer can carry an explicitly required independent boundary check depends on the verification goal and real path. It substitutes only when its observation and verdict cover the same guarantee.
 
-## 区分静态推演与实际实验
+## Static Reasoning Versus Actual Experiments
 
-需要实验或判断运行结果时，按[证据权限](../evidence-access.md)执行。静态设计的探针记为待运行；目标或环境不匹配、执行失败、超时分别记录相应状态；通过须有匹配目标与环境的实际结果。
+When experiments or runtime results are needed, follow [evidence access](../evidence-access.md). A statically designed probe is "to run"; target or environment mismatch, execution failure, and timeout are recorded as such; passing requires an actual result matching target and environment.
 
-变异测试通过局部改变实现，观察测试是否发现错误。变异后测试仍通过的情况称为幸存变异；先排除行为等价、路径不可达、与目标无关和工具错误，再判断是否真有漏检。有效变异来自真实机制、边界或错误方式，验证要求来自独立目标。高分只汇总已运行变异的结果。
+Mutation testing changes an implementation locally to see whether tests catch the error. A mutation that still passes is a surviving mutant; first rule out equivalent behavior, unreachable paths, irrelevance to the goal, and tool errors before concluding a real miss. Valid mutations come from real mechanisms, boundaries, or error modes, and verification requirements from independent goals. A high score only summarizes the mutations actually run.
 
-## 交付和复核
+## Delivery and Re-review
 
-错误验收的处理完成条件是判定恢复正确；验证缺口的完成条件是相关错误现在能被有效区分，文件数和测试数只记录实现形式。
+A wrong acceptance is fixed when the verdict is correct again; a verification gap closes when the relevant error is now effectively distinguished. File and test counts only record the form of the fix.
 
-必要实测尚未提供时保持未验证，静态修正标为静态证据。生产违约与为它背书的测试属于同一根因时只报一条。受托关系都有结论或具体限制后，结束本轮。
+When a necessary measurement is not yet provided, stay unverified and label static corrections as static evidence. A production violation and the test endorsing it are one root cause, reported once. The round ends when every delegated relationship has a conclusion or concrete limit.

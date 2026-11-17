@@ -1,34 +1,33 @@
-# 仓库指导
+# Repository Guide
 
-## 仓库地图
+## Repository Map
 
-- `worker/`：webhook 验签、过滤、去重和 dispatch；部署时读 [部署说明](docs/deploy-central-review.md)。
-- `.github/workflows/agentic-review.yml` 编排中央 Review；`scripts/` 实现上下文准备和可信发布，`test/` 覆盖这些行为，检查命令见 `package.json`。
-- `skills/agentic-review/` 是可安装的通用审查方法，共享协议加 requirements/architecture/plan/code 特化；`central/` 提供默认 code、允许下游指令选择层级的中央入口，并接入 GitHub 上下文、工作稿和结果协议。层级选择、迁移与验证记录见 [通用化说明](docs/generalized-review.md)。
-- `.agentic-review.md` 只补充本仓库的审查重点；`.agents/skills/writing-for-agents/` 用于设计和审计 Agent 指令。
+- `worker/`: webhook verification, filtering, deduplication, and dispatch; read the [deployment guide](docs/deploy-central-review.md) when deploying.
+- `.github/workflows/agentic-review.yml` orchestrates central review; `scripts/` implements context preparation and trusted publication, `test/` covers that behavior, and the check commands are in `package.json`.
+- `skills/agentic-review/` is the installable, general review method: a shared protocol, findings, workspace and re-review, report writing with examples, and requirements/architecture/plan/code levels. `central/` holds only central adapters: level selection and test branches, GitHub context, the workspace and result protocol, and the paused Lark rules. Behavior shared with local use belongs in the skill, not in `central/`.
+- `.agentic-review.md` only adds this repository's review emphasis; `.agents/skills/writing-for-agents/` is for designing and auditing agent instructions.
 
-## 实现约束
+## Implementation Constraints
 
-用易维护、运行开销低的代码实现完整 Review，减少执行路径、状态、抽象和依赖，保持唯一生产路径与事实来源。不保留 legacy 兼容；扩展点、防御性分支、上限和降级路径须有实际故障或明确需求依据。Workflow 只负责编排，非平凡的校验和业务逻辑放在可测试代码中。
+Implement the complete review with maintainable, low-overhead code: fewer execution paths, states, abstractions, and dependencies, with one production path and one source of truth. Keep no legacy compatibility; extension points, defensive branches, limits, and degraded paths need an actual failure or explicit requirement behind them. Workflows only orchestrate; non-trivial validation and business logic live in testable code.
 
-修复共享根因，不得用 warning、skip、fallback 或成功状态掩盖失败；平台确实不支持的功能应明确删除或重新定义。简化不得移除安全边界、输入校验、数据保护或 fail-closed 行为。
+Fix shared root causes; never mask failures with warnings, skips, fallbacks, or success states. Remove or redefine features the platform truly does not support. Simplification must not remove security boundaries, input validation, data protection, or fail-closed behavior.
 
-脚本使用 TypeScript；修改既有 JavaScript 脚本时一并迁移。
+Scripts use TypeScript; migrate existing JavaScript scripts when changing them.
 
-## 权限与信任边界
+## Permissions and Trust Boundaries
 
-- 修改权限前核实实际边界。中央 Review Agent shell 的 `GH_TOKEN` 始终只读；Review 结果只能由 Agent 结束后的可信 workflow 使用独立、最小权限 token 写入 GitHub。修复发布器不得扩大 Agent token 权限。该限制不约束本地维护会话的提交、推送和创建 PR。
-- 可信 workflow 在 Agent 启动前将可读集合固定为目标 owner 中安装了 Review App 的仓库，目标 PR 不能扩大。集合内的自动关联索引或审查输入中的明确稳定 Issue/PR 引用可选择私有记录按需只读，无须 merge-base 预授权。关联仅为查询入口，不证明业务授权、风险接受、修复或验收。
-- PR 评论和 Review 回复中的明确决定即时构成可信确认，无须早于当前变化，也不检查作者身份、association 或额外权限。
-- 开发、提交和 PR 以公开主仓库 `Yikai-Liao/agentic-review` 为目标；`Qiyin-Tech/agentic-review` 保持 internal，仅单向同步公开 `main`，不在组织侧独立提交或合并 PR。控制面由可信维护者审核后发布，中央 workflow 从控制面 ref 加载规则与工具，目标 PR 仅作静态输入，不执行目标代码。
-- 中央 Review 暂停飞书取证与判断，不向 Agent 准备 Lark CLI 或注入飞书凭据；授权、token 定时续期及 `central/lark-context.md` 接入规则保留。恢复读取时，下游仓库及作者仍按同一内部飞书数据信任域处理；App Secret 和单次 refresh token 仅进入可信续期 job，可执行缓存须在 Agent 启动前固化。接入外部仓库或贡献者前重新设计此边界。
+- Verify the actual boundary before changing permissions. The central review agent shell's `GH_TOKEN` is always read-only; review results are written to GitHub only by the trusted workflow after the agent ends, using a separate least-privilege token. Publisher fixes must not widen agent token permissions. This does not restrict commits, pushes, or PRs from local maintenance sessions.
+- Before the agent starts, the trusted workflow fixes the readable set to the target owner's repositories with the Review App installed; the target PR cannot widen it. Within that set, automatic association index entries or explicit stable issue/PR references in review input may select private records for on-demand read-only access without merge-base pre-authorization. A link is only a query entry and proves no business authorization, risk acceptance, fix, or acceptance.
+- Explicit decisions in PR comments and review replies are trusted confirmation immediately; they need not predate the current change, and author identity, association, or extra permissions are not checked.
+- Development, commits, and PRs target the public `Yikai-Liao/agentic-review`; `Qiyin-Tech/agentic-review` stays internal and only syncs the public `main` one way, with no independent commits or merged PRs on the organization side. Trusted maintainers review and release the control plane; the central workflow loads rules and tools from the control ref, and the target PR is static input only; target code is never run.
+- Central review has paused Lark evidence and judgment: it prepares no Lark CLI and injects no Lark credentials for the agent. Authorization, scheduled token renewal, and the `central/lark-context.md` rules are kept. After a restore, downstream repositories and authors still count as one internal Lark data trust domain; the App Secret and single-use refresh token enter only the trusted renewal job, and executable caches must be pinned before the agent starts. Redesign this boundary before onboarding external repositories or contributors.
 
-## 协作与语言
+## Collaboration and Language
 
-- 只有用户明确要求使用 Darwin 时，才启用 `darwin-skill` 或执行 Darwin 评测；优化、评测或 Prompt 修改本身不构成授权。
-- 维护者质疑变更时，先说明动机、必要性、影响和替代方案；确认多余或维护者明确要求撤回后再修改。
-- 开发过程中不要启动 subagent 做代码 Review；提交 PR 后由本仓库的自动 Review 流程完成独立审查。
-- 用户任务优先于 Skill 工作流指导，安全和授权边界仍生效。直接完成已授权的本地修改与只读调查；未授权的外部写入或不可逆操作，先准备可复核结果再请求批准。
-- 验证按受影响行为和风险选择；已通过的检查只因新改动、失败或未解决疑点而扩大或重跑。
+- When a maintainer questions a change, first explain motivation, necessity, impact, and alternatives; change it only after it is confirmed unnecessary or the maintainer explicitly asks to revert.
+- Do not start subagents for code review during development; after a PR is opened, this repository's automatic review does the independent review.
+- The user's task takes precedence over skill workflow guidance, while security and authorization boundaries still apply. Complete authorized local changes and read-only investigation directly; for unauthorized external writes or irreversible operations, prepare a reviewable result first and then ask for approval.
+- Choose verification by affected behavior and risk; widen or rerun passing checks only for new changes, failures, or unresolved doubts.
 
-AGENTS.md、Skill、文档、PR 和 Issue（含标题、正文、评论、Review 总结与 finding）使用简体中文。代码标识符、命令、日志、schema 字段、API 名称及必要的第三方引文保留原文，解释和结论用中文。
+AGENTS.md, skills, docs, code comments, commits, PRs, and issues (titles, bodies, comments, review summaries, and findings) are written in English. The central review's report language is configured separately by `REVIEW_LANGUAGE`.

@@ -1,50 +1,50 @@
-# 中央 GitHub Review 上下文
+# Central GitHub Review Context
 
-本文件把中央 GitHub Action 的 PR、项目规则和历史记录接入通用 `agentic-review`，输入信任边界遵循附带 Skill。
+This file connects the central GitHub action's PR, project rules, and history to `agentic-review`; input trust boundaries follow the skill.
 
-## 0. 请求与范围
+## 0. Request and Scope
 
-读取输入中的 `Review request`，使用已固定的请求原文与快照。显式自然语言范围优先于默认计划；“只看鉴权”限定范围，“重点看鉴权”只调整优先级。
+Read the `Review request` in the input and use the pinned request text and snapshot. An explicit natural-language scope takes precedence over the default plan; "only check auth" narrows the scope, "focus on auth" only changes priority.
 
-- `automatic`：完整 PR 审查。
-- `pr_comment`：按 `default_plan.ranges` 中每个区间及其 targets 调查；重开上次范围时重新取证。该集合已包含失败轮次的未完成范围和本轮新增变化，分别读取各区间 patch，不能用首尾净 diff 抵消中间变化。
-- `thread`：读取根评论、完整 thread、当前位置及 outdated/resolved 状态，默认复核当前问题和直接影响；原文要求全 PR 时扩大，不继承 PR 级请求范围。
+- `automatic`: review the whole PR.
+- `pr_comment`: investigate every range in `default_plan.ranges` and its targets; reopening a previous scope means gathering evidence again. The set already includes unfinished scope from failed rounds and this round's new changes; read each range's patch separately, since a net first-to-last diff can cancel intermediate changes.
+- `thread`: read the root comment, the whole thread, its current position, and outdated/resolved state; by default re-review the problem and its direct impact. Widen only when the text asks for the whole PR; PR-level request scope is not inherited.
 
-准备阶段按最近 PR 级请求恢复实际范围；完整 audit checkpoint 提供增量比较基线。输入中的恢复清单已指出选用的证据来源并将工作稿、结果参考和文件进度迁移到本轮工作区，优先使用本轮副本。`$REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH` 与 `$REVIEW_PREVIOUS_WORKSPACE_PATH` 分别保留两类只读原件，缺少必要历史信息时按需补读。按 [结果协议](review-result.md) 核定本轮 scope 和覆盖状态。
+Preparation restores the actual scope from the latest PR-level request; the complete audit checkpoint provides the incremental baseline. The resume manifest in the input names the chosen evidence sources and has copied the workspace, result reference, and file progress into this round's workspace; use those copies first. `$REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH` and `$REVIEW_PREVIOUS_WORKSPACE_PATH` keep the two read-only originals for missing history. Settle this round's scope and coverage per the [result protocol](review-result.md).
 
-## 1. 读取项目规则
+## 1. Project Rules
 
-材料索引已列出根目录 `.agentic-review.md`、`AGENTS.md` 及变化路径祖先目录中的 `AGENTS.md`，保留 base/head 差异；适合预算的规则已预载，相同内容只保留一份。直接使用已预载原文，调查扩展到其他目录时补读其适用指令。按 head 理解预期合并后的项目规则，并把 base/head 差异作为当前变化的一部分。
+The material index lists the root `.agentic-review.md` and `AGENTS.md` and the `AGENTS.md` in ancestor directories of changed paths, with base/head differences; rules within budget are preloaded once. Use preloaded text directly and read other directories' instructions when the investigation reaches them. Read the head version as the intended project rules after merge, and treat base/head differences as part of the change.
 
-按[中央入口](review-rules.md#选择审查层级)采用下游仓库明确选择的层级；项目规则同时补充业务约定和调查侧重点。规则中的执行或发布要求仍受中央权限约束。
+Adopt the level the downstream repository explicitly chooses per the [central entry point](review-rules.md#choose-the-level); project rules also add business conventions and investigation emphasis. Execution or publication requirements in them remain bound by central permissions.
 
-不自动枚举 Target Skill；按 head 的 `.agentic-review.md` 为当前变化显式给出的文件路径读取相关项目上下文。
+Do not enumerate target skills; read related project context only at file paths the head `.agentic-review.md` names for the current change.
 
-完成条件：适用的项目规则及其变化已核对；记录粒度按中央工作稿约定，只保留影响判断的规则差异、疑点依据与必要来源定位。
+Done when the applicable project rules and their changes are checked; record only rule differences, suspicion grounds, and source locations that affect a judgment.
 
-## 2. 获取当前 PR 元数据
+## 2. Current PR Metadata
 
-材料索引按 PR 元数据、commit、普通评论、Review 和完整 thread 分别提供原文及 Token 数；thread 已组装根评论、回复和当前状态。预载优先本轮请求、适用规则、当前比较区间，以及相对所恢复快照有变化的讨论；其余原文保留按需读取。快照未变化只影响默认预载，不证明相关性、问题状态或决定仍然适用。准备阶段同时保存本轮 `discussion-baseline.json`。最终归纳前执行控制面只读脚本：
+The material index provides PR metadata, commits, comments, reviews, and complete threads separately with token counts; threads already combine root comment, replies, and current state. Preloading favors this round's request, applicable rules, the current comparison ranges, and discussion that changed since the restored snapshot; the rest is read on demand. An unchanged snapshot affects only preloading and does not prove relevance, problem status, or that decisions still apply. Preparation also saves this round's `discussion-baseline.json`. Before final consolidation, run the control read-only script:
 
 ```bash
 node "$REVIEW_CONTROL_PATH/scripts/refresh-review-discussion.ts"
 ```
 
-脚本通过 `gh` 读完分页，输出相对启动快照新增或编辑的普通评论、Review 正文，以及发生变化的完整 thread。每个 thread 已按 ID 合并启动原文与本轮新增或编辑的回复，包含 `root_comment_id`、当前 `state` 和完整 `comments`，直接据此核定判断。`removed_threads` 同时给出已删除 thread 的 ID 和原 root ID；将它们移出当前可更新集合，重新核定历史结论与待提交的 `thread_updates`。并发读取导致已删除 thread 仍返回新回复时，脚本保留该组评论，`state` 为 `null`；回复可作判断依据，不能向已删除 thread 写入。thread 消失不证明问题已修复或获确认；代码问题仍成立时按新 finding 门槛重新判断。完整读取输出，截断时补齐；各数组都为空才表示没有检测到变化。刷新时点遵循 `central/review-result.md`。
+The script reads all pages through `gh` and prints comments and review bodies added or edited since the startup snapshot, plus every changed thread in full. Each thread merges startup text with replies added or edited this round by ID and contains `root_comment_id`, current `state`, and complete `comments`; judge from it directly. `removed_threads` gives deleted thread IDs and their root IDs; drop them from the updatable set and re-settle earlier conclusions and pending `thread_updates`. When a concurrent read still returns new replies for a deleted thread, the script keeps them with `state: null`; replies may serve as evidence, but the thread cannot be written. A vanished thread does not prove a fix or confirmation; if the code problem still holds, judge it again under the new-finding bar. Read the output in full and complete any truncation; only all-empty arrays mean no changes. The refresh timing follows `central/review-result.md`.
 
-基线固定为本轮启动快照，重复调用仍返回本轮全部增量，不因一次输出未读完而丢失评论。普通评论和 inline 回复使用 `since` 增量拉取；Reviews API 不支持 `since`，thread 状态也需完整枚举，这两类在本地比对后只输出变化。thread 删除通过完整列表与基线比对检测，不增加 API 调用；脚本不检测单条评论删除，有上下文缺失线索时按 ID 用只读 `gh` 补查原记录。任一请求或分页失败时脚本报错，不能把失败当成“无新回复”。
+The baseline is fixed to the startup snapshot, so repeated calls return all of this round's increments. Comments and inline replies are fetched incrementally with `since`; the Reviews API lacks `since` and thread states need full enumeration, so those are compared locally and only changes are printed. Thread deletion is detected by comparing the full list with the baseline at no extra API cost; single-comment deletion is not detected, so query the original record by ID with read-only `gh` when context seems missing. Any request or pagination failure makes the script fail; never treat a failure as "no new replies".
 
-完成条件：已理解本轮请求及适用项目规则，已核对当前变化和结论依赖的讨论、明确决定及显式关联线索；thread 最终状态在归纳前核定。
+Done when the request and applicable project rules are understood and the current changes, the discussion conclusions rely on, explicit decisions, and explicit link hints are checked; final thread status is settled before consolidation.
 
-## 3. 读取历史结果和代码差分
+## 3. Earlier Results and Code Diffs
 
-`$REVIEW_PREVIOUS_WORKSPACE_PATH` 非空时，接入 checkpoint 对应的历史记录，已完成项默认延续；按 `references/review-state.md` 从新变化和最新讨论出发，沿实际影响重开相关项。本轮 scope 保持不变，完整覆盖由历史已完成调查和本轮增量调查共同构成。
+When `$REVIEW_PREVIOUS_WORKSPACE_PATH` is non-empty, connect the history matching the checkpoint; completed items carry over by default. Following `references/review-state.md`, start from new changes and the latest discussion and reopen items along real impact. The scope stays fixed; full coverage combines earlier completed investigation and this round's increment.
 
-准备阶段从固定 SHA 的本地 Git 生成逐文件 patch 材料并统计 Token；索引保留完整 PR、当前增量及显式请求各区间的独立入口。补充源码或重查时仍使用本地 Git。full 区间为 `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA`（merge base → 当前 head）；仅当 `$REVIEW_CHECKPOINT_HEAD` 非空时，focus 区间为 `$REVIEW_CHECKPOINT_HEAD` → `$REVIEW_HEAD_SHA`。固定使用这些 SHA，不使用会移动的分支或实时 PR diff。
+Preparation generates per-file patch material from local Git at pinned SHAs with token counts; the index keeps separate entries for the whole PR, the current increment, and each explicit request range. Use local Git for extra source or rechecks. The full range is `$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA` (merge base to current head); only when `$REVIEW_CHECKPOINT_HEAD` is non-empty, the focus range is `$REVIEW_CHECKPOINT_HEAD` to `$REVIEW_HEAD_SHA`. Always use these SHAs, never moving branches or the live PR diff.
 
-已预载的 patch 直接用于调查；其余 patch 从索引读取，版本或证据存在疑问时再从 Git 补查。补充源码时，先沿变化中的符号和调用位置定位，再读取相关函数、直接依赖与必要上下文；需要更大范围才能闭合行为路径时继续展开。保留完整变化覆盖，已在上下文中的同一证据直接复用。
+Use preloaded patches directly; read the others from the index and fall back to Git when versions or evidence are in doubt. For extra source, locate through changed symbols and call sites first, then read the relevant functions, direct dependencies, and necessary context, widening only as far as needed to close the behavior path. Keep full change coverage and reuse evidence already in context.
 
-首次调查或没有可用基线时，以完整 PR 材料和文件进度为范围依据。需要补查清单或规模时：
+On a first investigation or without a usable baseline, the whole-PR material and file progress define the scope. To recheck the list or size:
 
 ```bash
 git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
@@ -54,7 +54,7 @@ git -C "$REVIEW_TARGET_PATH" --no-pager diff --no-ext-diff --no-textconv \
   --find-renames --find-copies --numstat "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
 ```
 
-小 diff 能在工具输出和剩余上下文内完整容纳时，直接一次读取 full patch 并完成调查，无须拆分调用或创建额外记录。规模还需考虑长行和上下文展开，不能仅以变更行数判断。大 diff 按相关路径读取，例如：
+When a small diff fits in tool output and the remaining context, read the full patch once and finish without splitting calls or extra records. Size also depends on long lines and context expansion, not changed-line counts alone. Read large diffs by relevant path, for example:
 
 ```bash
 git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff --no-textconv \
@@ -62,47 +62,47 @@ git -C "$REVIEW_TARGET_PATH" --no-pager --literal-pathspecs diff --no-ext-diff -
   "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA" -- 'path/to/file'
 ```
 
-小 diff 使用同一 patch 命令并省略 `-- 'path/to/file'`。
+Small diffs use the same command without `-- 'path/to/file'`.
 
-清单同时保留旧路径、新路径和变更类型；读取重命名或复制的 patch 时传入两端路径。路径含特殊字符时用 `--name-status -z` 解析清单，按字面路径传参。文件清单很长时也分段登记，直到完整覆盖。
+The list keeps old path, new path, and change type; pass both paths when reading renamed or copied patches. Parse lists with special characters through `--name-status -z` and pass paths literally. Record very long lists in segments until coverage is complete.
 
-单文件过大时从 `--unified=0` 输出中过滤 hunk 头定位，再通过行区间分页读取 patch，所需源码上下文也按行读取。工具截断后继续补齐未读区间，记录覆盖进度。超大的 patch 可按索引定位代码文件，再从对应固定 Git 区间补充需要的部分。
+For an oversized file, locate hunks by filtering hunk headers from `--unified=0` output, then page through the patch by line range and read needed source by line. Continue past truncation and record coverage progress. Oversized patches may be located through the index and supplemented from the matching pinned Git range.
 
-有可用基线时，先用相同 Git 选项查询 focus 区间，读取本轮恢复清单的 `pending_files`；小增量一次读取 focus patch，大增量按路径和 hunk 读取。调查新变化、历史未完成项及其实际影响，按需从 full 区间补充证据。已完成项保持原状态，直到新 diff、最新讨论或职责变化触及其调用方、共享契约或旧结论前提，再标为 `pending` 并复核相关部分。
+With a usable baseline, query the focus range with the same Git options first and read `pending_files` from this round's resume manifest; read small increments in one focus patch and large ones by path and hunk. Investigate new changes, earlier unfinished items, and their real impact, adding evidence from the full range as needed. Completed items keep their status until a new diff, the latest discussion, or a duty change touches their callers, shared contracts, or old premises; then mark them `pending` and recheck the affected part.
 
-focus 清单为空时处理最新讨论和历史未完成项。focus 中已从 full 清单消失的路径仍需检查撤销变化对旧结论的影响。full 文件清单由 `review-progress.json` 保留，增量复审无需为继承完成项再次遍历 full patch。
+With an empty focus list, handle the latest discussion and earlier unfinished items. Paths in focus that vanished from the full list still need checking for how the reverted change affects old conclusions. `review-progress.json` keeps the full file list, so incremental re-review need not walk the full patch again for inherited completions.
 
-finding 的差分证据与评论行号只能来自 full 区间的 patch，绑定最接近根因的 RIGHT-side 行；focus diff 和历史笔记不替代它。按需从 `$REVIEW_TARGET_PATH`、`$REVIEW_BASE_PATH` 补充文件上下文；要确认 merge-base 版本时从目标 Git 按 full 区间的 merge-base SHA 读取，base checkout 是 `$REVIEW_BASE_SHA` 的快照。
+Diff evidence and comment lines for findings come only from the full-range patch, bound to the RIGHT-side line closest to the root cause; focus diffs and earlier notes do not replace it. Add file context from `$REVIEW_TARGET_PATH` and `$REVIEW_BASE_PATH` as needed; to confirm the merge-base version read it from target Git at the full range's merge-base SHA, since the base checkout is a snapshot of `$REVIEW_BASE_SHA`.
 
-完成条件：scope 内变化及影响面已调查，最新讨论已归类，ledger 覆盖与继承满足 `references/review-state.md`。
+Done when in-scope changes and their impact are investigated, the latest discussion is classified, and ledger coverage and inheritance satisfy `references/review-state.md`.
 
-## 4. 恢复契约或复核候选时读取关联记录
+## 4. Linked Records for Contracts and Candidates
 
-`GH_TOKEN` 的可读集合由可信 workflow 在 Agent 启动前固定。自动索引或审查输入中的明确稳定 Issue/PR 引用可在集合内选择私有记录，无须 merge-base 预授权，但不能扩大仓库或权限范围。
+The trusted workflow fixes the readable set of `GH_TOKEN` before the agent starts. Automatic index entries or explicit stable issue/PR references in the review input may select private records within that set without merge-base pre-authorization, but cannot widen repositories or permissions.
 
-`$REVIEW_INPUT_PATH` 的 `PR association index` 已包含可信 workflow 生成的去重索引，原件位于 `$REVIEW_ASSOCIATIONS_PATH`：head-only commits 关联的其他 PR 及当前 PR 的 `closingIssuesReferences`。从当前需要恢复的契约、决定或候选根因选择来源；路径重合和同一 commit 关联只用于定位，不把索引变成逐项调查清单。有具体相关线索而标题不足以判断时，按编号补查 PR 文件清单或对应原文。
+The `PR association index` in `$REVIEW_INPUT_PATH` holds the trusted, deduplicated index, with the original at `$REVIEW_ASSOCIATIONS_PATH`: other PRs linked to head-only commits and the current PR's `closingIssuesReferences`. Pick sources by the contract, decision, or candidate root cause you need to recover; path overlap and shared commits only help locate and do not turn the index into a checklist. When a concrete hint exists but the title is not enough, query that PR's file list or original text by number.
 
-恢复预期结果时，按 `references/protocol.md` 的“先查清当前阶段需要满足什么”读取直接相关的需求、决定或已有验收场景。提交新 finding 或人工确认前，必须核对相关源 PR 中该根因的原始讨论及完整回复，确认是否已提出、回复或确认；已读原文在本轮复用。使用关联记录前，完整读取 `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md`，按其证明因果关联、分类并决定本轮关联、排除或 finding。关联仅为读取入口，不证明相关性、授权、风险接受、修复或验收。
+When recovering expected results, read the directly related requirements, decisions, or acceptance scenarios per "Establish What This Stage Must Satisfy" in `references/protocol.md`. Before submitting a new finding or confirmation, check the original discussion and every reply about that root cause in related source PRs to see whether it was raised, answered, or confirmed; reuse text already read this round. Before using linked records, read `$REVIEW_CONTROL_PATH/skills/agentic-review/references/known-issues.md` in full and use it to prove causal links, classify, and decide whether this round links, excludes, or reports. A link is only an entry point and proves no relevance, authorization, risk acceptance, fix, or acceptance.
 
-只读取直接相关的最少条目，按索引的 `repository` 和 `number` 查询原始记录：
+Read only the fewest directly related entries, querying originals by the index's `repository` and `number`:
 
 ```bash
 gh issue view <number> --repo <repository> --comments
 node "$REVIEW_CONTROL_PATH/scripts/read-related-pr.ts" <repository> <number>
 ```
 
-PR 脚本复用当前 PR 的分页读取，输出元数据、全部普通评论、Review、inline comments（含回复）及 thread 状态。大记录可先保存原文，再按当前契约或根因定位相关讨论；按 `root_comment_id`、`in_reply_to_id` 读齐原文、全部回复及状态，相关内容截断时补齐。判断依赖其他讨论或决定时继续读取，已读取内容直接复用。`gh pr view --comments` 不包含行内讨论，不能代替此读取。任一请求或分页失败时脚本报错，不能将失败当成“没有历史问题或确认”。
+The PR script reuses the current PR's paginated reading and prints metadata, all comments, reviews, inline comments with replies, and thread states. Save large records first and locate relevant discussion by the current contract or root cause; read full text, every reply, and state via `root_comment_id` and `in_reply_to_id`, completing truncated parts. Keep reading when the judgment depends on other discussions or decisions. `gh pr view --comments` omits inline discussion and cannot replace this. Any request or pagination failure makes the script fail; never read a failure as "no earlier problem or confirmation".
 
-当前 PR 正文、评论、代码或项目文档明确给出的稳定 Issue/PR 链接或编号也是同等入口。GitHub known issue 的查询集合到此为止；没有匹配记录时结束判断，不扩展历史查询。
+Stable issue/PR links or numbers stated explicitly in the current PR body, comments, code, or project docs are equal entry points. The GitHub known-issue query set ends there; with no matching record the judgment ends without widening history queries.
 
-仅将改变判断或需要续查的来源、关键原文定位和用途记入工作稿，不复制全部讨论或为索引中的每个来源编写排除报告。索引标题、模块相同、closed 状态或时间接近都不能单独证明关联和状态。当前 token 无权读取的对象记录为证据边界，不能推断成“已修复”或“已确认”。
+Record in the workspace only sources that change a judgment or need follow-up, key text locations, and their use; do not copy whole discussions or write exclusion reports per index entry. Titles, shared modules, closed state, or nearby timestamps alone prove neither link nor status. Objects the current token cannot read are evidence limits, never inferred as "fixed" or "confirmed".
 
-完成条件：每个新 finding 或人工确认已与相关源 PR 的原始讨论核对；同根因原样进入或仍在明确决定范围内时，在工作稿关联原记录，公开展示按 `central/review-result.md` 的本轮变化或显式请求范围。当前变化扩大影响、使历史依据失效或重新引入问题时，说明新差异后再提交 finding。
+Done when every new finding or confirmation has been checked against the original discussion in related source PRs. When the same root cause carries over unchanged or stays within an explicit decision, link the original record in the workspace and disclose per this round's changes or explicit request under `central/review-result.md`. When the current change widens impact, invalidates earlier grounds, or reintroduces the problem, state the new difference and submit the finding.
 
-## 5. 来源已审时的叠加审查
+## 5. Stacked Review When the Source Was Reviewed
 
-输入中的 `Source review attribution` 由可信 workflow 生成：当前 PR 的第一父提交链上，某个步骤恰好是已合入 PR 的合入提交，且该 PR 的 head 有同一 Review App 完成的 automatic 审查，则该步骤改动的文件若合入结果与来源 head 一致、且基线一侧相对来源审查的起点未变，ledger 记为 `source_reviewed`。这些文件不重复逐个审查；`source_reviewed` 不能改写。
+The input's `Source review attribution` is generated by the trusted workflow: when a step on the current PR's first-parent chain is the merge commit of an already-merged PR whose head has a completed automatic review by the same Review App, files changed by that step whose merged content matches the source head, and whose base side has not moved relative to the source review's start, are recorded as `source_reviewed`. Do not re-review those files one by one, and never rewrite `source_reviewed`.
 
-不一致的文件列在 `composition_files`，附来源 PR：它们的合入结果包含来源审查者没见过的内容（叠加或冲突解决）。这些文件保持 `pending`，只核对叠加后才成立的语义：同一对象被多个来源分别修改后的组合、迁移与实现的先后顺序、环境变量与配置、被其中一个来源改了一半的规则，以及文档与实现的一致性。需要时用 `read-related-pr.ts` 读取列出的来源 PR，确认来源各自已决定的事项，不重报其中已审结的问题。
+Mismatching files are listed in `composition_files` with their source PRs: their merged content includes something the source reviewers never saw (stacking or conflict resolution). They stay `pending`; check only semantics that arise from the combination: one object modified separately by several sources, ordering between migrations and implementation, environment variables and configuration, rules half-changed by one source, and consistency between docs and implementation. Read the listed source PRs with `read-related-pr.ts` when needed to confirm what each source already decided, and do not re-report problems already settled there.
 
-来源未审、没有来源 PR 或直接提交的文件按普通审查处理，没有额外约束。
+Files whose source was not reviewed, that have no source PR, or that were committed directly are reviewed normally.

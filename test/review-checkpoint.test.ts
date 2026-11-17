@@ -117,7 +117,7 @@ test('returns no checkpoint when no successful review exists', async () => {
   })), null);
 });
 
-test('合并修复后保留可信审查基线，冲突解决仍进入增量差异', async (t) => {
+test('A merged fix keeps the trusted review baseline, while conflict resolutions still enter the incremental diff', async (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-checkpoint-'));
   const originalEnv = { ...process.env };
   const git = (...args: string[]) => execFileSync('git', ['-C', directory, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
@@ -130,11 +130,11 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
     const commitSource = (value: number) => {
       writeFileSync(source, `export const limit = ${value};\n`);
       git('add', 'limit.ts');
-      git('commit', '-m', `设置上限 ${value}`);
+      git('commit', '-m', `Set limit ${value}`);
       return git('rev-parse', 'HEAD');
     };
     const baseSha = commitSource(1);
-    // 同一 base 上有审查记录但未合入当前 head 的提交，不得成为候选。
+    // A reviewed commit on the same base that is not merged into the current head must not become a candidate.
     git('checkout', '-b', 'unmerged');
     const unrelatedSha = commitSource(99);
     git('checkout', 'review');
@@ -142,14 +142,14 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
     git('checkout', '-b', 'fix');
     commitSource(3);
     git('checkout', 'review');
-    git('merge', '--no-ff', 'fix', '-m', '合并小修复');
+    git('merge', '--no-ff', 'fix', '-m', 'Merge small fix');
     const mergedSha = git('rev-parse', 'HEAD');
 
     git('checkout', '-b', 'conflicting-fix');
     commitSource(4);
     git('checkout', 'review');
     commitSource(5);
-    assert.throws(() => git('merge', '--no-ff', 'conflicting-fix', '-m', '合并有冲突的修复'));
+    assert.throws(() => git('merge', '--no-ff', 'conflicting-fix', '-m', 'Merge conflicting fix'));
     const resolvedSha = commitSource(6);
     let expired = false;
     let reviewedBase = baseSha;
@@ -182,7 +182,7 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
     };
 
     for (const [name, headSha, value] of [
-      ['普通合并', mergedSha, 3], ['冲突解决', resolvedSha, 6],
+      ['plain merge', mergedSha, 3], ['conflict resolution', resolvedSha, 6],
     ] as const) {
       await t.test(name, async () => {
         assert.deepEqual(await resolve(headSha), { headSha: reviewedSha, runId: '99', runAttempt: '1', artifactId: '3' });
@@ -194,11 +194,11 @@ test('合并修复后保留可信审查基线，冲突解决仍进入增量差�
     assert.ok(!queried.has(unrelatedSha));
     assert.deepEqual(artifactRequests, Array(2).fill('https://api.github.test/repos/control/review/actions/runs/99/artifacts?per_page=100'));
 
-    await t.test('工作稿过期时不接入基线', async () => {
+    await t.test('A stale working draft is not adopted as baseline', async () => {
       expired = true;
       assert.equal(await resolve(resolvedSha), null);
     });
-    await t.test('不同 base 的完成记录不能复用', async () => {
+    await t.test('Completion records from a different base are not reused', async () => {
       expired = false;
       reviewedBase = 'e'.repeat(40);
       artifactRequests.length = 0;

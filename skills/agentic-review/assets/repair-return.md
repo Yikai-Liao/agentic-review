@@ -1,23 +1,23 @@
-# 提交修复供下一轮复核
+# Returning a Fix for Re-review
 
-编写者修改产物后，用以下信息把新版交回审查者。它是修复任务的交接说明，不授权审查者直接修改目标。
+After revising the artifact, the author hands the new version back with the information below. It is a hand-off for the fix task and does not authorize the reviewer to modify the target.
 
 ```text
-本次修复依据：旧目标版本、原 Review、相关有效决定。
-新目标版本：
+Basis for this fix: old target version, original review, related valid decisions.
+New target version:
 
-处理 F1：
-- 改变了什么机制？
-- 为什么原问题的处理完成条件已经满足？
-- 哪些相邻合法行为仍应保持？
-- 实际执行了哪些验证？版本、环境和原始结果在哪里？
-- 哪些验证没有执行，哪些结论仍无法证明？
+F1:
+- Which mechanism changed?
+- Why is the original completion condition now met?
+- Which adjacent legitimate behavior should still hold?
+- Which verification actually ran? Where are the version, environment, and raw results?
+- Which verification did not run, and which conclusions remain unproven?
 
-修复之外有哪些新增变化：
-是否改变了上层要求或已接受的代价：
-还有哪些问题未解决，或希望明确接受什么风险：
+Other changes beyond the fix:
+Did any higher-level requirement or accepted cost change:
+Which problems remain unresolved, or which risks should be explicitly accepted:
 ```
 
-只修改已获授权的范围。修复须保持原目标、合法输入和必要验证；采用不同于建议方案的修复，只要确实满足要求也可以接受。
+Change only authorized scope. Fixes must keep the original goal, legitimate inputs, and necessary verification; a fix different from the suggestion is acceptable if it truly meets the requirement.
 
-“独立审查通过”由审查者根据新版本和证据复核后标记。
+"Passed independent review" is marked by the reviewer after re-checking the new version and evidence.

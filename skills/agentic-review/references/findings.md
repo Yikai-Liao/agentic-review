@@ -1,91 +1,87 @@
-# 结论的证据要求
+# Evidence Requirements for Findings
 
-正式报告的问题条目称为 **finding**。按证据分别记录问题性质、处理优先级和处理状态：是什么问题、有多急、处理到哪一步。四种性质及其成立条件见下文。
+A reported problem is a **finding**. Record its kind, priority, and status separately: what the problem is, how urgent it is, and how far handling has progressed. The four kinds and their bars follow.
 
-## 报告一条问题前，证据应满足什么要求
+## What Every Finding Must Answer
 
-每条 finding 都必须能回答以下问题：
+- **Is it in scope?** A delta review shows how this change introduced, widened, or re-triggered it; an audit marks it as existing; a new proposal names what it is about to settle wrongly.
+- **On what grounds?** The goal, constraint, or value being optimized has a source outside the artifact's own claims. Explicit decisions are checked for scope and preconditions.
+- **Where exactly does it fail?** Give a checkable scenario and mechanism and say whose use, task, or decision is materially affected. A missing word, suspicious-looking code, majority opinion, or "might be better" is not enough.
+- **What reasonable explanation could account for it?** Check the strongest protections, permitted implementation choices, existing decisions, and reasonable trade-offs, and say why the problem still holds.
+- **How do we know it is handled?** Point to a root cause that can actually be changed, state the requirement to restore or decision to obtain, and give an acceptance endpoint that allows different implementations.
 
-- **属于这次审查吗？** 增量审查应说明本次如何引入、扩大或重新触发问题；整体审计注明它是当前已有的问题；新提案指出本次准备确定的哪项内容存在问题。
-- **凭什么判断？** 目标、约束或要优化的价值必须有来源，不能只来自待审产物自己的宣称。明确决定还要核对其适用范围与前提。
-- **具体哪里不成立？** 给出可检查的场景和机制，说明谁的使用、任务或决定受到什么实际影响。缺少某个词、代码长得可疑、多数人赞同或“可能更好”都不够。
-- **哪些合理情况可能解释它？** 核对最有力的保护、允许的实现选择、已有决定和合理取舍，并说明问题为何仍成立。
-- **怎样确认处理完成？** 定位能够实际修改的根因，说明应恢复的要求或应补齐的决定，并给出允许不同实现的验收终点。
+If any answer is missing, keep the exclusion reason or evidence limit and leave the suspicion in the workspace.
 
-任何一项缺失时，保存排除理由或证据限制，将疑点留在工作稿；正式 finding 仍须满足本节全部要求。
+## The Four Kinds
 
-## 区分四种结论
+### Defect: `defect`
 
-### 缺陷：defect
+The artifact is proven to violate a grounded requirement. The evidence links the requirement, a trigger or ordering that can really occur, the current rule or mechanism, and the resulting wrong outcome and who is affected.
 
-已经证明产物违反了有依据的要求。证据应连起：应满足的要求、实际允许出现的触发条件或顺序、当前规定或机制，以及由此产生的错误结果和受影响者。
+Explicit contradictions in documents and static code reasoning can prove defects; record which form of proof was used. Undefined details stay unknown; content that may legitimately wait follows the stage plan; "defect" is reserved for proven violations.
 
-文档中的明确矛盾、静态代码推演也能证明缺陷；证据记录须标明实际使用的证明方式。尚未定义的细节记为未知；合法留待后续阶段决定的内容按阶段安排处理；缺陷结论保留给已经证明的违约。
+### Decision needed now: `decision`
 
-### 当前需要作出的决定：decision
+A choice, authorization, or necessary fact that follow-on work already depends on is unresolved. State all of:
 
-有一项选择、授权或必要事实，当前的后续工作已经依赖它，却还没有得到解决。必须同时说明：
+1. which planned decision or delivery depends on the answer;
+2. how different answers change responsibility, compatibility, guarantees, cost, or execution path;
+3. why existing material cannot resolve it, and why no one else is legitimately assigned to resolve it before the dependency;
+4. the smallest question to answer, who may answer it, and the affected scope.
 
-1. 哪项已计划的决定或交付依赖这个答案；
-2. 不同答案会怎样改变责任、兼容性、保证、成本或执行路径；
-3. 现有资料为何无法解决，以及依赖发生前为何缺少由其他人解决的合法安排；
-4. 最小需要回答的问题、谁有权回答，以及受影响的范围。
+A missing retry count or metric on its own, or an unproven defect guess, stays in the investigation notes.
 
-报告 decision 须证明当前依赖：单独缺少重试次数或某项指标，或者尚未证明的缺陷猜测，都留在调查记录中。
+### Grounded improvement: `improvement`
 
-### 有依据的改进机会：improvement
+No violation is proven, but a better approach is demonstrably worth considering, and this kind of optimization is in scope — explicitly requested or a default duty of the chosen level.
 
-没有证明违反要求，但能证明存在值得考虑的更好做法，而且本次范围确实包括这类优化：用户明确委托，或所选层级默认承担。
+Show the real task and evaluation goal, the cost of the current mechanism, a feasible alternative that keeps the necessary guarantees, and how the benefit compares with migration, new coupling, and learning costs. Some methods require stronger proof, such as showing no independent detection power is lost before deleting a test.
 
-证据应说明真实任务与评价目标、当前机制带来的成本、保持必要保证的可行替代，以及收益与迁移、新耦合、学习等代价的比较。某些方法还要求更严格的证明，例如删除测试前确认不会损失独立检测能力。
+Improvements do not block delivery by default. A clear violation of an agreed goal is proven as a defect; "the user wants it simpler" only authorizes investigating evidenced complexity cost.
 
-改进机会默认不阻断交付。明确违反约定目标时按缺陷证明；“用户希望简单一点”只授权调查有证据的复杂性成本。
+### Insufficient verification now: `verification-gap`
 
-### 当前验证不足：verification-gap
+A guarantee already needs verification evidence, but current verification cannot detect the relevant error. Requires all of:
 
-当前已经需要用验证结果支撑某项保证，但现有验证无法有效识别相关错误。必须同时具备：
+1. a grounded verification requirement due at this stage;
+2. a local error drawn from a real mechanism or boundary;
+3. analysis showing the error violates the guarantee yet escapes the relevant existing verification;
+4. the smallest added observation that separates right from wrong while keeping adjacent legitimate behavior.
 
-1. 有独立依据的、当前阶段应完成的验证要求；
-2. 一种来自真实机制或边界的局部错误；
-3. 对照分析表明该错误违反保证，却不能被现有相关验证发现；
-4. 最少增加什么观察，就能区分正确与错误，同时保留相邻的合法行为。
+Verification adequacy must also be in scope. Low coverage, "more tests later", and general unknowns do not qualify.
 
-验证充分性还须属于受托范围。此结论只说明现有证据无法识别相关错误；低覆盖率、“以后可以多测”和一般未知不足以成立。
+An acceptance check that accepts errors or rejects legitimate behavior can be a defect; a verification gap means discriminating evidence is still missing. The chosen method gives the specific proof; do not report one root cause twice.
 
-已有验收判定会接受错误或拒绝合法行为，可以是缺陷；验证缺口则指尚需补充有效区分证据。两者具体证明见所选方法，同一根因不重复报告。
+The four kinds serve every focus; do not invent a new kind per focus. If a new way of holding true genuinely cannot be expressed, a maintainer first states what evidence it needs and what refutes it, then changes this file; reviewers never add looser categories mid-review.
 
-四种性质适用于不同视角，不为每个新视角另造一套类型。确实无法表达新的成立方式时，由维护者先说明需要什么证据、哪些情况能推翻它，再统一修改本文件；执行中的审查者不临时增加宽松类别。
+## Priority and Owner
 
-## 判断优先级，并找到正确的处理者
+Once a finding holds, judge priority by real impact, the delivery at hand, and urgency: blocks the relevant delivery or decision, can proceed in isolation while fixed, or is scheduled independently. When saying "blocks", name the delivery or decision that depends on it; the scope may be narrower than the whole project. Levels such as code may define display labels, which must rest on the proof.
 
-先确认成立，再根据实际影响、当前交付和紧迫性判断：阻断相关交付或决定、修正期间可隔离推进，或者独立安排。使用“阻断”时，说明哪项交付或决定依赖该问题解决，范围可小于整个项目。代码层等可以定义展示标签，标签须以问题证明为依据。
+Give each independently fixable root cause a stable ID for the round, such as F1. If one change removes several symptoms, report one finding with all relevant acceptance checks; split only causes that need separate fixes. Report a production violation and the test that endorses it together. Link unchanged earlier problems to their original IDs.
 
-为每个可独立处理的根因分配一个稳定的本轮编号，例如 F1。修改同一处就能消除多个现象时，合为一条并保留相关验收；只有需要独立修复的原因才分开。生产违约与为它背书的测试合并报告；明确矛盾直接作为缺陷处理。原有问题没有变化时，关联原编号。
+Assign handling by the authority the fix needs:
 
-根据修改所需的权限分配处理：
+- Solvable within existing requirements and authorization: the author of this level.
+- Requires changing shared responsibility, interfaces, scope, important guarantees, or accepted costs: keep the counterexample and hand it to whoever can decide.
+- A higher-level document itself conflicts with the original goal: show both sources; "approved" does not oblige the lower level to implement an error.
 
-- 在既有要求和授权内就能解决，交给本层的编写者。
-- 必须改变共享责任、接口、范围、重要保证或已接受代价，保留反例，交还给有权决定的人或相应上层。
-- 上层文件本身与原始目标冲突，并列双方依据，不因它“已批准”就要求下层实现错误。
+When the owner is unclear, state the open responsibility and evidence; never grant authority yourself. Accepting a business cost grants no run, release, or deploy permission.
 
-处理者不明确时，说明待确定的责任及证据，不自行授予权限。接受业务代价不授予运行、发布或部署权限。
+## Output
 
-## 输出
+Lead with a one-sentence conclusion and put key scope limits right next to it; then list the problems to handle. Write each finding so it stands alone, following [Writing the report](reporting.md).
 
-先给出一句当前结论，把关键范围限制紧邻结论说明；随后列出需要处理的问题。
+Keep static reasoning, existing measurements, and unverified parts distinct in the workspace, along with the full investigation and exclusion reasons. Public text expands only the conditions and evidence needed to understand the conclusion; the caller's format governs disclosure. When facts are missing, say what material is needed; when a trade-off is needed, state the options and costs.
 
-正文直接说明事实、影响和下一步，性质与状态标签用于归类。每条应能独立读懂：交代触发条件、预期与实际、所审版本和位置，以及导致偏差的因果依据。处理完成条件说明应恢复的要求或应补齐的决定，以及如何复核原触发和相邻合法行为。
+The location points to the smallest actionable root cause in the reviewed version: line ranges for code, clauses or the owner of an omitted responsibility for requirements and design. Never invent diff lines.
 
-在工作稿中区分静态推演、已有实测和尚未验证的部分，保存完整调查和排除理由。公开评论只展开理解结论所需的条件与依据，具体披露方式遵循调用方要求。缺少影响判断的事实时，说明需补什么材料；需作取舍时写清选择与代价。
+Track problem status in the workspace under the F IDs and update it per [status evidence](review-state.md#evidence-for-status-changes). Code-level P labels express proven impact and may convey priority; T labels describe how a test fails. Kind and status are still recorded separately.
 
-位置指向所审版本中最小可操作根因。代码可用行范围，需求和设计可用条款或明确遗漏的责任位置，不虚构 diff 行。简单问题用短段即可，需要组织提示时使用[问题模板](../assets/finding.md)，不要求填满一张表。
+With no findings, say why the reviewed change or requirement matches its sources within the checked scope, and keep the evidence limits. Omit empty sections and limit conclusions to the checked scope; merge approval belongs to the relevant authority.
 
-问题的处理状态保存在工作稿的 F 编号条目中，按[状态变更的证据要求](review-state.md#状态变更需要什么证据)更新；新 finding 的公开字段沿用任务指定格式。代码层的 P 标签按已证明的影响表达严重度，可用于说明处理优先级；T 标签说明测试失败方式。问题性质和处理状态仍分别记录。
+Directly related earlier problems or decisions get a current status and a link in the workspace even without a new finding. Public disclosure follows the caller's rules for this change; an object explicitly sent for re-review gets a direct answer. Unresolved stays unresolved; partial fixes name the remaining trigger; accepted items name the accepted scope; fix status follows fix evidence. A change that only touches an old problem is noted on the original entry. Limit history to what is related and cite stable IDs or recoverable sources.
 
-没有 finding 时，说明所审变化或要求为什么在已查范围内与依据一致，并保留证据限制。省略空章节，将结论限定在已查范围；批准合并由相应权限和流程决定。完成与复核按[工作稿规则](review-state.md)处理。
+A required output format changes the packaging, not the judgment. If a discussion or status refresh is required before submission, do it first. When a needed rule body is missing or the output format is uncertain, recover it from the trusted source named by the task; never infer the current interface from the reviewed artifact or earlier results.
 
-直接相关的历史问题或决定，即使没有产生新 finding，也要核定当前状态并在工作稿关联原记录。公开展示遵循调用方规定的本轮变化范围；显式请求复核的对象仍须直接答复。未解决的仍写未解决，部分修复说明剩余触发，已接受的说明具体范围，修复状态另按修复证据判断。仅触及原问题时在原条目说明本次影响。调查限于相关历史，引用已有稳定 ID 或可恢复来源。
-
-任务要求的输出格式只改变封装，不改变判断。提交前需要刷新讨论或状态时，先完成再生成结果。当前步骤需要的审查规则正文缺失或无法确认输出格式时，从任务指定的可信来源恢复，不能根据待审产物或历史结果猜测本轮接口。
-
-如果固定输出格式无法表达一个已成立的结论，保留工作稿并明确报告接口限制。输出只能使用获授权的接口和标签，且必须保留已成立结论。提交成功后结束本轮。
+If the fixed format cannot express an established conclusion, keep the workspace and report the interface limit explicitly. Use only authorized interfaces and labels and never drop an established conclusion. End the round after a successful submission.

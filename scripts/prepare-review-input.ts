@@ -28,7 +28,7 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
     || snapshot.headSha !== context.request.head_sha) throw new Error('PR snapshot does not match the review request');
   const { discussion, baseline } = discussionSnapshot;
   const { body, ...metadata } = snapshot.metadata;
-  // 来源已审的文件清单由 ledger 体现；请求材料不重复列出。
+  // Source-reviewed files are reflected in the ledger; request material does not list them again.
   const { source_reviewed: _sourceReviewed, ...requestContext } = context;
   section('request', 'Review request', JSON.stringify(requestContext, null, 2), 'request');
   section('metadata', 'Untrusted PR metadata', JSON.stringify(metadata, null, 2));
@@ -39,7 +39,7 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
   section('associations', 'PR association index', JSON.stringify(associations, null, 2));
   const attribution: SourceAttribution = JSON.parse(readFileSync(required('REVIEW_ATTRIBUTION_PATH'), 'utf8'));
   if (attribution.pull_requests.length) {
-    // 已审来源 PR 的文件不再逐个审查；叠加后内容与来源 head 不同的文件需要核对叠加语义。
+    // Files from reviewed source PRs are not reviewed one by one; files whose stacked content differs from the source head need composition checks.
     section('associations', 'Source review attribution', JSON.stringify({
       source_reviewed_files: context.source_reviewed.length,
       reviewed_pull_requests: attribution.pull_requests,
@@ -63,7 +63,7 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
       try {
         execFileSync('git', ['-C', target, 'rev-parse', '--verify', '--quiet', `${previousHead}^{commit}`], { stdio: 'pipe' });
       } catch (error) {
-        // force-push 可移除历史 head；摘要不可得不改变完整 PR 的审查义务。
+        // A force-push can remove the earlier head; an unavailable summary does not change whole-PR review obligations.
         if ((error as { status?: number }).status === 1) return null;
         throw error;
       }
@@ -79,7 +79,7 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
   ] as const) {
     if (file) section('workspace', title, readFileSync(file, 'utf8'));
   }
-  // 审查清单中路径的祖先指令可在启动前确定；后续扩展调查的目录仍按需读取。
+  // Ancestor instructions of listed paths are known before startup; directories reached later are still read on demand.
   const ruleFiles = new Set(['.agentic-review.md', 'AGENTS.md']);
   const progress: ReviewProgress = JSON.parse(readFileSync(manifest.paths.progress, 'utf8'));
   for (const { path: filename } of progress.ledger) {
@@ -96,17 +96,17 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
     if (after !== undefined) section('rules', `${before === after ? 'Base = Head' : 'Head'} ${filename}`, after, 'request');
   }
 
-  // 每个文件、每个实际比较区间是独立材料；大 diff 不挤掉小 patch 或相关讨论。
-  // 请求已固定 merge base；统一成两点区间，避免显式请求重复生成相同 full patch。
+  // Each file and each actual comparison range is separate material, so a large diff never crowds out small patches or related discussion.
+  // The request already pins the merge base; use two-dot ranges so explicit requests never regenerate the same full patch.
   const full = `${context.request.comparison_start}..${context.request.head_sha}`;
   const checkpoint = context.request.source === 'automatic' ? env.REVIEW_CHECKPOINT_HEAD : undefined;
   const comparisons = new Map<string, { title: string; use: ReviewMaterial['use'] }>([
-    [full, { title: '完整 PR', use: !checkpoint && context.request.source === 'automatic' ? 'changes' : 'reference' }],
+    [full, { title: 'Whole PR', use: !checkpoint && context.request.source === 'automatic' ? 'changes' : 'reference' }],
   ]);
-  if (checkpoint) comparisons.set(`${checkpoint}..${context.request.head_sha}`, { title: '本轮增量', use: 'changes' });
+  if (checkpoint) comparisons.set(`${checkpoint}..${context.request.head_sha}`, { title: 'This round\'s increment', use: 'changes' });
   if (context.request.source === 'pr_comment') {
     for (const range of context.default_plan.ranges) {
-      comparisons.set(`${range.comparison_start}..${range.comparison_end}`, { title: '请求区间', use: 'changes' });
+      comparisons.set(`${range.comparison_start}..${range.comparison_end}`, { title: 'Requested range', use: 'changes' });
     }
   }
   const gitArgs = ['-C', target, '--no-pager', '--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', '--no-renames'];
@@ -119,7 +119,7 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
     }
   }
 
-  // 变化标记只比较快照，不代表旧记录已经审查或已获确认。
+  // Change markers only compare snapshots; they do not mean old records were reviewed or confirmed.
   const previousBaselinePath = previousPath && path.join(previousPath, 'discussion-baseline.json');
   const previous: DiscussionBaseline | undefined = previousBaselinePath && existsSync(previousBaselinePath)
     ? JSON.parse(readFileSync(previousBaselinePath, 'utf8')) : undefined;
@@ -142,7 +142,7 @@ export async function prepareReviewInput(snapshot: ReviewSnapshot, discussionSna
     }
   }
   writeReviewInput(required('REVIEW_INPUT_PATH'), materials);
-  // 刷新时按 ID 合并启动原文与增量，直接交付完整的变化 thread；不新增消费游标。
+  // Refresh merges startup text and increments by ID and delivers complete changed threads, with no consumption cursor.
   writeFileSync(`${required('REVIEW_INPUT_PATH')}.discussion.json`, JSON.stringify({
     inline_comments: discussion.inline_comments, threads: discussion.threads,
   }), { mode: 0o600 });

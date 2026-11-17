@@ -1,8 +1,8 @@
-# 文档
+# Documentation
 
-- [通用化说明：能力边界、迁移与验证记录](generalized-review.md)
-- [可安装的审查 Skill](../skills/agentic-review/SKILL.md)
-- [中央 Review 协议](central-review.md)
-- [部署中央 Review](deploy-central-review.md)
+- [Installable review skill](../skills/agentic-review/SKILL.md)
+- [Central review protocol](central-review.md)
+- [Deploying central review](deploy-central-review.md)
+- [Lark app and authorizing user guide](lark-operations.md)
 
-Webhook 入口代码和 Cloudflare 配置见 [`../worker/`](../worker/)。
+Webhook entry code and Cloudflare configuration live in [`../worker/`](../worker/).

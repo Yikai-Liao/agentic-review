@@ -10,7 +10,7 @@ import { test } from 'node:test';
 const exec = promisify(execFile);
 
 for (const source of ['automatic', 'pr_comment'] as const) {
-test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async () => {
+test(`${source}: the CLI publishes by the trusted request and maintains review completion state`, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-pipeline-'));
   const writes: unknown[] = [];
   let failReview = false;
@@ -90,7 +90,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
       REVIEW_TRIGGER_SOURCE: source, GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath,
       REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: '', REVIEW_COMMENT_ID: source === 'automatic' ? '' : '123',
       REVIEW_COMMENT_ROOT_ID: source === 'automatic' ? '' : '123',
-      REVIEW_COMMENT_BODY: source === 'automatic' ? '' : '@agentic-review 请核对文档与 PR 的关系\r\nhttps://example.feishu.cn/wiki/test',
+      REVIEW_COMMENT_BODY: source === 'automatic' ? '' : '@agentic-review please check how the doc relates to the PR\r\nhttps://example.feishu.cn/wiki/test',
     };
     await exec(process.execPath, ['scripts/review-request.ts'], { env });
     const outputs = Object.fromEntries((await readFile(outputPath, 'utf8')).trim().split('\n').map((line) => line.split('=')));
@@ -100,12 +100,12 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     const progress = JSON.parse(await readFile(progressPath, 'utf8'));
     assert.deepEqual(Object.keys(progress), ['ledger', 'scope']);
     assert.deepEqual(progress.ledger, [{ path: 'auth.ts', status: 'pending' }]);
-    progress.scope = { mode: 'full', rationale: '完整审查', explicit_text: '',
+    progress.scope = { mode: 'full', rationale: 'Full review', explicit_text: '',
       ranges: [{ targets: ['complete pull request'], comparison_start: base, comparison_end: head }] };
-    // 模型可以整段重写进度，但文件中没有要原样搬运的请求或机器状态。
+    // The model may rewrite progress wholesale, but the file holds no request or machine state to copy verbatim.
     await writeFile(progressPath, JSON.stringify(progress, null, 2));
     const resultPath = path.join(workspace, 'review-result.json');
-    await writeFile(resultPath, JSON.stringify({ body: '已审查鉴权变化。', comments: [], thread_updates: [], request_reply: null }));
+    await writeFile(resultPath, JSON.stringify({ body: 'Reviewed the auth change.', comments: [], thread_updates: [], request_reply: null }));
     const usage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, totalTokens: 43230,
       cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
     const usagePath = path.join(workspace, 'review-usage.json');
@@ -120,9 +120,9 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     const publish = () => exec(process.execPath, ['scripts/publish-review.ts'], { env: publishEnv });
     const assemble = () => exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: publishEnv });
     if (source === 'automatic') {
-      // 请求身份不变、只改默认范围也必须被准备阶段的摘要拦住。
+      // Changing only the default scope with the same request identity must also be caught by the preparation digest.
       const tampered = JSON.parse(sealedContext);
-      tampered.default_plan.ranges[0].targets = ['仅审查模型选择的文件'];
+      tampered.default_plan.ranges[0].targets = ['only files the model chose'];
       await chmod(contextPath, 0o600);
       await writeFile(contextPath, JSON.stringify(tampered));
       await assert.rejects(assemble(), /trusted preparation digest/);
@@ -140,7 +140,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
       await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, PULL_NUMBER: '8' } }), /context does not match/);
       await assert.rejects(exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: { ...publishEnv, HEAD_SHA: base } }), /context does not match/);
       await assemble();
-      // 时间预算内未审完时发布已审部分，由可信清单列出未审文件，且不能成为完整审计 checkpoint。
+      // When the time budget runs out, the reviewed part is published, a trusted list names unreviewed files, and it never becomes a complete audit checkpoint.
       await publish();
       assert.equal(writes.length, 1);
       const partialBody = (writes[0] as { body: string }).body;
@@ -151,25 +151,25 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
       assert.equal(partialPublished.complete_audit, false);
       assert.match(await readFile(outputPath, 'utf8'), /coverage_pending=1\ncoverage_total=1/);
       writes.length = 0;
-      await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: '改写请求' } }));
+      await writeFile(progressPath, JSON.stringify({ ...progress, request: { text: 'rewritten request' } }));
       await assert.rejects(assemble(), /progress fields/);
     }
     progress.ledger[0] = { path: 'auth.ts', status: 'complete' };
     await writeFile(progressPath, JSON.stringify(progress));
     await assemble();
     assert.deepEqual(JSON.parse(await readFile(coveragePath, 'utf8')).ledger, progress.ledger);
-    const bodyFinding = '没有需要处理的问题。\n\n### 合并后的行为\n\nauth.ts 的写入路径保留原有权限约束。';
+    const bodyFinding = 'No issues to address.\n\n### Behavior after merge\n\nThe auth.ts write path keeps its permission constraints.';
     await writeFile(resultPath, JSON.stringify({ body: bodyFinding, comments: [], thread_updates: [], request_reply: null }));
     await rm(usagePath);
     await assert.rejects(publish(), /review-usage.json/);
-    assert.equal(writes.length, 0, '缺失费用分项不能发布一份看似完整的统计');
+    assert.equal(writes.length, 0, 'Missing cost breakdowns must not publish seemingly complete stats');
     await writeFile(usagePath, JSON.stringify({ turns: 1, priceKnown: true, first: usage, total: usage }));
     await publish();
     assert.equal(writes.length, 1);
     assert.ok((writes[0] as { body: string }).body.includes(bodyFinding));
     assert.equal((writes[0] as { commit_id: string }).commit_id, head);
     assert.match((writes[0] as { body: string }).body, /费用约 \$0\.0032/);
-    // 用量明细只经步骤输出进入 Check，PR 正文只保留一行运行信息。
+    // Usage details reach the Check only through step output; the PR body keeps one line of run info.
     assert.doesNotMatch((writes[0] as { body: string }).body, /首轮缓存命中/);
     const checkTextOutput = (await readFile(outputPath, 'utf8')).split(/^check_text<<(check_text_[\w-]+)\n/m);
     assert.match(checkTextOutput.at(-1)!, new RegExp(`首轮缓存命中 4\\.6%[\\s\\S]*成功 \\d+；失败 0[\\s\\S]*\\n${checkTextOutput.at(-2)}\\n$`));
@@ -179,9 +179,9 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     assert.equal(published.complete_audit, source === 'automatic');
     assert.equal(published.request.text, env.REVIEW_COMMENT_BODY);
     assert.equal(await readFile(contextPath, 'utf8'), sealedContext);
-    // PR 评论请求保留独立答复；只有完整自动审查受同类运行取代检查约束。
+    // PR comment requests keep their own reply; only complete automatic reviews are subject to the supersession check.
     if (source === 'pr_comment') return;
-    // 新运行已开始或 Check 读取失败时，CLI 均退出失败且不写入 PR，也不保留覆盖完成状态。
+    // When a newer run has started or the Check read fails, the CLI exits with failure, writes nothing to the PR, and keeps no coverage completion.
     for (const checksUnavailable of [false, true]) {
       latestRun = 21;
       failChecks = checksUnavailable;
@@ -194,20 +194,20 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     }
     latestRun = 20;
     failChecks = false;
-    // 新问题随正文一次发布；收起旧总评失败时新总评照常发布，但退出失败且不能推进 checkpoint。
+    // New findings publish with the body at once; if collapsing the old summary fails, the new summary still publishes but the run exits with failure and cannot advance the checkpoint.
     await assemble();
     reviews.push({ id: 1, html_url: 'https://github.test/review/1', user: { login: 'review-app[bot]' },
-      body: '<!-- agentic-review-publication:old --><!-- agentic-review:automatic-summary -->\n## 自动审查：没有需要处理的问题\n\n旧结论' });
+      body: '<!-- agentic-review-publication:old --><!-- agentic-review:automatic-summary -->\n## 自动审查：没有需要处理的问题\n\nEarlier conclusion' });
     failCollapse = true;
-    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [{
-      path: 'auth.ts', line: 1, start_line: null, label: 'P2', title: '未授权请求可到达写入路径', body: 'finding',
+    await writeFile(resultPath, JSON.stringify({ body: 'Review body', comments: [{
+      path: 'auth.ts', line: 1, start_line: null, label: 'P2', title: 'Unauthorized requests reach the write path', body: 'finding',
     }], thread_updates: [], request_reply: null }));
     const beforePartial = writes.length;
     await assert.rejects(publish(), /old review unavailable/);
     assert.equal(writes.length - beforePartial, 2);
     const bundled = writes[beforePartial] as { comments: Array<{ path: string; line: number; body: string }> };
     assert.deepEqual(bundled.comments.map(({ path, line }) => ({ path, line })), [{ path: 'auth.ts', line: 1 }]);
-    assert.match(bundled.comments[0].body, /\*\*P2：未授权请求可到达写入路径\*\*/);
+    assert.match(bundled.comments[0].body, /\*\*P2：Unauthorized requests reach the write path\*\*/);
     const partialCoverage = JSON.parse(await readFile(coveragePath, 'utf8'));
     assert.equal(partialCoverage.status, 'draft');
     assert.equal(partialCoverage.complete_audit, false);
@@ -222,9 +222,9 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
     await assert.rejects(publish(), /review unavailable/);
     const failedReview = JSON.parse(await readFile(reportPath, 'utf8'));
     assert.equal(failedReview.operations.find((item: any) => item.id === 'Review 正文').status, 'failed');
-    // GitHub 全部成功时，任一报告出口失败仍须回写 draft，不能保留已有 published 状态。
+    // Even when every GitHub write succeeds, any failed report outlet must write back draft instead of keeping the published state.
     failReview = false;
-    await writeFile(resultPath, JSON.stringify({ body: '审查正文', comments: [], thread_updates: [], request_reply: null }));
+    await writeFile(resultPath, JSON.stringify({ body: 'Review body', comments: [], thread_updates: [], request_reply: null }));
     for (const outlet of ['report', 'summary']) {
       await writeFile(coveragePath, JSON.stringify(published));
       if (outlet === 'report') {
@@ -292,8 +292,8 @@ test('trusted inventory includes reverted incremental files and intervals from r
     const oldRequest = buildReviewRequest({ source: 'pr_comment', commentId: '1', rootCommentId: '1',
       repository: 'owner/repo', pullNumber: 7, baseSha: a, headSha: b, runId: '10' });
     const old = { ...initialReviewCoverage(oldRequest), status: 'draft',
-      scope: { kind: 'pr', mode: 'focused', rationale: '只看鉴权',
-        explicit_text: '只看鉴权', ranges: [{ targets: ['auth.ts'], comparison_start: a, comparison_end: b }] } };
+      scope: { kind: 'pr', mode: 'focused', rationale: 'Auth only',
+        explicit_text: 'Auth only', ranges: [{ targets: ['auth.ts'], comparison_start: a, comparison_end: b }] } };
     const nextRequest = { ...oldRequest, head_sha: c };
     const publishedPlan = prepareDefaultReviewPlan(nextRequest, { ...old, status: 'published',
       scope: { ...old.scope, kind: 'pr', mode: 'focused' } }, () => true);
@@ -325,7 +325,7 @@ test('trusted inventory includes reverted incremental files and intervals from r
     coverage.ledger[1].status = 'out_of_scope';
     await assert.rejects(validateCoverageCompletion(coverage, outputs.inventory_digest), /Incomplete coverage: auth.ts/);
     await assert.rejects(validateCoverageCompletion({ ...coverage, ledger: [coverage.ledger[1]] }, outputs.inventory_digest), /inventory/);
-    // 第二轮保存实际范围后仍失败；第三轮必须继续携带 A→B 和 B→C。
+    // The second round saves its actual scope and still fails; the third must keep carrying A→B and B→C.
     await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify(coverage));
     await writeFile(path.join(directory, 'payments.ts'), 'new payments');
     git('add', 'payments.ts'); git('commit', '-qm', 'third');
@@ -336,7 +336,7 @@ test('trusted inventory includes reverted incremental files and intervals from r
     assert.deepEqual(third.default_plan!.ranges.map((range: { comparison_start: string; comparison_end: string }) =>
       [range.comparison_start, range.comparison_end]), [[a, b], [b, c], [c, d]]);
     assert.deepEqual(third.ledger.map((entry: { path: string }) => entry.path), ['auth.ts', 'payments.ts']);
-    // 时间预算内部分发布的工作稿是合法的上一轮记录，其未审范围同样由下一轮承接。
+    // A working draft partially published within the time budget is a valid previous record, and the next round inherits its unreviewed scope too.
     await chmod(oldWorkspace, 0o700);
     await writeFile(path.join(oldWorkspace, 'review-coverage.json'), JSON.stringify({ ...coverage, status: 'published' }));
     await exec(process.execPath, ['scripts/review-request.ts'], { env: { ...env, REVIEW_PREVIOUS_PUBLISHED: 'true',

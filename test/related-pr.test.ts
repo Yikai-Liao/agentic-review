@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { main } from '../scripts/read-related-pr.ts';
 
-test('关联 PR 完整保留跨页行内确认及其问题和 thread 状态', async () => {
+test('A related PR keeps inline confirmations across pages with their questions and thread state', async () => {
   const run = async (command: string, args: string[]) => {
     assert.equal(command, 'gh');
-    if (args.includes('view')) return JSON.stringify({ number: 379, title: '按节点状态控制操作', state: 'MERGED' });
+    if (args.includes('view')) return JSON.stringify({ number: 379, title: 'Gate actions by node state', state: 'MERGED' });
     assert.ok(args.includes('--paginate'));
     assert.ok(args.includes('--slurp'));
     if (args.includes('graphql')) return JSON.stringify([{ data: { repository: { pullRequest: {
@@ -17,26 +17,26 @@ test('关联 PR 完整保留跨页行内确认及其问题和 thread 状态', as
     } } } }]);
     const route = args.at(-1)!;
     if (route.includes('/pulls/379/comments?')) return JSON.stringify([
-      [{ id: 1, body: '终止会话是否允许节点操作？', path: 'task-node-phase.ts' }],
-      [{ id: 2, body: '已确认：入口仅由当前节点产物判断。', in_reply_to_id: 1 }],
+      [{ id: 1, body: 'Are node actions allowed after the session ends?', path: 'task-node-phase.ts' }],
+      [{ id: 2, body: 'Confirmed: the entry is decided only by the current node\'s artifacts.', in_reply_to_id: 1 }],
     ]);
-    return JSON.stringify([[{ id: 3, body: route.includes('/reviews?') ? '历史总评' : '普通评论' }]]);
+    return JSON.stringify([[{ id: 3, body: route.includes('/reviews?') ? 'Earlier review summary' : 'Plain comment' }]]);
   };
   const result = JSON.parse(await main('owner/repo', '379', run));
   assert.equal(result.repository, 'owner/repo');
   assert.equal(result.number, 379);
   assert.equal(result.metadata.state, 'MERGED');
-  assert.equal(result.issue_comments[0].body, '普通评论');
-  assert.equal(result.reviews[0].body, '历史总评');
+  assert.equal(result.issue_comments[0].body, 'Plain comment');
+  assert.equal(result.reviews[0].body, 'Earlier review summary');
   assert.equal(result.inline_comments.length, 2);
   assert.equal(result.inline_comments[1].in_reply_to_id, result.inline_comments[0].id);
-  assert.equal(result.inline_comments[1].body, '已确认：入口仅由当前节点产物判断。');
+  assert.equal(result.inline_comments[1].body, 'Confirmed: the entry is decided only by the current node\'s artifacts.');
   assert.equal(result.threads[0].root_comment_id, 1);
   assert.equal(result.threads[0].isResolved, true);
   assert.equal(result.threads[0].isOutdated, true);
 });
 
-test('关联 PR 查询失败或目标无效时不能返回空讨论', async () => {
+test('A failed related PR query or invalid target never returns an empty discussion', async () => {
   const unavailable = async () => { throw new Error('HTTP 403'); };
   await assert.rejects(main('owner/repo', '379', unavailable), /HTTP 403/);
   await assert.rejects(main('owner/repo', 'invalid', unavailable), /Invalid PR target/);

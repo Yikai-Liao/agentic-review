@@ -1,78 +1,78 @@
-# 共同调查方法
+# Shared Investigation Protocol
 
-各层共用以下调查要求，具体方法由所选层级和视角提供。已有证据可以复用，每个疑点只补充当前判断缺少的材料和步骤。
+All levels share these requirements; the chosen level and focuses supply the specific methods. Reuse existing evidence and add only the material and steps the current judgment still lacks.
 
-## 固定本次审查的对象和范围
+## Fix the Target and Scope
 
-先记录要审的对象及其版本。代码可以用 commit，文档可以用修订号、保存的正文或内容哈希；目的都是让后续人员能恢复同一份材料。目标更新时，可以完成原版本的调查，也可以重新调查受影响的部分，但不能把两个版本的证据拼成同一个结论。
+Record the target and its version: a commit for code; a revision, saved text, or content hash for documents — anything that lets a later reader recover the same material. When the target changes, either finish the old version or reinvestigate the affected parts, but never combine evidence from two versions into one conclusion.
 
-区分两种范围：
+Distinguish two scopes:
 
-- **增量审查（delta）**：检查本次引入、扩大或重新触发的问题，以及新提案本次准备确定的内容。报告时说明它与当前变化的关系。
-- **整体审计（audit）**：检查明确指定范围的当前状态，可以报告其中已有的问题，但不能声称这些问题由本次变化引入。
+- **Delta review**: problems introduced, widened, or re-triggered by this change, plus whatever a new proposal is about to settle. Say how each finding relates to the change.
+- **Audit**: the current state of an explicitly named scope. It may report existing problems but must not claim this change introduced them.
 
-同时明确当前要作出的决定或交付、所选层级与视角、原始依据、权限、输出要求和可用的历史记录。新提案直接以原始目标为判断依据。已有信息足够的部分继续调查；只有信息缺口会改变判断时才询问，审查范围保持本轮委托。
+Also pin down the decision or delivery at stake, the chosen level and focuses, original sources, permissions, output requirements, and available history. Judge new proposals directly against the original goal. Keep going where information suffices; ask only when a gap would change the judgment, and keep the delegated scope.
 
-## 先查清当前阶段需要满足什么
+## Establish What This Stage Must Satisfy
 
-### 找到独立于待审产物的依据
+### Find sources independent of the artifact
 
-先读用户原话、有效决定和实际使用场景，再查接口、数据约定及实际调用方。这些有独立依据、产物需要遵守的行为约定称为**契约**，例如调用条件、返回结果或数据保留要求。审查需求本身时，直接从原始诉求和实际场景判断。
+Read the user's words, valid decisions, and real usage first, then interfaces, data agreements, and actual callers. Behavior the artifact must honor on independent grounds is a **contract**: call conditions, return values, retention rules, and so on. When reviewing requirements themselves, judge from the original request and real scenarios.
 
-已有代码和系统基线说明现状，作者摘要用于定位材料。同期新增的代码、测试和注释共享同批假设，不能互证正确性；预期行为须来自用户目标、有效决定或外部约定。
+Existing code and system baselines describe the current state; author summaries help locate material. Code, tests, and comments written together share assumptions and cannot vouch for each other; expected behavior must come from user goals, valid decisions, or external contracts.
 
-**独立依据可以来自当前决定。** 当前明确的业务决定可以改变预期，是否有效按任务给定的来源规则判断。来源发生冲突时，并列原文和适用范围，说明不同解释会造成什么实际后果；依据效力按来源规则和实际内容判断。
+**Independent sources can be current decisions.** An explicit business decision can change the expectation; its validity follows the source rules given by the task. When sources conflict, quote both with their scope and explain the practical consequence of each reading.
 
-历史记录会影响预期、本次变化归因或问题状态时，按[关联记录与既有问题](known-issues.md)取得原文，核对实际关系和本轮用途。
+When history affects the expectation, attribution, or problem status, obtain the original records per [Related records and known issues](known-issues.md).
 
-### 判断哪些要求现在必须落实
+### Decide which requirements are due now
 
-对每项相关要求，查清谁在什么条件下需要什么结果、由谁负责，以及最晚应在什么阶段落实。判断的关键是：当前准备作出的决定或交付，是否已经依赖这个答案？已经需要确定的要求，与仍可自由选择的实现细节，要分开处理。
+For each relevant requirement, find who needs what result under which conditions, who owns it, and the latest stage by which it must be settled. The key question: does the decision or delivery at hand already depend on the answer? Separate what must be settled now from implementation details that remain free.
 
-例如，先调查接口能力再选择方案，未知由前置任务负责；先执行不可逆迁移、后确认它依赖的接口能力，则须检查这一顺序造成的依赖缺口。
+For example, investigating an API's capability before choosing a design leaves the unknown with a prior task; running an irreversible migration before confirming the capability it relies on is a dependency gap.
 
-### 将未知落实为具体的判断限制
+### Turn unknowns into concrete limits
 
-记录时区分原文支持的事实、据此作出的推演和仍然未知的部分。目标有缺口时，说明缺什么以及它会改变哪项选择：能够继续读取资料解决的，先调查；需要用户取舍的，保留具体问题；合法留待后续的，不提前判错。不要替用户发明指标、优先级、攻击者能力或未来需求。
+Separate facts supported by the source, inferences from them, and what is still unknown. For each gap, say what is missing and which choice it would change: investigate what reading can resolve, keep a concrete question for trade-offs the user must make, and do not fault what may legitimately wait. Do not invent metrics, priorities, attacker capabilities, or future requirements for the user.
 
-## 调查全部受托内容及必要连接
+## Investigate the Whole Delegated Scope and Its Connections
 
-将受托范围划成能够分别作出判断的单元，例如一项需求、一个接口、一段状态变化或一组相关代码。包括新增、修改、删除、放宽限制和责任转移，也从目标反查作者没有列出的工作。
+Split the scope into units that can be judged separately — a requirement, an interface, a state change, a group of related code. Include additions, changes, deletions, relaxed constraints, and moved responsibilities, and work back from the goal to find work the author did not list.
 
-依赖相同机制和原始依据的内容共享读取和调查结果，问题按各自根因归并。
+Units resting on the same mechanism and sources share reading and evidence; findings are grouped by root cause.
 
-先理解当前方案怎样工作，再用相关场景检查它。对每个单元，需要能说明：
+Understand how the current design works before testing it with scenarios. For each unit you should be able to state:
 
-1. 当前阶段应满足什么要求，依据是什么；
-2. 产物用什么规定或机制满足它，或者缺少哪个必要环节；
-3. 哪种实际场景、输入、顺序、修改任务或验收结果能够检验它；
-4. 谁会观察到什么实质影响；
-5. 已检查哪些保护，哪些选择本来允许，哪些部分仍缺证据。
+1. what this stage requires and on what grounds;
+2. which rule or mechanism satisfies it, or which necessary piece is missing;
+3. which real scenario, input, ordering, change task, or acceptance result tests it;
+4. who would observe what material impact;
+5. which protections were checked, which choices were legitimately open, and what still lacks evidence.
 
-新增、修改或依赖的保护也要主动调查。例如，增加重试机制后，直接检查相关失败顺序是否保持原操作的语义。各层方法提供具体做法；相同机制已有充分证据时直接复用。
+Investigate new, changed, or relied-upon protections actively. For example, after a retry is added, check directly that the relevant failure orderings keep the operation's semantics. Level methods supply specifics; reuse sufficient evidence for the same mechanism.
 
-风险排序只改变调查顺序，受托范围保持不变。完成调查意味着每个相关单元都有结论；输入探索和专项范围以本轮委托为界。机械性变更可以注明无需进一步分析的理由；范围外的内容保持未审。
+Risk ordering changes the investigation order, not the scope. Done means every relevant unit has a conclusion; exploration and focused scopes are bounded by the delegation. Mechanical changes may note why no further analysis is needed; out-of-scope content stays unreviewed.
 
-必要路径仍可读取时继续追踪。资料确实不可得时，简记已查依据、影响判断的缺口，以及下一步要读取的材料或取得的观察，相关机制状态保持未知。窄审中偶然发现范围外的重大问题，可以单独提示，同时保留原审查覆盖范围。
+Keep tracing while the necessary path is readable. When material is truly unavailable, note the evidence checked, the gap that affects the judgment, and the next read or observation needed; the mechanism stays unknown. A serious out-of-scope problem found during a narrow review may be flagged separately without changing the review's coverage.
 
-## 验证疑点并形成结论
+## Verify Suspicions and Conclude
 
-疑点是尚待证明的可能问题。按[结论的证据要求](findings.md)判断它是否成立，再使用所选方法补足领域证据。定位最先不满足要求的规定、机制或遗漏，说明后果，不从一个缺口派生多条同根因问题。
+A suspicion is a possible problem not yet proven. Decide whether it holds using [Evidence requirements for findings](findings.md), then add the domain evidence of the chosen method. Locate the first rule, mechanism, or omission that fails, state the consequence, and do not derive several findings from one gap.
 
-主动寻找能够推翻疑点的解释，这一步称为**反证检查**。优先检查最有可能使当前判断失效的情况：上下游保护、真实输入限制、已分配的后续决定、已接受的代价、旧版本本就存在的问题，以及替代方案带来的成本。排除疑点时保存理由和生效前提，同一疑点沿用原记录；尚未找到保护时，按现有证据继续调查，直到满足结论门槛或明确受限。
+Actively look for explanations that refute the suspicion — the **counter-evidence check**. Start with what is most likely to overturn it: upstream or downstream protection, real input limits, decisions assigned to a later stage, accepted costs, problems already present in the old version, and the cost of the alternative. When excluding a suspicion, keep the reason and the conditions it relies on; a recurring suspicion reuses that record. Without a protection found, keep investigating until the bar is met or the limit is explicit.
 
-用保护排除疑点时，核对它覆盖的入口、对象、配置和时序是否足以阻止当前触发。一个安全入口不能证明其他相关入口安全；充分的本地保护已阻断失败机制时，无须遍历无关路径。排除依据不足时继续调查，不据此认定缺陷成立。
+When a protection excludes a suspicion, check that its entry points, objects, configuration, and timing actually block the trigger. One safe entry point does not prove the others safe; once an adequate local protection blocks the failure mechanism, unrelated paths need not be enumerated. Insufficient exclusion evidence means keep investigating — it does not make the defect proven.
 
-证明成立后再判断严重度。潜在影响大小保持同一证据要求，每个疑点最终都应得到成立、排除或受限的明确处理。多个视角发现同一根因时合并；需要改变上层目标或决定时，保留具体反例并交还给有权决定的人。
+Judge severity only after the finding is proven. Potential impact does not lower the evidence bar, and every suspicion ends as proven, excluded, or explicitly limited. Merge the same root cause found by several focuses; when the fix requires changing a higher-level goal or decision, keep the concrete counterexample and hand it to whoever can decide.
 
-## 输出前反查覆盖
+## Check Coverage Before Output
 
-从本轮原始目标和实际机制回查覆盖清单：
+Work back from the original goal and real mechanisms:
 
-- 用户结果是否都有对应单元，包括产物没有列出的必要工作？
-- 相关入口、接口连接和生命周期中，是否还有影响同一保证的未查路径？
-- 判断依赖的保护和相关连接是否已有证据？
+- Does every user outcome map to a unit, including necessary work the artifact did not list?
+- Are there unchecked entry points, interface connections, or lifecycle paths affecting the same guarantee?
+- Do the protections and connections the judgment relies on have evidence?
 
-发现范围内漏项时补入现有清单，完成调查或注明限制；仍有效的证据直接复用。窄审只反查受托对象及其必要依赖。
+Add in-scope omissions to the existing list and finish them or note the limit; reuse evidence that is still valid. A narrow review checks only the delegated target and its necessary dependencies.
 
-完成覆盖反查后，按[工作稿与复核](review-state.md#何时结束本轮)核对交付条件。
+Then check the [delivery conditions](review-state.md#when-the-round-ends).

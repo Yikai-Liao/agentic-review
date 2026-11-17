@@ -1,66 +1,66 @@
-# 代码行为：从输入追到真实影响
+# Code Behavior: From Input to Real Impact
 
-行为审查判断实现是否满足业务、接口、数据和操作要求，并为安全、可靠性、性能及测试问题提供代码依据。
+Behavior review judges whether the implementation meets business, interface, data, and operational requirements, and supplies the code evidence for security, reliability, performance, and test findings.
 
-## 先建立预期，再追踪实际路径
+## Establish the Expectation, Then Trace the Actual Path
 
-读取完整受托变化、必要上下文和直接依赖，先查清应有行为，再沿实际代码追踪：
+Read the whole delegated change, necessary context, and direct dependencies; establish the expected behavior first, then follow the actual code:
 
 ```text
-入口 → 校验或转换 → 决策 → 状态、副作用或资源使用
-     → 返回、错误、重试或清理 → 实际使用方
+entry → validation or conversion → decision → state, side effects, or resource use
+      → return, error, retry, or cleanup → actual consumer
 ```
 
-分别核对生产代码与同期测试、测试数据、快照、模拟对象和辅助函数的依据；共享常量或同批文档不能互证正确性。
+Check the grounds of production code separately from tests, test data, snapshots, mocks, and helpers written alongside it; shared constants or documents from the same batch cannot vouch for each other.
 
-字段要追到最终实际使用的值和结构，状态要追到观察与恢复路径。写入成功、结构校验通过和辅助函数分别证明其局部结果；最终行为仍须追到实际使用方。
+Follow fields to the value and structure finally used, and state to its observation and recovery paths. A successful write, a passing schema check, or a helper each prove only their local result; final behavior must still reach the actual consumer.
 
-调查边界由受影响的行为约定及其依赖决定。先识别本次变化改变了哪些成立前提，再沿实际依赖检查受影响的路径，包括未改动的部分；也从预期结果反查遗漏的必要连接。用完整操作场景核对各环节组合后能否兑现同一约定，直到相关前提仍成立，或失效位置及后果已查明。
+The investigation boundary is set by the affected behavior contracts and their dependencies. Identify which preconditions the change alters, then follow real dependencies to the affected paths, including unchanged code; also work back from the expected result to find missing connections. Use a complete operation scenario to check whether the pieces together honor one contract, until the relevant preconditions still hold or the point of failure and its consequence are established.
 
-删除或放宽的校验、权限、默认值、过滤、错误处理、事务、重试、清理、分页与缓存同样需要调查。为新增、改变或依赖的保护选择相关边界，推演原始输入如何转换、经过哪个分支、最后怎样被使用。解析成功只说明语法或结构可接受；原文含义和操作权限分别按相应约定核对。
+Removed or relaxed validation, permissions, defaults, filters, error handling, transactions, retries, cleanup, pagination, and caching need investigation too. For new, changed, or relied-upon protections, choose relevant boundaries and trace how raw input is converted, which branch it takes, and how it is finally used. Successful parsing only shows syntax or structure is acceptable; meaning and permission are checked against their own contracts.
 
-后续操作依赖此前检查建立的性质时，明确检查证明了什么、使用时要求什么，并从检查开始追到使用结束，核对辅助调用、当前线程修改、等待、回调或并发是否使该性质失效。持锁不能排除当前线程自身的修改，对象存活也不能证明权限或状态仍有效。
+When a later operation relies on a property an earlier check established, state what the check proved and what the use requires, and trace from check to use for helper calls, same-thread mutation, waits, callbacks, or concurrency that invalidate it. Holding a lock does not rule out the current thread's own mutation, and an object being alive does not prove its permissions or state are still valid.
 
-恢复或重试仍应属于同一逻辑操作。没有有效授权，禁止为取得成功而静默改变租户、业务日期、范围、身份、幂等键、顺序或载荷。含义等价须逐项保持这些约定；最终成功或测试同步修改只说明相应局部结果。
+Recovery and retries must remain the same logical operation. Without valid authorization, never silently change tenant, business date, scope, identity, idempotency key, order, or payload to make it succeed. Equivalence must preserve each of these; eventual success or tests changed alongside show only their local result.
 
-## 证明代码差异造成的实际影响
+## Proving the Real Impact of a Code Difference
 
-生产问题须满足[共同结论门槛](../../findings.md)，并以代码证据证明：
+Production findings meet the [shared finding bar](../../findings.md) with code evidence:
 
-1. **现实可达**：仓库代码及相关约定支持实际入口和最小触发。
-2. **违反要求**：结果违反有独立依据的产品、API、数据、安全、可靠性或操作要求；性能问题另按[性能方法](../../focuses/performance.md)证明成本，不强求显式 SLA。
-3. **影响实质结果**：可观察差别会改变实际使用方的结果、判断、下一步操作或故障恢复。
+1. **Realistically reachable**: repository code and related contracts support a real entry point and minimal trigger.
+2. **Violates a requirement**: the outcome breaks an independently grounded product, API, data, security, reliability, or operational requirement; performance problems prove cost per [Performance](../../focuses/performance.md) and need no explicit SLA.
+3. **Changes a material outcome**: the observable difference changes the consumer's result, judgment, next action, or failure recovery.
 
-候选依赖多个配置、主体、对象或状态的组合，或依赖并发交错时，用源码与契约推演满足全部必要前提的合法执行轨迹。各前提应在对应事件发生时成立，不要求同一时刻成立；并发候选须指出实际修改者、允许交错的窗口及现有同步为何不能排除该顺序。必要前提或轨迹无法确认时，保留具体证据缺口；发生频率未知不推翻已证明可达的缺陷。简单局部错误使用最小证明。
+When a candidate depends on a combination of configurations, principals, objects, or states, or on concurrent interleaving, reason from source and contracts to a legal execution trace satisfying every necessary precondition. Each precondition must hold when its event occurs, not all at once; concurrency candidates name the actual mutator, the allowed interleaving window, and why existing synchronization does not rule out the order. If a precondition or trace cannot be confirmed, keep the specific evidence gap; unknown frequency does not refute a defect proven reachable. Simple local errors use the minimal proof.
 
-增量审查核实本次引入、扩大或重新触发的差异；整体审计注明已有机制。定位所审版本中最小可修改的根因及应恢复的要求，允许不同修复方案。
+A delta review confirms differences this change introduced, widened, or re-triggered; an audit notes existing mechanisms. Locate the smallest modifiable root cause in the reviewed version and the requirement to restore, allowing different fixes.
 
-生产影响包括返回内容、状态、持久化、副作用、延迟、资源，以及错误分类、失败对象与原因、修复指引和重试信号。
+Production impact includes returned content, state, persistence, side effects, latency, resources, and error classes, failing objects and reasons, repair guidance, and retry signals.
 
-诊断信息出错时，要说明合理使用者会因此采取什么错误操作、无效重试、重复提交或额外排查；机器读取的信号还需有真实消费路径。“用户可能困惑”不够。表达换了措辞，但对象、类别、约束和修复方向等价，则不报告。
+For wrong diagnostics, say what wrong action, useless retry, duplicate submission, or extra investigation a reasonable consumer would take; machine-read signals also need a real consumption path. "Users might be confused" is not enough. Reworded output that keeps the object, class, constraint, and fix direction equivalent is not reported.
 
-HTTP 状态码、拒绝行为和写入行为保持相同时，只能排除这些方面的差异；返回内容和诊断按各自约定核对。
+Unchanged HTTP status, rejection, and write behavior only rule out differences in those aspects; returned content and diagnostics are checked against their own contracts.
 
-## 保持在调查记录中的现象
+## Observations That Stay in the Notes
 
-以下现象本身只提供调查线索：
+These are only leads on their own:
 
-- CI 能稳定直接发现的格式、编译、类型或测试错误；但同一变化里 CI 难以发现的独立生产风险仍须调查。
-- 单纯缺少测试、覆盖率、注释、文档或 benchmark。
-- 命名、布局、设计偏好、反模式或危险函数形状。
-- 缺少真实路径、规模和成本差异的性能猜测。
-- 当前资料不能支持，必须依赖尚未取得的运行结果才能确定的问题。
+- formatting, compile, type, or test errors CI reliably catches — independent production risks in the same change that CI cannot catch are still investigated;
+- missing tests, coverage, comments, documentation, or benchmarks;
+- naming, layout, design preferences, anti-patterns, or dangerous-looking function shapes;
+- performance guesses without a real path, scale, and cost difference;
+- problems that current material cannot support and that need runtime results not yet obtained.
 
-明确委托的改进或验证审计使用各自的证据要求，生产 finding 继续使用本节门槛。
+Explicitly requested improvement or verification audits use their own evidence bars; production findings keep this bar.
 
-## 检查能够推翻疑点的解释
+## Explanations That Could Refute the Suspicion
 
-核对上游校验、下游保护、合法例外、辅助函数已有的分页、缓存或批处理，以及精确值、顺序或调用次数是否真有约定。再查规模限制、旧版本、已接受的决定和相关历史问题。
+Check upstream validation, downstream protection, legitimate exceptions, pagination, caching, or batching helpers already do, and whether exact values, order, or call counts are actually contracted. Then check scale limits, old versions, accepted decisions, and related history.
 
-建议替代时，保持权限、顺序、事务、错误和返回含义。直接路径还可读取时，继续追到足以判断；使用方资料不可得则说明限制，不假设兼容。性能和测试方法按代码入口触发，共享同一批证据，不重扫全 diff。
+Suggested alternatives keep permissions, ordering, transactions, errors, and return meaning. Keep tracing a direct path while it is readable; when consumer material is unavailable, state the limit and do not assume compatibility. Performance and test methods trigger from code entry points and share the same evidence without rescanning the whole diff.
 
-## 保存结论并完成调查
+## Record and Finish
 
-每个保留的疑点记录预期（expected）、实际（actual）、触发（trigger）、受影响者（observer）、实质变化（substantive delta）、本次变化关系，以及最有力的反证及其结果。
+For each retained suspicion record expected, actual, trigger, observer, substantive delta, relation to this change, and the strongest counter-evidence and its outcome.
 
-证明成立后才按[代码标签](../code.md)判断严重度。每个受影响结果都应有约定、实现或遗漏路径、实际使用证据和保护分析，或明确的调查限制；按共同规则交付。
+Judge severity with the [code labels](../code.md#labels-for-proven-impact) only after the finding is proven. Every affected outcome has a contract, implementation or missing path, consumer evidence, and protection analysis, or an explicit investigation limit; deliver per the shared rules.

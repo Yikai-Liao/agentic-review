@@ -1,22 +1,22 @@
-# 请求超出当前任务权限的决定
+# Escalating a Decision Beyond the Current Task's Authority
 
-当前编写者无法在已有要求和授权内解决问题时，只将需要决定的部分连同必要依据交给相应上层或有权者。
+When the author cannot resolve a problem within existing requirements and authorization, hand only the part needing a decision, with its necessary grounds, to the relevant higher level or authority.
 
 ```text
-关联的 F 编号，问题在哪一层发现：
-哪项上层要求或前提不成立，原始依据是什么：
-最小反例是什么，为什么不能在当前权限内修好：
+Related F IDs and the level where the problem was found:
+Which higher-level requirement or premise fails, and its original source:
+The minimal counterexample, and why it cannot be fixed within current authority:
 
-真正可行的选择及代价：
-- 保持原要求，需要增加或改变什么？
-- 改变要求，会失去什么，需要谁明确接受？
+Feasible options and their costs:
+- Keep the original requirement: what must be added or changed?
+- Change the requirement: what is lost, and who must explicitly accept it?
 
-谁有权决定：
-会影响哪些交付或任务：
-哪些已获授权的部分仍可独立继续：
-当前需要回答的具体问题或补充事实：
+Who has authority to decide:
+Which deliveries or tasks are affected:
+Which authorized parts can continue independently:
+The specific question to answer or fact to supply now:
 ```
 
-只列实际可行的选择。如果只需调查事实且已有授权，就交给相应执行者；需要价值取舍时再找决定者。
+List only options that are actually feasible. If only fact-finding is needed and already authorized, hand it to the relevant executor; seek a decision-maker only for value trade-offs.
 
-返回的新决定带上来源和适用范围。审查者据此重新检查受影响的前提；下级任务的执行批准仍按各自授权判断。
+A returned decision carries its source and scope. The reviewer rechecks the affected premises; execution approval for lower-level tasks follows their own authorization.

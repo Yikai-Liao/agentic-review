@@ -1,27 +1,27 @@
-# 确定本地代码变化的范围
+# Resolving Local Code Scope
 
-增量审查（delta）需要固定本次完整变化集合。先确认所在 Git 工作树，再按用户意图选择下面的一种比较方式；提交数量不能代替实际代码差异。
+A delta review fixes the complete change set. Confirm the Git worktree, then choose one comparison by the user's intent; the number of commits does not stand in for the actual diff.
 
-整体审计（audit）使用用户明确指定模块的当前快照，不要求先有 diff。
+An audit uses the current snapshot of the module the user named and needs no diff.
 
-## 用户要审未提交变化
+## Uncommitted Changes
 
-比较 `HEAD` 与当前暂存区和工作树，同时把未跟踪文件作为新增文件读取。范围包括暂存、未暂存、删除、重命名和未跟踪内容。
+Compare `HEAD` with the index and working tree, and read untracked files as additions. Scope includes staged, unstaged, deleted, renamed, and untracked content.
 
-## 用户指定一个 commit
+## A Single Commit
 
-比较该提交的第一父提交与自身；没有父提交的根提交与 Git empty tree 比较。只有用户明确要求合并提交的其他父视角时，才改用相应 parent。
+Compare the commit's first parent with the commit; a root commit compares with the Git empty tree. Use another parent of a merge commit only when the user explicitly asks.
 
-## 用户指定分支或 ref 差异
+## A Branch or Ref Range
 
-“与 `<base>` 比较”默认使用 `merge-base(<base>, <head>) → <head>`，也就是从两个分支的共同祖先看到目标版本；默认 `<head>` 为当前 `HEAD`。
+"Compare with `<base>`" defaults to `merge-base(<base>, <head>) → <head>`, the target as seen from the common ancestor; `<head>` defaults to the current `HEAD`.
 
-只有用户明确要求两端快照直接比较时，才使用 `<base> → <head>`，不要将这两种范围混为一谈。
+Use `<base> → <head>` only when the user explicitly asks to compare the two snapshots directly; never mix the two.
 
-## 用户没有指定范围
+## No Scope Given
 
-存在未提交变化时，默认审查它们。工作区干净时，请用户指定 commit、分支或两个 ref，不擅自选择最近一次提交。
+Review uncommitted changes if any. If the worktree is clean, ask for a commit, branch, or two refs; do not pick the latest commit on your own.
 
-## 保存实际采用的范围
+## Record the Scope Used
 
-记录真实 base/head、是否包含工作树和未跟踪文件，以及完整的 changed file 清单。保留变更类型、重命名和复制的两端路径；后续按路径读取时也包含两端，并将路径作为字面值处理。
+Record the real base and head, whether the working tree and untracked files are included, and the full changed-file list. Keep change types and both paths of renames and copies; later reads include both paths, treated as literal values.

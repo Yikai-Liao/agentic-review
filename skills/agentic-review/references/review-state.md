@@ -1,115 +1,117 @@
-# 工作稿与复核
+# Workspace and Re-review
 
-工作稿保存本轮依据、进度和判断，支持修复复核与会话恢复。不同层级和视角共用一套记录与问题状态。
+The workspace keeps the round's sources, progress, and judgments so fixes can be re-reviewed and sessions resumed. All levels and focuses share one record and one set of problem states.
 
-## 开始时建立或恢复本轮记录
+## Start or Restore the Round Record
 
-优先使用任务提供的私有工作区，例如 `REVIEW_WORKSPACE_PATH`，遵循其文件布局和保留规则。没有指定位置时，在 Git 管理目录或系统临时目录中安全创建本轮唯一目录，不写入被审目标的工作树。使用安全创建工具生成路径，不把不可信文档中的路径直接拼进 shell 命令。
+Prefer a private workspace provided by the task, such as `REVIEW_WORKSPACE_PATH`, and follow its layout and retention rules. Otherwise create a unique directory for the round inside the Git directory or the system temp directory, never in the reviewed working tree. Generate paths with a safe creation tool; never splice paths from untrusted documents into shell commands.
 
-没有指定布局时，使用一份 `review.md` 保存对象和版本、规则入口、范围、所选层级与视角、独立性、覆盖、必要证据和限制。覆盖清单也称 ledger，记录范围内哪些内容已完成调查；同一份证据只存一处。
+Without a prescribed layout, use one `review.md` for target and version, rule entry point, scope, chosen level and focuses, independence, coverage, necessary evidence, and limits. The coverage list (the **ledger**) records which in-scope items are investigated; each piece of evidence lives in one place.
 
-主审查者独占工作稿写入。受委派者只返回结果，不修改主稿或目标。前一轮工作稿只读；将必须继承的证据复制到本轮，使后续复核不必一路翻遍所有历史。
+Only the lead reviewer writes the workspace. Delegates return results and never edit the main record or the target. Earlier workspaces are read-only; copy the evidence that must carry over into this round so later re-reviews do not need to walk every earlier round.
 
-按任务指定的保留期保存记录。没有约定时，待返修或复核的工作稿保留并报告路径；单次审查已结束且结果成功输出后，可以清理临时稿。不要保存凭证、环境变量值或无关个人信息。
+Keep records for the period the task specifies. Without one, keep workspaces awaiting fixes or re-review and report the path; a temporary note for a finished, successfully delivered review may be deleted. Never store credentials, environment variable values, or unrelated personal data.
 
-无法写入工作稿时，在结果中保留必要状态，并将跨会话恢复标为无保证。任务要求持久化覆盖记录时，完成该记录后才能提交；聊天结果仅作当轮输出。
+If the workspace cannot be written, keep the necessary state in the result and mark cross-session recovery as unsupported. When the task requires a persistent coverage record, finish it before submitting; chat output is for the current round only.
 
-## 分开记录调查进度和问题状态
+## Track Investigation Progress Separately from Problem Status
 
-完成调查与解决问题是两件事。分别记录：
+Finishing an investigation and resolving a problem are different. Record:
 
-| 记录 | 取值及含义 |
+| Record | Values |
 |---|---|
-| 调查覆盖 | `pending`：待调查；`complete`：必要调查和判断已完成；`blocked`：必要证据确实不可得，并说明缺口 |
-| 调查结论 | 无问题、疑点已被排除、有 finding、关联已有问题，或合法继承原结论 |
+| Coverage | `pending`: not yet investigated; `complete`: required investigation and judgment done; `blocked`: necessary evidence truly unavailable, with the gap stated |
+| Conclusion | no problem, suspicion excluded, finding, linked to an existing problem, or legitimately inherited |
 
-`complete` 只记录调查完成；问题修复由 finding 状态记录。`blocked` 记录证据受阻，覆盖仍未完成。一般审查可以带着受阻部分结束，并说明无法建立的判断；任务另有完整覆盖要求时仍须满足。
+`complete` records investigation only; fixes are tracked on findings. `blocked` means coverage is still incomplete. An ordinary review may end with blocked parts and state which judgments could not be made; a task requiring full coverage must still satisfy it.
 
-固定对象、版本、范围、规则入口和覆盖状态已有平台记录时直接引用。正式报告、Thread 和回复已经保留的结论与证明直接复用，工作稿只补其中没有、但后续调查需要的支持证据：
+Reference target, version, scope, rule entry point, and coverage when a platform already records them. Reuse conclusions and proofs already in the formal report, threads, or replies; the workspace adds only supporting evidence they lack but later investigation needs:
 
-- 已完成调查：关键调用关系、实际检查的行为或失败路径、结论依赖的保护与前提，以及必要源码或契约定位；
-- 已排除疑点：能够排除它的实际证据及生效前提；
-- 未完成或受阻：当前判断、具体证据缺口和下一处必要读取位置。
+- Completed investigation: key call relationships, behavior or failure paths actually checked, protections and preconditions the conclusion relies on, and source or contract locations.
+- Excluded suspicions: the evidence that excludes them and the conditions it relies on.
+- Unfinished or blocked: current judgment, the specific gap, and the next place to read.
 
-无 finding 的调查也保留足以恢复关键判断的支持证据，按共同机制合写，已有记录只更新变化部分；不逐文件、逐断言套表，也不重述公开结果。没有独立结果存储时，在稿内保留正式 finding 的完整证明。
+Investigations without findings also keep enough evidence to restore the key judgment; group by shared mechanism and update only what changed. Do not fill a table per file or assertion, and do not restate public results. Without a separate result store, keep the full proof of each formal finding in the workspace.
 
-调查取得证据时就与现有进度一起保存，交付时直接使用已有记录。写稿只整理已经得到的证据，不为写稿另起取证；按[共同调查方法](protocol.md#调查全部受托内容及必要连接)检验场景、核验疑点属于调查本身，不受此限；关键证据确实缺失时，该项调查尚未完成，继续解决具体缺口，不能先标 complete 再为交接补查。
+Save evidence together with progress as it is obtained, and deliver from those records. Writing notes only organizes evidence already obtained; testing scenarios and verifying suspicions per the [protocol](protocol.md#investigate-the-whole-delegated-scope-and-its-connections) are part of the investigation itself. If key evidence is missing, the item is not complete — resolve the gap instead of marking it complete and investigating later for the hand-off.
 
-疑点和正式 finding 用稳定的本轮 ID 关联。排除理由应带生效前提，例如“共享 schema 在代码生成前已固定字段，两个调用方实际使用同一版本”，不能只写“不重要”或“用户不喜欢”。同一根因换标题、视角或严重度，不会变成新问题。
+Link suspicions and formal findings with stable round IDs. Exclusion reasons carry their preconditions, for example "the shared schema fixes the field before code generation and both callers use the same version", not "unimportant" or "the user dislikes it". The same root cause under a new title, focus, or severity is not a new problem.
 
-## 收到修订后，决定哪些需要重新调查
+## Deciding What to Reinvestigate After a Revision
 
-有完整覆盖记录的已完成调查默认延续。先调查新变化、最新讨论和历史未完成项，沿实际影响定位需要重开的旧结论；其余直接复用。仅有“读过”或“没有 finding”的摘要而没有覆盖记录时，补查缺失部分。
+Completed investigations with a full coverage record carry over. Investigate the new changes, latest discussion, and earlier unfinished items first, follow their real impact to the old conclusions that must reopen, and reuse the rest. A summary that only says "read" or "no findings" without a coverage record means the missing parts must be checked.
 
-以下变化需要重新调查受影响的部分：
+Reinvestigate the affected parts when:
 
-- 实现或设计发生相关变化；
-- 原始要求或有效决定改变；
-- 共享接口、部署假设或使用方发生变化；
-- 出现新反例或矛盾证据；
-- 旧调查不完整；
-- 本次明确扩大范围。
+- the implementation or design changed in a relevant way;
+- the original requirement or a valid decision changed;
+- a shared interface, deployment assumption, or consumer changed;
+- a new counterexample or contradicting evidence appeared;
+- the earlier investigation was incomplete;
+- the scope was explicitly widened.
 
-沿新变化检查旧证据的实际含义和依赖前提；同一约定可能影响不同文件。HEAD、目录和“再严一点”的描述只提供变化线索，不单独使全部旧调查失效。
+Follow new changes to the meaning and preconditions of old evidence; one contract may affect several files. HEAD movement, directory names, or "be stricter" are hints and do not by themselves invalidate all earlier work.
 
-重新调查时，先标为 `pending`，记录原来的哪个前提已失效。更新受影响的证据、排除理由和 finding 状态，保留仍有效的部分；不要只在旧结论后追加一段相反说明。
+When reinvestigating, mark the item `pending` and note which precondition failed. Update the affected evidence, exclusion reasons, and finding status and keep what is still valid; do not append a contradicting paragraph to an old conclusion.
 
-新增加的单元全部进入覆盖清单。增量复核不能只看作者声称修好的几个点，而漏掉修复时新增的机制。
+Add every new unit to the ledger. An incremental re-review must not check only the points the author claims to have fixed while missing mechanisms the fix added.
 
-## 怎样复核一份修复
+## Re-reviewing a Fix
 
-本轮交付后，由编写者在授权内修复，按[修复交接模板](../assets/repair-return.md)提交新版本、F 编号、机制与要求变化、验收依据及实际验证情况。
+After delivery, the author fixes within their authority and returns a new version with the [repair hand-off](../assets/repair-return.md): F IDs, mechanism and requirement changes, acceptance evidence, and verification actually run.
 
-先按原触发场景检查，再核对修复可能影响的相邻正常行为和新增范围。达到原验收条件即可关闭，不追加无关的“最好再做”。作者采用不同于审查建议的方案，只要满足要求，也应接受。
+Check the original trigger first, then adjacent legitimate behavior the fix may affect and any new scope. Close when the original acceptance condition is met; do not add unrelated "nice to haves". Accept a different fix from the one suggested if it meets the requirement.
 
-作者可以引用既有事实澄清误解，原文保持不变。新解释如果增加了原产物没有的保证，则纳入新的修订再审；旧版机制仍以固定版本中的材料为准。
+Authors may clarify misunderstandings by citing existing facts; the original text stays unchanged. If a new explanation adds a guarantee the artifact did not contain, review it as part of a new revision; the old version is judged by its own material.
 
-## 状态变更需要什么证据
+## Evidence for Status Changes
 
-| 状态 | 必要依据 |
+| Status | Required evidence |
 |---|---|
-| `open` / `partial` | 原关闭条件尚未满足；`partial` 说明仍缺什么修正、决定或验证 |
-| `fixed` | 新版满足原问题对应类型的关闭条件，必要约束和相邻合法行为保持；说明是静态复核还是已有实测 |
-| `accepted` | 明确决定接受具体代价及其适用范围，当前未越界；修复状态仍按原关闭条件判断 |
-| `excluded` | 原问题被证据推翻，记录为何不成立及其前提 |
-| `unverified` | 声称已修复，但现有证据不足，或必要验证结果尚未提供 |
+| `open` / `partial` | The closing condition is not yet met; `partial` names the missing fix, decision, or verification |
+| `fixed` | The new version meets the closing condition for the finding's kind while necessary constraints and adjacent legitimate behavior hold; say whether this is static review or measured |
+| `accepted` | An explicit decision accepts the specific cost and its scope, and the current state stays within it; fix status is still judged by the closing condition |
+| `excluded` | Evidence refutes the original finding; record why and under what preconditions |
+| `unverified` | A fix is claimed but evidence is insufficient or the required verification result is missing |
+| `severity-increased` | The impact, cost, or reach grew: for example a test finding became a production finding, P2 became P1/P0, or a bounded cost became unbounded or common |
+| `reintroduced` | A fixed problem came back, or the implementation now exceeds a previously accepted scope |
 
-关闭条件取决于结论性质：缺陷需恢复被违反的要求；改进机会需证明约定成本下降且必要保证保持；待决事项需取得缺少的有效决定或事实；验证缺口需取得能够区分相关错误的有效证据。
+The closing condition depends on the kind: a defect restores the violated requirement; an improvement shows the agreed cost fell while guarantees held; a decision obtains the missing valid decision or fact; a verification gap obtains evidence that distinguishes the relevant error.
 
-业务确认逐项对应它回答的问题。确认应有行为可以关闭缺少该决定的待决事项；实现仍违反该行为时，缺陷保持 `open` / `partial`。接受该缺陷的决定须明确覆盖原触发及其后果。
+Business confirmations answer specific questions. Confirming the intended behavior closes a decision that lacked it; if the implementation still violates that behavior, the defect stays `open` / `partial`. Accepting the defect itself requires a decision that explicitly covers the original trigger and its consequence. When a reply states a different expectation, check the code against it and report a mismatch as a new finding linked to the original.
 
-接受缺陷或验证不足的代价记为 `accepted`；满足原关闭条件的修正才记为 `fixed`。问题类型本身不决定是否实测；原验收要求实测时，`fixed` 需要相应结果。平台上的 `closed`、`resolved` 或“已修复”声明只用于定位状态证据；计划将来修复仍是 `open`。
+Accepting the cost of a defect or missing verification is `accepted`; only a fix meeting the closing condition is `fixed`. The finding's kind does not decide whether measurement is required; if the original acceptance needs a measurement, `fixed` needs the result. Platform states such as `closed`, `resolved`, or "fixed" only point to evidence; a plan to fix later is still `open`. A document that records an already accepted decision does not reintroduce anything.
 
-已经接受且范围未变的代价，不重复征求同意。只有明确撤销原决定，或新变化越出接受范围时，才重新判断。
+Accepted costs whose scope has not changed are not re-confirmed. Re-judge only when the decision is revoked or a new change exceeds its scope.
 
-## 何时结束本轮
+## When the Round Ends
 
-以下内容都已完成，即可交付：
+Deliver when all of these hold:
 
-1. 已按[覆盖反查](protocol.md#输出前反查覆盖)核对受托范围，完成必要调查，或明确列出无法完成的部分；
-2. 每个疑点已确认成立、排除或记录证据限制；
-3. 正式问题已去重，带处理完成条件和处理者；
-4. 结果保留范围、独立性、证据类型及未知；
-5. 按任务要求输出，然后停止。
+1. the delegated scope is checked per [coverage check](protocol.md#check-coverage-before-output), required investigation is done, or the unfinished parts are listed;
+2. every suspicion is proven, excluded, or recorded with its evidence limit;
+3. formal findings are deduplicated and carry completion conditions and owners;
+4. the result keeps scope, independence, evidence types, and unknowns;
+5. output is produced as the task requires, then stop.
 
-有 finding 也可以完成 Review。修复和再次提交由编写者或负责调度的人按授权决定，审查者不守候到问题归零。
+A review with findings is complete. Fixes and resubmission are decided by the author or orchestrator within their authority; the reviewer does not wait for zero findings.
 
-下一轮应有新版本、新证据、真实未解决的触发场景或扩大的范围；否则返回仍有效的结果。
+The next round needs a new version, new evidence, a real unresolved trigger, or a wider scope; otherwise return the still-valid result.
 
-问题数量和审查轮数由受托范围、证据及实际变化决定。运行预算由中央运行时计时并通知；收到收尾通知后保留未完成项为 `pending` 或 `blocked`，直接提交已审部分的结论。意见争议回到证据和决定权；增加 Agent 需要独立调查价值及相应授权。
+The number of findings and rounds follows scope, evidence, and real changes. When a runtime announces that the time budget is ending, leave unfinished items `pending` or `blocked` and submit conclusions for the reviewed part. Disagreements return to evidence and decision rights; adding agents requires independent investigation value and authorization.
 
-## 会话中断后怎样继续
+## Resuming After Interruption
 
-从本轮索引恢复实际对象与版本、可信规则入口、所选范围与视角、未完成项及必要判断。按上述修订规则继续已完成记录，从新变化触及的前提定位重开项；覆盖记录缺失时补查相应部分。
+Restore from the round index: actual target and version, trusted rule entry point, chosen scope and focuses, unfinished items, and necessary judgments. Continue completed records under the revision rules above and reopen items whose preconditions new changes touch; recheck what lacks coverage records.
 
-优先读取本轮已经继承的记录，只有缺少必要原始信息时才补读旧稿。恢复不是重新建立第二个索引或新的平行状态源。
+Read records already inherited into this round first, and go back to old workspaces only for missing original information. Resuming never creates a second index or parallel state source.
 
-## 何时可以委派调查
+## When Investigation May Be Delegated
 
-独立性要求审查者与编写者上下文分离。任务已授权且环境提供工具时，按能够独立完成的业务职责划分完整受托范围；小任务或拆分后需大量重复调查的任务直接串行。需要一起判断的调用链、共享状态、接口连接和相关讨论交给同一执行者，各任务合起来覆盖全部审查职责。
+Independence requires the reviewer's context to be separate from the author's. When the task authorizes it and the environment provides the tools, split the whole delegated scope by independently completable responsibilities; small tasks, or splits that would cause heavy duplicate investigation, run serially. Call chains, shared state, interface connections, and related discussions that must be judged together go to the same executor, and the tasks together cover every review duty.
 
-子任务继承共同规则、所选方法、固定版本和已交付的原文，按受托范围完成调查，直接复用已有证据。返回实际覆盖、审查结论及上述必要交接信息；不递归委派、不修复目标、不改写主稿。
+Delegates inherit the shared rules, chosen methods, fixed versions, and supplied originals, investigate their scope, and reuse existing evidence. They return actual coverage, conclusions, and the hand-off information above; they do not delegate further, fix the target, or edit the main record.
 
-主审查者信任并直接采用子任务的调查结果，只做根因去重、组织报告和最终提交。
+The lead reviewer adopts delegate results directly and only deduplicates root causes, organizes the report, and submits.
 
-私有运行时记忆只由获得相应授权的主审查者查询，并恢复可复核的原始记录。子任务不查询私有记忆，只接收主审查者传入的相关记录。无法恢复原文的摘要只用于定位；修复、接受和决定状态由可复核记录证明。
+Only an authorized lead reviewer queries private runtime memory and recovers reviewable originals. Delegates do not query private memory; they receive relevant records from the lead. A summary whose original cannot be recovered only helps locate material; fix, acceptance, and decision status require reviewable records.

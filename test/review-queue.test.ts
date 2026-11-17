@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 const entry = parse(readFileSync(new URL('../.github/workflows/agentic-review.yml', import.meta.url), 'utf8'));
 const execution = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
 
-// 使用 Actions 表达式语义比较实际分组关系，不固定前缀、函数或条件拼写。
+// Compare actual grouping with Actions expression semantics, without pinning prefixes, functions, or condition spelling.
 function groupFor(template: string, repository: string, pull: string, source: string, run: number) {
   const context = JSON.parse(JSON.stringify({
     inputs: { repository_id: repository, pull_number: pull, trigger_source: source },

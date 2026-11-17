@@ -1,6 +1,6 @@
 interface:
   display_name: "Agentic Review"
-  short_description: "需求、架构、开发计划与代码的独立审查，按视角组合"
-  default_prompt: "使用 $agentic-review，按本轮明确范围与证据审查已有产物，不实施修复。"
+  short_description: "Independent review of requirements, architecture, plans, and code, combined by focus"
+  default_prompt: "Use $agentic-review to review the existing artifact within this round's explicit scope and evidence, without implementing fixes."
 policy:
   allow_implicit_invocation: false

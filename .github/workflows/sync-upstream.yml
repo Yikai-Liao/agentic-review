@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ secrets.UPSTREAM_SYNC_SSH_KEY }}
 
-      # Git 原生拒绝非快进更新；组织侧分叉或上游改写历史时明确失败。
+      # Git rejects non-fast-forward updates natively; organization-side divergence or rewritten upstream history fails explicitly.
       - name: Fast-forward main from public upstream
         run: |
           git fetch --no-tags https://github.com/Yikai-Liao/agentic-review.git refs/heads/main

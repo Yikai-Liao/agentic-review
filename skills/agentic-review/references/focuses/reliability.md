@@ -1,41 +1,41 @@
-# 可靠性：失败后能否兑现原来的保证
+# Reliability: Do Guarantees Survive Failure?
 
-可靠性审查关注发生中断、失败、并发或重试后，原来约定的结果能否保持，以及由谁发现和恢复未完成的工作。
+Reliability review asks whether agreed outcomes hold after interruption, failure, concurrency, or retry, and who detects and recovers unfinished work.
 
-本方法用于架构、开发计划和代码中选定的可靠性调查；普通语义审查仍应发现明确违约。故障场景按相关对象和已有保证选择。需求层先检查保证及例外是否清楚，恢复机制留给设计阶段。
+Use it for chosen reliability investigations in architecture, plans, and code; ordinary semantic review still catches clear violations. Pick failure scenarios by the objects involved and existing guarantees. At requirements level, first check that guarantees and exceptions are clear; recovery mechanisms belong to design.
 
-## 先明确保证，再选择失败场景
+## State the Guarantee, Then Choose Failures
 
-查清保证来自哪里、在哪些环境成立、当前阶段需要做到什么，以及由谁和什么机制承担。exactly-once、零停机、无限重试或跨地域容灾等目标须有实际依据。已知平台缺少兑现某项保证的能力时，按保证与能力的矛盾处理。
+Establish where the guarantee comes from, in which environments it holds, what this stage must achieve, and who or what mechanism carries it. Goals such as exactly-once, zero downtime, unlimited retries, or cross-region recovery need real grounds. When a known platform lacks the capability a guarantee needs, treat it as a contradiction between guarantee and capability.
 
-| 层级 | 主要追踪什么 | 怎样证明问题 |
+| Level | What to trace | How a problem is proven |
 |---|---|---|
-| 架构 | 责任、持久记录、状态变化、外部副作用和确认 | 在允许发生的中断之后，没有任何参与方能兑现保证 |
-| 开发计划 | 可独立交付的阶段、并行顺序、暂停和回退责任 | 最终方案虽正确，但计划允许的中间状态违反要求 |
-| 代码 | 校验、调用、写入、错误、重试、取消与清理 | 真实可达的输入或顺序，使实际使用方得到错误结果 |
+| Architecture | Responsibilities, persistent records, state changes, external side effects, and acknowledgements | After an allowed interruption, no participant can honor the guarantee |
+| Plan | Independently deliverable phases, parallel order, pause and rollback ownership | The final design is right but an intermediate state the plan allows violates a requirement |
+| Code | Validation, calls, writes, errors, retries, cancellation, and cleanup | A reachable input or ordering gives a real consumer the wrong result |
 
-## 沿一次操作推演中断和恢复
+## Walk One Operation Through Interruption and Recovery
 
-在当前相关的受理、提交、副作用、确认、取消或责任转移前后，分别考虑暂停或失败；也检查系统允许的并发、重试和完成顺序。
+Consider a pause or failure before and after each relevant acceptance, commit, side effect, acknowledgement, cancellation, or hand-off; also check concurrency, retries, and completion orders the system allows.
 
-继续追踪：谁能发现未完成，依赖哪份事实恢复，重做时是否仍是同一逻辑操作，以及向谁确认了什么结果。恢复不能为了最终成功，偷偷改变租户、业务日期、身份、幂等键、顺序或载荷。直接相关的正常操作也应保持。
+Keep tracing: who detects the unfinished work, which fact recovery relies on, whether a redo is still the same logical operation, and what was acknowledged to whom. Recovery must never quietly change tenant, business date, identity, idempotency key, order, or payload to succeed. Directly related normal operations must also hold.
 
-例如，系统承诺“已确认的任务在重启后仍能恢复”，实际却在写入内存队列后立即确认。此时崩溃可能使任务永久消失。若已有持久记录和明确的扫描责任，能在已接受时限内恢复，则任务仍由该机制恢复，单次通知丢失只影响通知路径。
+Example: the system promises "acknowledged tasks survive restart" but acknowledges right after writing to an in-memory queue. A crash then may lose the task forever. If a persistent record and an explicit scanning owner recover it within an accepted time, the task is still recovered and a lost notification only affects the notification path.
 
-丢失、重复、资源耗尽和错误恢复提示可能是不同后果；按能实际修复的根因归并，不按场景数量重复报告。
+Loss, duplication, resource exhaustion, and wrong recovery hints may be distinct consequences; merge by the root cause that can actually be fixed, not by scenario count.
 
-## 核实现实可达的故障场景
+## Confirm the Failure Is Reachable
 
-缺陷（defect）需要保证来源、允许发生的触发、机制关系和具体后果；代码问题还需满足[代码行为证明](../levels/code/behavior.md)。
+A `defect` needs the guarantee's source, an allowed trigger, the mechanism, and a concrete consequence; code problems also meet the [code behavior proof](../levels/code/behavior.md).
 
-外部能力不明确，而且下一步已经依赖它时，可以按待决事项（decision）调查需要补什么事实，相关能力保持未知。设计中明确写出的矛盾可以静态证明；阶段允许省略、已安排后续负责的内部细节按该阶段安排处理。
+When an external capability is unclear and the next step already depends on it, investigate as a `decision` what fact is needed; the capability stays unknown. Contradictions written into a design can be proven statically; internal details legitimately left to a later owner follow the stage plan.
 
-寻找上游输入限制、持久恢复、幂等或事务保护、部署限制、回退范围、真实超时及已接受代价。计划的一次原子交付作为整体检查；故障范围来自系统已有保证。
+Look for upstream input limits, persistent recovery, idempotency or transaction protection, deployment limits, rollback scope, real timeouts, and accepted costs. A plan's atomic delivery is checked as a whole; failure scope comes from the system's existing guarantees.
 
-验证能否识别错误是另一个问题。明确受托或当前阶段应完成相关验证时，再使用[验证方法](verification.md)。实现行为和验证状态分别取证：前者沿机制证明，后者按实际测试或分析记录。
+Whether verification can catch the error is a separate question; use [Verification](verification.md) only when delegated or due now. Gather implementation behavior and verification status separately: the former along the mechanism, the latter from actual tests or analysis.
 
-## 交付和复核
+## Delivery and Re-review
 
-处理完成应使原失败场景恢复保证，并保持直接相关的正常行为。处理者可以选择任何满足条件的机制；已接受的恢复时限在适用范围内继续有效。
+A fix restores the guarantee in the original failure scenario and keeps directly related normal behavior. The handler may choose any mechanism that meets the condition; accepted recovery times remain valid within their scope.
 
-每项受托保证都有调查结论或具体限制后，结束本轮。结论范围限于所选故障场景和实际证据。
+The round ends when every delegated guarantee has a conclusion or concrete limit. Conclusions are limited to the chosen failure scenarios and actual evidence.

@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { inventoryDigest, parseReviewProgress } from './review-coverage.ts';
 import { buildReviewRequest, persistReviewCoverage } from './review-request.ts';
 
-// Agent 结束后，把预先封存的上下文与 Agent 进度组装为历史记录。
-// 不要求完成覆盖：失败或中断的审查也必须留下可恢复范围。
+// After the agent ends, assemble the pre-sealed context and agent progress into a history record.
+// Full coverage is not required: failed or interrupted reviews must still leave a recoverable scope.
 export async function main() {
   const required = (name: string) => {
     const value = process.env[name];
@@ -17,7 +17,7 @@ export async function main() {
   if (createHash('sha256').update(context).digest('hex') !== required('REVIEW_CONTEXT_DIGEST')) {
     throw new Error('Review context does not match the trusted preparation digest');
   }
-  // 校验和解析使用同一份内容，避免校验后重新读取可变文件。
+  // Verify and parse the same bytes so a mutable file is never reread after verification.
   const coverage = parseReviewProgress(JSON.parse(context), JSON.parse(await readFile(required('REVIEW_PROGRESS_PATH'), 'utf8')));
   const request = buildReviewRequest({
     source: required('REVIEW_TRIGGER_SOURCE'),
@@ -33,7 +33,7 @@ export async function main() {
     runAttempt: required('REVIEW_RUN_ATTEMPT'),
     now: coverage.request.requested_at,
   });
-  // 两侧都来自可信 workflow，不比较或采用模型复制的身份字段。
+  // Both sides come from the trusted workflow; identity fields copied by the model are neither compared nor used.
   if (!isDeepStrictEqual(coverage.request, request)) throw new Error('Sealed review context does not match workflow inputs');
   if (inventoryDigest(coverage.ledger.map((entry) => entry.path)) !== required('REVIEW_INVENTORY_DIGEST')) throw new Error('Coverage does not match trusted change inventory');
   await persistReviewCoverage(required('REVIEW_COVERAGE_PATH'), coverage);

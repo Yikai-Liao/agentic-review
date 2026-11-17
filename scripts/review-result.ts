@@ -1,4 +1,4 @@
-type ThreadStatus = keyof typeof statusLabels;
+type ThreadStatus = typeof threadStatuses[number];
 export type FindingLabel = keyof typeof findingLabels;
 export type ReviewResult = {
   body: string;
@@ -7,25 +7,21 @@ export type ReviewResult = {
   request_reply: { body: string } | null;
 };
 
-export const statusLabels = {
-  resolved: '✅ 已关闭',
-  severity_increased: '⚠️ 风险升级',
-  reintroduced: '🔁 问题重现',
-} as const;
+export const threadStatuses = ['resolved', 'severity_increased', 'reintroduced'] as const;
 
-// 标签决定 Alert 和总评索引分组；发布器据此生成标题行，模型只写标签、标题和正文。
-// 顺序即总评索引内的排序。
+// A label decides the alert and the summary index group; the publisher renders the header line
+// from it, and the model writes only label, title, and body. Key order is the index order.
 export const findingLabels = {
   P0: { alert: 'CAUTION', group: 'fix' },
   P1: { alert: 'CAUTION', group: 'fix' },
   T1: { alert: 'CAUTION', group: 'fix' },
   P2: { alert: 'WARNING', group: 'fix' },
   T2: { alert: 'WARNING', group: 'fix' },
-  缺陷: { alert: 'WARNING', group: 'fix' },
-  验证缺口: { alert: 'WARNING', group: 'fix' },
-  需人工确认: { alert: 'IMPORTANT', group: 'confirm' },
-  待决事项: { alert: 'IMPORTANT', group: 'confirm' },
-  改进机会: { alert: 'TIP', group: 'improve' },
+  defect: { alert: 'WARNING', group: 'fix' },
+  'verification-gap': { alert: 'WARNING', group: 'fix' },
+  confirmation: { alert: 'IMPORTANT', group: 'confirm' },
+  decision: { alert: 'IMPORTANT', group: 'confirm' },
+  improvement: { alert: 'TIP', group: 'improve' },
 } as const;
 
 export function parseReviewResult(text: string): ReviewResult {
@@ -49,7 +45,7 @@ export function parseReviewResult(text: string): ReviewResult {
         comment.path.includes('\\') || comment.path.split('/').includes('..')) {
       throw new Error('Invalid review comment path');
     }
-    // line 为 null 表示无法绑定 diff 行，发布为该文件上的文件级讨论。
+    // A null line cannot bind to a diff line and is published as a file-level discussion.
     if (comment.line !== null && (!Number.isInteger(comment.line) || comment.line < 1)) {
       throw new Error('Invalid review comment line');
     }
@@ -60,7 +56,7 @@ export function parseReviewResult(text: string): ReviewResult {
     if (!Object.hasOwn(findingLabels, comment.label)) {
       throw new Error(`Invalid review comment label; use one of ${Object.keys(findingLabels).join(', ')}`);
     }
-    // 标题原样进入讨论首行和总评索引，必须是一行纯文本。
+    // Titles go verbatim into the discussion header and summary index, so they are one plain line.
     if (typeof comment.title !== 'string' || !comment.title.trim() || comment.title.length > 120
         || /[\r\n]|\*\*/.test(comment.title)) {
       throw new Error('Invalid review comment title: use one line of at most 120 characters without **');
@@ -81,8 +77,8 @@ export function parseReviewResult(text: string): ReviewResult {
     if (!Number.isInteger(update.root_comment_id) || update.root_comment_id < 1) {
       throw new Error('Invalid root_comment_id');
     }
-    if (!Object.hasOwn(statusLabels, update.status)) throw new Error('Invalid thread status');
-    // 关闭原因写进原问题首行的状态标注，限定为一段短文本。
+    if (!threadStatuses.includes(update.status)) throw new Error('Invalid thread status');
+    // The status reason goes into the original finding's status line, so it is one short paragraph.
     if (typeof update.evidence !== 'string' || update.evidence.length < 10 || update.evidence.length > 500
         || /[\r\n]/.test(update.evidence)) {
       throw new Error('Invalid thread evidence: use one line of 10-500 characters');

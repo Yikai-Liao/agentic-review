@@ -1,39 +1,39 @@
-# 关联记录与既有问题
+# Related Records and Known Issues
 
-相关 Issue、PR、需求、决定或验收记录会影响预期、变化归因或问题状态时，按本文件处理。查询入口和读取权限遵循任务的来源规则，调查限于相关历史。
+Use this file when related issues, PRs, requirements, decisions, or acceptance records affect the expectation, the attribution of a change, or a problem's status. Query entry points and read permissions follow the task's source rules; investigate only related history.
 
-## 取得原文，说明为什么相关
+## Get the Original and Say Why It Matters
 
-沿允许的稳定入口读取足以解释结论的原文和相关回复。保存来源、稳定 ID 或链接、可恢复版本、关键原文，以及读取限制。
+Read through allowed stable entry points enough of the original and its replies to explain the conclusion. Keep the source, stable ID or link, recoverable version, key text, and read limits.
 
-标题、索引、平台标签和记忆摘要只帮助找材料。原文无法恢复或无权读取时，将接受、修复及问题状态记为未知。私有记忆的授权以及主审查者和子任务的分工，遵循[工作稿规则](review-state.md)。
+Titles, indexes, platform labels, and memory summaries only help find material. If the original cannot be recovered or read, acceptance, fix, and problem status are unknown. Private memory authorization and the split between lead reviewer and delegates follow the [workspace rules](review-state.md).
 
-任务或项目规则可以规定来源和字段含义。本次变化新增的来源声明本身也要受审，授权还须来自任务认可的来源。明确决定是否有效按任务来源规则判断，决定可以晚于变化。中央 PR 评论和 Review 回复中的明确决定可即时构成可信业务确认；工具权限仍由任务授权。
+Tasks or project rules may define sources and field meanings. A source declaration added by the change under review is itself under review, and authorization must come from a source the task recognizes. Whether an explicit decision is valid follows the task's source rules; a decision may postdate the change.
 
-接着说明它为什么会影响本次审查：记录中的触发条件或状态，怎样连接到当前修改，再怎样影响数据、接口、使用方或验收结果。共享根因、保护条件、状态、字段或使用方可以建立这种因果关系；标题、模块、时间或宽泛主题相似只提供调查线索。
+Then explain why it affects this review: how the record's trigger or status connects to the current change and then to data, interfaces, consumers, or acceptance. Shared root causes, protections, states, fields, or consumers establish that link; similar titles, modules, timing, or broad topics are only leads.
 
-影响当前判断的关联和排除结论，按[工作稿规则](review-state.md)保存关键前提与原文定位。普通检索线索没有形成疑点时，无须逐条编写排除说明；没有实际关联就结束该线索。
+Keep key preconditions and source locations for links and exclusions that affect the current judgment, per the workspace rules. Ordinary search leads that produced no suspicion need no exclusion notes; drop a lead with no real connection.
 
-## 按内容和证据分类
+## Classify by Content and Evidence
 
-一个记录可能同时包含已接受的范围和另一部分未解决的问题。分别处理相关决定和问题，为每项分类保留原文或代码依据；平台状态只作记录入口。
+One record may hold an accepted scope and a separate unresolved problem. Handle related decisions and problems separately and keep the source or code basis for each classification; platform state is only an entry point.
 
-| 分类 | 如何判断 |
+| Class | How to judge |
 |---|---|
-| 计划中 | 提取尚未完成的开发或验收目标、场景及落实阶段，检查当前产物；尚未到期的合理省略按计划保留。实现、验收和风险接受各需当前证据；计划将来修复仍是未解决。 |
-| 已确认 / 已接受 | 完整回复或等价稳定决定明确了要求、取舍或代价及范围。当前未越界时采用相应要求或接受范围，不重复确认或重报已接受代价；决定撤销或前提失效时再判断。接受不等于修复。 |
-| 已修复 | 按[状态变更的证据要求](review-state.md#状态变更需要什么证据)核对当前版本仍满足原验收及相邻合法行为，区分静态复核和实测。保存依据，不再为原问题新建 finding；合并、关闭或“已修”声明本身不够。 |
-| 未解决 | 原根因或触发仍成立，没有充分修复或接受依据。部分修复说明剩余触发和未满足条件；按下节区分既有问题与当前变化。 |
-| 状态不明 | 只有标签、排期或摘要，或缺少必要原文和当前修复证据。记录尝试、缺口及受限判断，继续可完成的调查；问题是否仍存在保持未知，当前疑点按独立证据判断。 |
+| Planned | Extract the unfinished development or acceptance goals, scenarios, and target stage, then check the current artifact; reasonable omissions not yet due stay per plan. Implementation, acceptance, and risk acceptance each need current evidence; a plan to fix later is still unresolved. |
+| Confirmed / accepted | A full reply or equivalent stable decision settles the requirement, trade-off, or cost and its scope. While the current state stays within it, adopt that requirement or accepted scope without re-confirming or re-reporting the accepted cost; re-judge when the decision is revoked or its preconditions fail. Acceptance is not a fix. |
+| Fixed | Check per [status evidence](review-state.md#evidence-for-status-changes) that the current version still meets the original acceptance and adjacent legitimate behavior, distinguishing static review from measurement. Keep the basis and do not open a new finding for the original problem; a merge, a close, or a "fixed" claim alone is not enough. |
+| Unresolved | The original root cause or trigger still holds with no sufficient fix or acceptance. A partial fix names the remaining trigger and unmet condition; separate existing problems from the current change as below. |
+| Unknown | Only labels, schedules, or summaries exist, or the necessary original or current fix evidence is missing. Record attempts, gaps, and the limited judgment and continue what can be finished; whether the problem persists stays unknown, and current suspicions are judged on independent evidence. |
 
-## 将记录用于本轮判断
+## Applying Records to This Round
 
-按上表采用依据和状态，再核对它与当前变化的关系：
+Adopt the basis and status per the table, then check the relation to the current change:
 
-- **未解决但原样保留**：增量审查关联原记录并说明仍未解决，不冒称本轮新增。整体审计可在明确受托范围内报告已有问题，但保留原编号、来源和既有归因，不制造第二个根因。
-- **当前变化扩大影响、使原保护或接受前提失效，或重新引入问题**：按[结论要求](findings.md)调查新的差异、触发场景和影响，引用原记录；不能用旧的 `accepted` 或 `fixed` 状态掩盖新风险。
-- **仅触及既有问题，没有引入、扩大或重新触发风险**：说明本次影响，不重复新建 finding。
+- **Unresolved and unchanged**: a delta review links the original and says it remains unresolved without claiming this change introduced it. An audit may report existing problems within its explicit scope, keeping the original ID, source, and attribution, without creating a second root cause.
+- **The change widens impact, invalidates an earlier protection or acceptance precondition, or reintroduces the problem**: investigate the new difference, trigger, and impact per the [finding requirements](findings.md) and cite the original; an old `accepted` or `fixed` status cannot hide the new risk.
+- **The change only touches an existing problem** without introducing, widening, or re-triggering it: describe the effect without opening a new finding.
 
-保留结论所需的来源、因果关系、分类依据和本轮用途；正式结果已有完整说明时，工作稿直接引用，不另建状态账本。
+Keep the source, causal link, classification basis, and use in this round needed for the conclusion. When the formal result already explains it fully, the workspace cites it rather than building a second status ledger.
 
-无论本轮是否产生 finding，都按[历史披露要求](findings.md#输出)关联直接相关的记录及状态，包括未解决、部分修复和已接受的范围。调查覆盖与 finding 生命周期沿用[工作稿规则](review-state.md)。
+Whether or not this round has findings, link directly related records and their status per the [history disclosure rules](findings.md#output), including unresolved, partially fixed, and accepted scopes.

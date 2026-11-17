@@ -4,9 +4,9 @@ import { createPublication, finishPublication, publicationSummary, type Publicat
 import { parseReviewCoverage, pendingCoverage } from './review-coverage.ts';
 import { access, appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { findingLabels, parseReviewResult, statusLabels, type FindingLabel, type ReviewResult } from './review-result.ts';
+import { findingLabels, parseReviewResult, threadStatuses, type FindingLabel, type ReviewResult } from './review-result.ts';
 import { parseReviewUsage, reviewMetadataStart, reviewMetadataEnd, type ReviewUsage } from './review-usage.ts';
-import { findingLabelFromText, findingLabelText, parseReviewLanguage, reviewText, statusLabelText, type ReviewLanguage } from './review-language.ts';
+import { findingLabelFromText, findingLabelText, parseReviewLanguage, reportHeading, reviewText, statusLabelText, type ReviewLanguage } from './review-language.ts';
 
 type FooterMetadata = {
   language?: ReviewLanguage;
@@ -21,7 +21,7 @@ type FooterMetadata = {
   controlSha?: string;
   priceKnown?: boolean;
 };
-// 页脚分两行：第一行是可点开的链接与审查位置，第二行是运行信息。
+// The footer has two lines: clickable links and review position first, run information second.
 export type Footer = { links: string; details: string };
 type PublishOptions = {
   language?: ReviewLanguage;
@@ -35,7 +35,7 @@ type PublishOptions = {
   footer: Footer;
   runUrl: string;
   runId: number;
-  // 返回同一 head 上本 App 首次开始执行最晚的自动审查运行号；评论请求不取代完整审查。
+  // Returns the run number of this app's automatic review on the same head that started latest; comment requests never supersede a complete review.
   latestAutomaticRun: () => Promise<number>;
   publicationId: string;
   api: string;
@@ -165,7 +165,7 @@ export function buildFooter({
 const runLinkText = (runUrl: string, language: ReviewLanguage) => `[${reviewText(language, '运行记录', 'Workflow run')}](${runUrl})`;
 const dollars = (value: number) => value > 0 && value < 0.0001 ? '<$0.0001' : `$${value.toFixed(4)}`;
 
-// 固定标记让下一轮输入剔除运行信息；费用明细写入 Check 供复盘。
+// Fixed markers let the next round's input strip run information; cost details go to the Check for retrospectives.
 const metadataBlock = (text: string) => `${reviewMetadataStart}\n${text}\n${reviewMetadataEnd}`;
 
 export function usageDetails(usage: ReviewUsage, language: ReviewLanguage = 'zh-CN') {
@@ -197,14 +197,14 @@ type CheckRecord = {
   operations: PublicationOperation[];
 };
 
-// Check 随提交长期保留并可经 API 查询，是复盘运行数据的固定来源；PR 正文只面向读者。
-// 操作数受结果 schema 的条目上限约束，不含错误原文，正文远低于 Check output 上限。
+// The Check stays with the commit and is queryable through the API, so it is the fixed source of run data for retrospectives; the PR body serves readers only.
+// Operation counts are bounded by the result schema's item limits and carry no raw errors, so the text stays far below the Check output limit.
 export function checkText({ footer, usage, coverage, result, operations, language = 'zh-CN' }: CheckRecord) {
   const counts = (['succeeded', 'failed', 'blocked'] as const)
     .map(status => [status, operations.filter(item => item.status === status)] as const);
   const labels = language === 'en' ? { succeeded: 'Succeeded', failed: 'Failed', blocked: 'Blocked by a failed prerequisite' }
     : { succeeded: '成功', failed: '失败', blocked: '前置失败，未执行' };
-  const statusCounts = result && (Object.keys(statusLabels) as Array<keyof typeof statusLabels>)
+  const statusCounts = result && threadStatuses
     .map(status => [statusLabelText(status, language), result.thread_updates.filter(item => item.status === status).length] as const)
     .filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join(reviewText(language, '，', ', '));
   return [
@@ -255,7 +255,7 @@ export async function publishReview({
 
   if (!publicationId) throw new Error('Missing publication identity');
   if (!Number.isSafeInteger(runId) || runId < 1) throw new Error('Invalid review run id');
-  // 整体 schema 是公共前置条件；操作异常不影响其他独立写入。
+  // The overall schema is the shared prerequisite; an operation error does not affect other independent writes.
   parseReviewResult(JSON.stringify(result));
   const { run } = publication;
   const route = `/repos/${repository}/pulls/${pullNumber}`;
@@ -265,7 +265,7 @@ export async function publishReview({
     .update(JSON.stringify([publicationId, repository, pullNumber, expectedHeadSha, id, content])).digest('hex')} -->`;
   const short = (sha: string) => `\`${sha.slice(0, 7)}\``;
   const needsReview = !threadReplyOnly || result.comments.length > 0;
-  // 总评的问题索引取自当前讨论状态，因此发布总评也需要评论和 thread 列表。
+  // The summary's finding index comes from current discussion state, so publishing the summary also needs the comment and thread lists.
   const needsComments = needsReview || result.thread_updates.length > 0 || requestSource === 'thread';
   const [comments, threads, reviews] = await Promise.all([
     needsComments ? run(reviewText(language, '读取 PR 评论', 'Read PR comments'), [], () =>
@@ -276,7 +276,7 @@ export async function publishReview({
       id: number; body: string; html_url: string; user?: { login?: string };
     }>(fetchImpl, api, token, `${route}/reviews`)) : undefined,
   ]);
-  // 只有失败需要提醒读者；全部成功时 GitHub 上的状态本身就是执行结果。
+  // Only failures need a notice to readers; when everything succeeds, the state on GitHub is the execution result.
   const notice = () => {
     const failed = publication.operations.filter(item => item.status !== 'succeeded').length;
     return failed
@@ -290,12 +290,12 @@ export async function publishReview({
   const statusUpdatePrefix = reviewText(language, '**状态更新：', '**Status update: ');
   const firstLine = (body: string) => body.split('\n', 1)[0];
   const summaryTag = marker('summary', result);
-  // 自动总评标记与发布标记同处首行，模型正文从标题之后开始，不能冒充。
+  // The automatic summary marker shares the first line with the publication marker; model text starts after the title and cannot forge it.
   const summaryHead = requestSource === 'automatic' ? `${summaryTag}${automaticSummaryMarker}` : summaryTag;
   const ownSummary = () => reviews!.value!.find(item => isBot(item) && firstLine(item.body).includes(summaryTag));
-  // 同一 PR 的审查在执行层串行；首次创建 Check 的先后才是执行顺序，运行号只标识身份。
-  // 后续完整自动审查取代旧自动审查，旧运行重跑整体失败；局部评论请求不取代完整审查。
-  // 重跑会重新准备当前讨论并执行 Agent，评论请求后的完整复核仍依据最新讨论判断状态。
+  // Reviews of one PR run serially in the execution layer; the order of first Check creation is the execution order, and run numbers only identify runs.
+  // A later complete automatic review supersedes older ones, and a rerun of an older run fails as a whole; partial comment requests never supersede a complete review.
+  // A rerun prepares current discussion and runs the agent again, so a complete re-review after a comment request still judges status from the latest discussion.
   const fresh = requestSource === 'automatic' ? [await run(reviewText(language, '确认没有更新的审查', 'Check for newer reviews'), [], async () => {
     const latest = await latestAutomaticRun();
     if (latest !== runId) throw new Error(`Run ${latest} has already started reviewing this head; rerun of run ${runId} must not overwrite it`);
@@ -309,10 +309,10 @@ export async function publishReview({
       return found;
     });
     const label = statusLabelText(update.status, language);
-    // 标注带本运行的发布标记，重跑时据此认出自己写入的标注。
+    // Status marks carry this run's publication marker so a rerun recognizes marks it wrote.
     const statusTag = marker(`${id} status`, update);
     const statusLine = reviewText(language, `**${label}**（${short(expectedHeadSha)}）：${update.evidence}`, `**${label}** (${short(expectedHeadSha)}): ${update.evidence}`) + ` ${statusTag}${statusMarker}`;
-    // 状态同步、状态标注与回复互不依赖，三项均结束后再汇总失败并发布总评。
+    // Status sync, status marks, and replies are independent; failures are collected and the summary published after all three finish.
     await Promise.all([
       run(reviewText(language, `${id} 状态同步`, `${id} status synchronization`), [root, threads!, ...fresh], async () => {
         const thread = threads!.value!.find(item => item.comments.nodes[0]?.databaseId === update.root_comment_id);
@@ -329,7 +329,7 @@ export async function publishReview({
         const payload = shouldResolve ? response.data?.resolveReviewThread : response.data?.unresolveReviewThread;
         if (payload?.thread?.id !== thread.id) throw new Error('Missing thread mutation result');
       }),
-      // 本 bot 发出的问题在首行标注最新状态；编辑不产生通知，展开讨论即可看到原因。
+      // Findings from this bot get the latest status marked on their first line; edits send no notification, and the reason is visible in the discussion.
       run(reviewText(language, `${id} 状态标注`, `${id} status annotation`), [root, ...fresh], async () => {
         if (!isBot(root.value!)) return;
         const body = root.value!.body;
@@ -339,15 +339,15 @@ export async function publishReview({
           method: 'PATCH', body: JSON.stringify({ body: next }),
         });
       }),
-      // 关闭只需标注；重现、升级需要通知人，他人发起的讨论也无法改写原文，二者改为回复。
+      // Closing only needs a mark; reintroduction and severity increases must notify people, and discussions opened by others cannot be edited, so both get replies.
       run(reviewText(language, `${id} 状态回复`, `${id} status reply`), [root, ...fresh], async () => {
         if (update.status === 'resolved' && isBot(root.value!)) return;
         const tag = marker(`${id} evidence`, update);
         const replies = comments!.value!.filter(item => item.in_reply_to_id === update.root_comment_id && isBot(item));
         if (replies.some(item => item.body.includes(tag))) return;
         const status = `${statusUpdatePrefix}${label}**`;
-        // 最新状态相同时不重复。本 bot 的问题关闭时只改标注、不回复，最新状态以标注为准；
-        // 标注由本运行写入时说明是重跑，回复仍需补发。
+        // Skip when the latest status is unchanged. Closing this bot's findings only edits the mark without replying, so the mark is the latest status;
+        // a mark written by this run means a rerun, and the reply still needs sending.
         const annotation = root.value!.body.split('\n\n', 1)[0];
         const unchanged = isBot(root.value!)
           ? annotation.endsWith(statusMarker) && annotation.startsWith(`**${label}**`) && !annotation.includes(statusTag)
@@ -367,7 +367,7 @@ export async function publishReview({
       if (!root) throw new Error(`${requestRootCommentId} is not a root comment in this PR`);
       const tag = marker(`request ${requestCommentId}`, result.request_reply);
       const existing = comments!.value!.find(item => item.in_reply_to_id === root.id && isBot(item) && item.body.includes(tag));
-      // 只回复 thread 时没有 Review 正文，覆盖缺口随回复公开。
+      // Thread-only replies have no review body, so coverage gaps are disclosed in the reply.
       const coverageGap = !needsReview ? coverageNotice : '';
       const body = `${compose(notice(), coverageGap, result.request_reply!.body, runLink)}\n${tag}`;
       if (existing) {
@@ -390,8 +390,8 @@ export async function publishReview({
     }));
     const inline = findings.filter(({ comment }) => comment.line !== null);
     const fileLevel = findings.filter(({ comment }) => comment.line === null);
-    // 创建 Review 的 comments 不支持文件级讨论，只能单独发布；它与 inline 问题一样有 thread 状态，下一轮能进入索引并被关闭。
-    // 先于总评发布且总评依赖它们：总评一旦存在，列出的讨论都已存在，后续审查读取时不会漏掉它们。重跑按标记去重。
+    // Review creation comments do not support file-level discussions, so they are posted separately; like inline findings they have thread state and can be indexed and closed next round.
+    // They are posted before the summary, which depends on them: once the summary exists, every listed discussion exists, so later reviews never miss them. Reruns deduplicate by marker.
     const posted = [];
     for (const { comment, id, tag: findingTag } of fileLevel) {
       posted.push(await run(id, [comments!, ...fresh], async () => {
@@ -420,10 +420,10 @@ export async function publishReview({
         ...(coverage ? [reviewText(language, `已审 ${coverage.reviewed}/${coverage.total} 个文件${coverage.sourceReviewed
           ? `（其中 ${coverage.sourceReviewed} 个由来源 PR 审过）` : ''}`, `Reviewed ${coverage.reviewed}/${coverage.total} files${coverage.sourceReviewed ? ` (${coverage.sourceReviewed} from source PRs)` : ''}`)] : []),
       ].join(' · ');
-      // GitHub 评论把单个换行渲染为换行，两行运行信息不需要空行分隔。
+      // GitHub comments render single newlines as line breaks, so the two run-information lines need no blank line.
       const render = (first: string) => `${first}\n${compose(heading, notice(), coverageNotice,
         placeIndex(result.body, index.markdown, language))}\n\n---\n\n${metadataBlock(`${footer.links} · ${scope}\n${footer.details}`)}`;
-      // 重跑找到自己的总评时只更新发布结果；被更新运行收起或就地更新的情况已由前置校验拦下。
+      // When a rerun finds its own summary it only updates publication results; collapse or in-place update by a newer run is stopped by the prerequisite check.
       const existing = ownSummary();
       if (existing) {
         const body = render(firstLine(existing.body));
@@ -433,14 +433,14 @@ export async function publishReview({
         return { id: existing.id, url: existing.html_url };
       }
       const latest = automatic ? latestAutomaticSummary(reviews!.value!.filter(isBot)) : undefined;
-      // 没有新问题、没有状态变化且结论标题不变时，就地更新最新总评，不产生新的时间线条目和通知。
+      // With no new findings, no status changes, and an unchanged title, update the latest summary in place without a new timeline entry or notification.
       if (latest && !result.comments.length && !result.thread_updates.length && latest.body.split('\n')[1] === heading) {
-        // 保留此前各轮的发布标记，旧运行重跑仍能找到这条总评。
+        // Keep earlier rounds' publication markers so reruns of older runs can still find this summary.
         const body = render(`${firstLine(latest.body).slice(0, -automaticSummaryMarker.length)}${summaryHead}`);
         await request(`${route}/reviews/${latest.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
         return { id: latest.id, url: latest.html_url };
       }
-      // 新问题挂在同一条 Review 下，每轮只占一条时间线记录；行号已在提交时按 PR diff 校验。
+      // New findings sit under the same review, one timeline entry per round; lines were checked against the PR diff at submission.
       const response = await request<{ id: number; html_url: string }>(`${route}/reviews`, {
         method: 'POST', body: JSON.stringify({
           body: render(summaryHead), commit_id: expectedHeadSha, event: 'COMMENT',
@@ -453,9 +453,9 @@ export async function publishReview({
       return { id: response.id, url: response.html_url };
     });
     reviewUrl = review.value?.url ?? '';
-    // 最新自动总评代表当前结论；更早的自动总评正文收起为一行指向，原文保留在折叠区供展开和下一轮读取。
-    // 重跑复用当前总评时同样核对，补做上次失败的收起。
-    // 其下的讨论不受影响，仍未解决的问题照常显示。评论请求的答复只覆盖请求范围，既不收起其他总评，也不被收起。
+    // The latest automatic summary is the current conclusion; older automatic summaries collapse to a one-line pointer with the original in a collapsed block for expanding and next-round reading.
+    // A rerun reusing the current summary checks the same way and completes collapses that failed last time.
+    // Discussions below are unaffected and open findings still show. Comment request replies cover only the requested scope, so they neither collapse other summaries nor get collapsed.
     if (requestSource === 'automatic' && review.value) {
       const older = reviews!.value!.filter(item => isBot(item) && item.id < review.value!.id
         && isAutomaticSummary(item.body) && !isSuperseded(item.body));
@@ -472,14 +472,14 @@ export async function publishReview({
   return { reviewUrl, operations: publication.operations };
 }
 
-// 审查 job 在执行层串行队列中开始执行时创建 Check，external_id 为 仓库ID:PR:base:head:来源:运行号:尝试次数，只有可信 workflow 写入。
+// The review job creates the Check when it starts in the serial execution queue; external_id is repositoryId:PR:base:head:source:run:attempt, written only by the trusted workflow.
 export async function latestAutomaticRun({ api, token, repository, repositoryId, pullNumber, headSha, appSlug, fetchImpl }: {
   api: string; token: string; repository: string; repositoryId: string; pullNumber: number; headSha: string; appSlug: string;
   fetchImpl: typeof fetch;
 }) {
   const firstChecks = new Map<number, number>();
   for (let page = 1; ; page++) {
-    // 默认 latest 只保留最近的同名 Check；旧运行重跑的新 Check 会遮住较新运行，必须读取全部历史。
+    // The default latest filter keeps only the newest Check of a name; a rerun of an older run would hide newer runs, so read the full history.
     const body = await github<{ check_runs?: Array<{ id: number; external_id?: string | null; app?: { slug?: string } | null }> }>(fetchImpl, api, token,
       `/repos/${repository}/commits/${headSha}/check-runs?filter=all&per_page=100&page=${page}`);
     if (!Array.isArray(body.check_runs)) throw new Error('Invalid check run page');
@@ -518,7 +518,7 @@ export function renderFinding(comment: ReviewResult['comments'][number], languag
   return `> [!${findingLabels[comment.label].alert}]\n> **${findingLabelText(comment.label, language)}${reviewText(language, '：', ': ')}${comment.title}**\n\n${comment.body}`;
 }
 
-// 历史问题的标签和标题取自发布器写入的标题行，索引与讨论使用同一标题。
+// Earlier findings' labels and titles come from the title line the publisher wrote, so the index and the discussion share one title.
 function findingHeader(body: string) {
   const match = body.match(/^> \*\*([^*\n：:]+)[：:] ?([^\n]+)\*\*$/m);
   return match ? { label: findingLabelFromText(match[1]), displayLabel: match[1], title: match[2] } : undefined;
@@ -534,7 +534,7 @@ function rootText(body: string, language: ReviewLanguage) {
 
 const labelOrder = Object.keys(findingLabels);
 
-// 问题索引是确定的事实：本轮新问题加上仍未关闭的历史问题，标题原样取自讨论。
+// The finding index is deterministic: this round's new findings plus earlier open ones, with titles taken verbatim from the discussion.
 function summaryIndex({ result, findings, comments, allComments, threads, language }: {
   result: ReviewResult; findings: string[]; comments: ReviewComment[]; allComments: ReviewComment[]; threads: ReviewThread[];
   language: ReviewLanguage;
@@ -575,15 +575,15 @@ function summaryIndex({ result, findings, comments, allComments, threads, langua
   };
 }
 
-// 索引放在“核对了什么”之前；模型正文没有这一节时放在末尾。
+// The index goes before "What was checked"; without that section in the model text it goes at the end.
 function placeIndex(body: string, index: string, language: ReviewLanguage) {
   if (!index) return body;
   const lines = body.split('\n');
-  const at = lines.findIndex(line => line.trim() === reviewText(language, '### 核对了什么', '### What was checked'));
+  const at = lines.findIndex(line => line.trim() === `### ${reportHeading(language, 'What was checked')}`);
   return at === -1 ? `${body}\n\n${index}` : [...lines.slice(0, at), index, '', ...lines.slice(at)].join('\n');
 }
 
-// 覆盖缺口来自可信文件进度，不取自模型正文；未审查文件全部列出，读者无需打开工作稿。
+// Coverage gaps come from trusted file progress, not model text; every unreviewed file is listed so readers need not open the workspace.
 export function coverageNotice(pending: string[], total: number, language: ReviewLanguage = 'zh-CN') {
   if (!pending.length) return '';
   return [
@@ -615,12 +615,12 @@ export async function main() {
   const input = await publication.run(reviewText(language, '发布前校验', 'Pre-publication validation'), [], async () => {
     const resultPath = requiredEnv('REVIEW_RESULT_PATH');
     await access(resultPath).catch(() => {
-      throw new Error('Agent 结束时没有调用 submit_review，没有可发布的审查结果');
+      throw new Error('The agent ended without calling submit_review; there is no review result to publish');
     });
     const result = parseReviewResult(await readFile(resultPath, 'utf8'));
     const coveragePath = requiredEnv('REVIEW_COVERAGE_PATH');
     const coverage = parseReviewCoverage(JSON.parse(await readFile(coveragePath, 'utf8')));
-    // 请求由同一可信 job 的准备步骤绑定，发布目标不取自模型结果。
+    // The request is bound by the preparation step of the same trusted job; the publication target never comes from the model result.
     const request = coverage.request;
     if (!coverage.scope) throw new Error('Missing published review scope');
     if (request.source === 'thread' && !result.request_reply) throw new Error('Thread review must include request_reply');
@@ -660,7 +660,7 @@ export async function main() {
   });
   let reviewUrl = '';
   if (input.status === 'succeeded' && process.env.GITHUB_OUTPUT) {
-    // Check 结论只认可信覆盖：有未审查文件时不能成为 success。
+    // The Check conclusion trusts only trusted coverage: with unreviewed files it can never be success.
     await appendFile(process.env.GITHUB_OUTPUT, `coverage_pending=${input.value!.pending.length}\ncoverage_total=${input.value!.total}\n`);
   }
   if (input.status === 'succeeded') {
@@ -680,7 +680,7 @@ export async function main() {
     },
     writeSummary: process.env.GITHUB_STEP_SUMMARY
       ? () => appendFile(process.env.GITHUB_STEP_SUMMARY!, publicationSummary(report.operations, reviewText(language, 'GitHub 发布操作', 'GitHub publication operations'), language)) : undefined,
-    // 经步骤输出交给 Check completion；Agent 不能写入本步骤的输出。
+    // Handed to Check completion through a step output; the agent cannot write this step's outputs.
     writeCheckText: process.env.GITHUB_OUTPUT ? () => {
       const delimiter = `check_text_${randomUUID()}`;
       const text = checkText({ language, ...input.value?.record, operations: report.operations });

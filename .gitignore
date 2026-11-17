@@ -5,7 +5,3 @@ dist/
 .env
 wrangler.local.toml
 .pi-subagents/
-
-# 评测运行产物本地留存，Git 只维护用例、工具和精简结果。
-/evals/experiments/
-/evals/generalized-review/runs/

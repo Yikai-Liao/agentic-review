@@ -6,9 +6,10 @@ import { test } from 'node:test';
 import { parse } from 'yaml';
 import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 import { buildFooter, checkText, coverageNotice } from '../scripts/publish-review.ts';
-import { parseReviewLanguage, reviewCheckMessages } from '../scripts/review-language.ts';
+import { findingLabelFromText, findingLabelText, parseReviewLanguage, reportHeading, reviewCheckMessages, reviewLanguageInstruction } from '../scripts/review-language.ts';
+import { findingLabels, type FindingLabel } from '../scripts/review-result.ts';
 
-test('语言由中央仓库选择，缺失和不支持的值在签发 token 前失败', () => {
+test('the central repository selects the language; missing or unsupported values fail before minting tokens', () => {
   const workflow = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
   assert.equal(workflow.env.REVIEW_LANGUAGE, '${{ vars.REVIEW_LANGUAGE }}');
   const steps = workflow.jobs.review.steps;
@@ -28,18 +29,22 @@ test('语言由中央仓库选择，缺失和不支持的值在签发 token 前�
   }
 });
 
-test('英文选择进入可信提示词，并明确保留 JSON schema 与枚举值', async () => {
+test('the language choice reaches the trusted prompt with headings matching the publisher', async () => {
   const control = fileURLToPath(new URL('..', import.meta.url));
   const english = await loadReviewPrompt(control, 'en');
   const chinese = await loadReviewPrompt(control, 'zh-CN');
-  assert.match(english, /REVIEW_LANGUAGE=en。.*英文（English）/);
-  assert.match(english, /JSON schema 字段及枚举值保留原文/);
-  assert.match(english, /What was checked/);
-  assert.match(chinese, /REVIEW_LANGUAGE=zh-CN。.*简体中文/);
-  assert.doesNotMatch(english, /Review 使用简体中文/);
+  assert.match(english, /REVIEW_LANGUAGE=en\. .*in English\./);
+  assert.match(english, /JSON schema fields and enum values stay as written/);
+  assert.match(chinese, /REVIEW_LANGUAGE=zh-CN\. .*Simplified Chinese/);
+  assert.ok(chinese.includes(`- What was checked → ${reportHeading('zh-CN', 'What was checked')}`));
+  assert.ok(chinese.includes('- Fix and verify → 怎么改、怎么验证'));
+  assert.doesNotMatch(reviewLanguageInstruction('en'), /→/);
+  for (const label of Object.keys(findingLabels) as FindingLabel[]) {
+    for (const language of ['en', 'zh-CN'] as const) assert.equal(findingLabelFromText(findingLabelText(label, language)), label);
+  }
 });
 
-test('英文覆盖提示、页脚和 Check 使用同一语言，部分覆盖仍要求继续审查', () => {
+test('English coverage notice, footer, and Check share the language, and partial coverage still asks to continue', () => {
   const footer = buildFooter({ language: 'en', runUrl: 'https://example.test/run', workspaceUrl: 'https://example.test/workspace',
     model: 'openai/test', thinkingLevel: 'high', durationSeconds: 65, cost: 0.01, controlSha: 'a'.repeat(40) });
   const notice = coverageNotice(['src/auth.ts'], 3, 'en');

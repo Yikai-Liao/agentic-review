@@ -14,7 +14,7 @@ import { buildReviewRequest } from '../scripts/review-request.ts';
 import { parseReviewResult } from '../scripts/review-result.ts';
 
 process.env.REVIEW_TIME_BUDGET_SECONDS = '540';
-// 新问题的行号在提交时按真实 PR diff 校验：base 有 60 行，head 改写第 40-42 行。
+// New finding lines are validated against the real PR diff on submission: base has 60 lines and head rewrites lines 40-42.
 const target = await mkdtemp(path.join(tmpdir(), 'review-target-'));
 const git = (...args: string[]) => execFileSync('git', ['-C', target, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim();
 git('init', '-q');
@@ -35,31 +35,31 @@ async function assertSubmissionFailed(response: Promise<any>, error: RegExp) {
   assert.match(failure.content[0].text, error);
 }
 const result = {
-  body: '## Review 总结\n\n这个 PR 修复了清理行为。',
-  comments: [{ path: 'src/auth.ts', line: 42, start_line: 40, label: 'P1' as const, title: '过期会话仍能删除记录', body: '详细证据。' }],
+  body: '## Review Summary\n\nThis PR fixes the cleanup behavior.',
+  comments: [{ path: 'src/auth.ts', line: 42, start_line: 40, label: 'P1' as const, title: 'Expired sessions can still delete records', body: 'Detailed evidence.' }],
   thread_updates: [{
     root_comment_id: 123,
     status: 'resolved' as const,
-    evidence: '当前实现已经恢复 owner token 检查。',
+    evidence: 'The current implementation restores the owner token check.',
   }],
   request_reply: null,
 };
 
 async function configureProgress(directory: string, source: 'automatic' | 'pr_comment' | 'thread' = 'automatic') {
   const request = buildReviewRequest({ source, commentId: source === 'automatic' ? '' : '8', rootCommentId: source === 'automatic' ? '' : '8',
-    text: '审查请求\r\n保留换行', repository: 'owner/repo', pullNumber: 7, baseSha, headSha, runId: '99' });
+    text: 'Review request\r\nkeeps line breaks', repository: 'owner/repo', pullNumber: 7, baseSha, headSha, runId: '99' });
   process.env.REVIEW_TARGET_PATH = target;
   process.env.REVIEW_CONTEXT_PATH = path.join(directory, 'review-context.json');
   process.env.REVIEW_PROGRESS_PATH = path.join(directory, 'workspace', 'review-progress.json');
   process.env.REVIEW_INVENTORY_DIGEST = inventoryDigest(['src/auth.ts']);
   await writeFile(process.env.REVIEW_CONTEXT_PATH, JSON.stringify({ request, source_reviewed: [] }));
   await writeFile(process.env.REVIEW_PROGRESS_PATH, JSON.stringify({ ledger: [{ path: 'src/auth.ts', status: 'complete' }], scope: {
-    mode: 'full', rationale: '完整审查', explicit_text: '',
+    mode: 'full', rationale: 'Full review', explicit_text: '',
     ranges: [{ targets: ['complete pull request'], comparison_start: request.comparison_start, comparison_end: request.head_sha }],
   } }));
 }
 
-test('submit_review 直接接收结果对象，保存工作稿副本并封存一次', async () => {
+test('submit_review takes the result object directly, saves a working draft copy, and seals once', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
   const originalEnv = { ...process.env };
   try {
@@ -77,7 +77,7 @@ test('submit_review 直接接收结果对象，保存工作稿副本并封存一
     assert.deepEqual(response.details, { queued: true });
     const savedPath = path.join(workspace, 'review-result.json');
     assert.deepEqual(parseReviewResult(await readFile(savedPath, 'utf8')), result);
-    await writeFile(savedPath, '修改工作稿副本');
+    await writeFile(savedPath, 'modified working draft copy');
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), result);
     await assertSubmissionFailed(tool.execute('call', result), /already submitted/);
   } finally {
@@ -86,7 +86,7 @@ test('submit_review 直接接收结果对象，保存工作稿副本并封存一
   }
 });
 
-test('范围与提交只需要模型判断和文件进度，不搬运请求身份', async () => {
+test('Scope and submission need only model judgment and file progress, not request identity', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-scope-'));
   const originalEnv = { ...process.env };
   try {
@@ -100,10 +100,10 @@ test('范围与提交只需要模型判断和文件进度，不搬运请求身�
     process.env.REVIEW_RESULT_PATH = path.join(directory, 'result.json');
     const tools = new Map<string, any>();
     reviewTools({ on: () => {}, registerTool: (definition) => tools.set(definition.name, definition) });
-    const summary = { body: '总结', comments: [], thread_updates: [], request_reply: null };
+    const summary = { body: 'Summary', comments: [], thread_updates: [], request_reply: null };
     await assertSubmissionFailed(tools.get('submit_review').execute('call', summary), /scope must be recorded/);
     await tools.get('set_review_scope').execute('call', {
-      mode: 'focused', rationale: '用户明确限定鉴权链路。', explicit_text: '只看 auth',
+      mode: 'focused', rationale: 'The user explicitly limited review to the auth path.', explicit_text: 'auth only',
       ranges: [{ targets: ['src/auth/**'], comparison_start: baseSha, comparison_end: headSha }],
     });
     const saved = JSON.parse(await readFile(progressPath, 'utf8'));
@@ -134,7 +134,7 @@ test('automatic reviews cannot record a focused partial scope', async () => {
     process.env.REVIEW_WORKSPACE_PATH = workspace;
     let scopeTool: any;
     reviewTools({ on: () => {}, registerTool: (definition) => { if (definition.name === 'set_review_scope') scopeTool = definition; } });
-    await assert.rejects(scopeTool.execute('call', { mode: 'focused', rationale: '只看一个文件。', explicit_text: '只看 auth', ranges: [{ targets: ['src/auth.ts'], comparison_start: baseSha, comparison_end: headSha  }]}), /complete PR scope/);
+    await assert.rejects(scopeTool.execute('call', { mode: 'focused', rationale: 'Only one file.', explicit_text: 'auth only', ranges: [{ targets: ['src/auth.ts'], comparison_start: baseSha, comparison_end: headSha  }]}), /complete PR scope/);
   } finally {
     process.env = originalEnv;
     await rm(directory, { recursive: true, force: true });
@@ -162,16 +162,16 @@ test('submit_review rejects invalid results without sealing and allows correctio
       [{ ...result, comments: [{ ...result.comments[0], path: '../secret' }] }, /comment path/],
       [{ ...result, comments: [{ ...result.comments[0], start_line: 43 }] }, /start_line/],
       [{ ...result, comments: [{ ...result.comments[0], label: 'P3' }] }, /comment label; use one of P0, P1/],
-      [{ ...result, comments: [{ ...result.comments[0], title: '两行\n标题' }] }, /comment title/],
+      [{ ...result, comments: [{ ...result.comments[0], title: 'Two-line\ntitle' }] }, /comment title/],
       [{ ...result, comments: [{ ...result.comments[0], start_line: null, line: 10 }] }, /src\/auth\.ts:10 is outside the PR diff\. Commentable line ranges in this file: 37-45/],
       [{ ...result, comments: [{ ...result.comments[0], path: 'src/other.ts' }] }, /no commentable lines/],
       [{ ...result, comments: [{ ...result.comments[0], line: null, start_line: 40 }] }, /start_line/],
       [{ ...result, comments: [{ ...result.comments[0], path: 'docs/missing.md', line: null, start_line: null }] }, /docs\/missing\.md is not changed in the PR/],
-      [{ ...result, thread_updates: [{ ...result.thread_updates[0], evidence: '第一行\n第二行原因' }] }, /thread evidence/],
+      [{ ...result, thread_updates: [{ ...result.thread_updates[0], evidence: 'First line\nsecond line reason' }] }, /thread evidence/],
       [{ ...result, thread_updates: [{ ...result.thread_updates[0], status: 'unknown' }] }, /thread status/],
       [{ ...result, thread_updates: [result.thread_updates[0], result.thread_updates[0]] }, /Duplicate thread update/],
-      [{ ...result, request_reply: '字符串答复' }, /Invalid request reply/],
-      [{ ...result, request_reply: { body: '非 thread 请求不能提交原 thread 答复。' } }, /does not match request source/],
+      [{ ...result, request_reply: 'string reply' }, /Invalid request reply/],
+      [{ ...result, request_reply: { body: 'A non-thread request cannot submit a thread reply.' } }, /does not match request source/],
     ];
     for (const [input, error] of invalidResults) {
       await assertSubmissionFailed(tool.execute('call', input), error);
@@ -179,7 +179,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
       await assert.rejects(readFile(path.join(workspace, 'review-result.json')), { code: 'ENOENT' });
     }
 
-    // 无法绑定 diff 行的问题作为 PR 改动文件上的文件级讨论，不校验行号。
+    // Findings that cannot bind to a diff line become file-level discussions on a changed file, without line validation.
     const accepted = { ...result, comments: [...result.comments, { ...result.comments[0], line: null, start_line: null }] };
     await tool.execute('call', accepted);
     assert.deepEqual(parseReviewResult(await readFile(resultPath, 'utf8')), accepted);
@@ -190,7 +190,7 @@ test('submit_review rejects invalid results without sealing and allows correctio
   }
 });
 
-test('submit_review 不接受文件路径，不把外部文件内容当作结果', async () => {
+test('submit_review accepts no file path and never treats external file content as the result', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-tools-'));
   const originalEnv = { ...process.env };
   try {
@@ -211,7 +211,7 @@ test('submit_review 不接受文件路径，不把外部文件内容当作结果
   }
 });
 
-test('thread 请求必须提供答复，修正后可以提交', async () => {
+test('A thread request must include a reply and can be submitted once fixed', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-thread-submit-'));
   const originalEnv = { ...process.env };
   try {
@@ -223,7 +223,7 @@ test('thread 请求必须提供答复，修正后可以提交', async () => {
     let tool: any;
     reviewTools({ on: () => {}, registerTool: (definition) => { tool = definition; } });
     await assertSubmissionFailed(tool.execute('call', result), /does not match request source/);
-    const response = await tool.execute('call', { ...result, request_reply: { body: '已复核并更新该问题的状态。' } });
+    const response = await tool.execute('call', { ...result, request_reply: { body: 'Rechecked and updated the status of this issue.' } });
     assert.equal(response.details.queued, true);
   } finally {
     process.env = originalEnv;
@@ -231,7 +231,7 @@ test('thread 请求必须提供答复，修正后可以提交', async () => {
   }
 });
 
-test('封存写入失败不能返回完成，修复后可重试且不能覆盖已有封存结果', async () => {
+test('A failed seal write never reports completion; it can be retried after a fix and never overwrites an existing sealed result', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-seal-'));
   const originalEnv = { ...process.env };
   try {
@@ -250,9 +250,9 @@ test('封存写入失败不能返回完成，修复后可重试且不能覆盖�
     assert.equal((await submit.execute('call', result)).details.queued, true);
     await assert.rejects(tools.get('set_review_scope').execute('call', {}), /already submitted/);
 
-    // 新扩展实例也不能覆盖已封存的结果。
+    // A new extension instance cannot overwrite the sealed result either.
     reviewTools({ on: () => {}, registerTool: definition => tools.set(definition.name, definition) });
-    await assertSubmissionFailed(tools.get('submit_review').execute('call', { ...result, body: '另一份结果' }), /EEXIST/);
+    await assertSubmissionFailed(tools.get('submit_review').execute('call', { ...result, body: 'another result' }), /EEXIST/);
     assert.deepEqual(parseReviewResult(await readFile(sealed, 'utf8')), result);
     assert.deepEqual(parseReviewResult(await readFile(path.join(workspace, 'review-result.json'), 'utf8')), result);
   } finally {
@@ -261,7 +261,7 @@ test('封存写入失败不能返回完成，修复后可重试且不能覆盖�
   }
 });
 
-test('并发提交不同结果时，只有成功封存的调用能保存工作稿副本', async () => {
+test('With concurrent submissions of different results, only the call that seals saves the working draft copy', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-concurrent-submit-'));
   const originalEnv = { ...process.env };
   try {
@@ -275,7 +275,7 @@ test('并发提交不同结果时，只有成功封存的调用能保存工作�
     for (let i = 0; i < 2; i++) {
       reviewTools({ on: () => {}, registerTool: definition => { if (definition.name === 'submit_review') submitters.push(definition); } });
     }
-    const results = [result, { ...result, body: '另一份结果' }];
+    const results = [result, { ...result, body: 'another result' }];
     const responses = await Promise.all(submitters.map((tool, i) => tool.execute(`call-${i}`, results[i])));
     const winner = responses.findIndex(response => response.details.queued);
     assert.notEqual(winner, -1);
@@ -291,7 +291,7 @@ test('并发提交不同结果时，只有成功封存的调用能保存工作�
   }
 });
 
-test('工作稿副本写入失败时撤销封存占位，修复后可重试', async () => {
+test('A failed working draft copy write releases the seal placeholder and can be retried after a fix', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-copy-failure-'));
   const originalEnv = { ...process.env };
   try {
@@ -315,7 +315,7 @@ test('工作稿副本写入失败时撤销封存占位，修复后可重试', as
   }
 });
 
-test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) => {
+test('A failed close of the seal handle also releases the placeholder and can be retried after a fix', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-close-failure-'));
   const originalEnv = { ...process.env };
   try {
@@ -328,7 +328,7 @@ test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) =
     let submit: any;
     reviewTools({ on: () => {}, registerTool: definition => { if (definition.name === 'submit_review') submit = definition; } });
 
-    // 用真实文件完成写入，只在该句柄关闭时注入故障。
+    // Write a real file and inject the fault only when that handle closes.
     const probe = await open(path.join(directory, 'probe'), 'wx');
     const prototype = Object.getPrototypeOf(probe) as FileHandle;
     await probe.close();
@@ -352,7 +352,7 @@ test('关闭封存句柄失败也撤销占位，修复后可重试', async (t) =
   }
 });
 
-test('时间预算由扩展执行：预算内拒绝提前结束和部分提交，收尾后接受部分结论', async () => {
+test('The extension enforces the time budget: within budget it refuses early stops and partial submissions, and after wrap-up it accepts partial conclusions', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-budget-'));
   const originalEnv = { ...process.env };
   try {
@@ -374,24 +374,24 @@ test('时间预算由扩展执行：预算内拒绝提前结束和部分提交�
     const call = (toolName: string) => handlers.get('tool_call')!({ toolName });
     handlers.get('agent_start')!();
 
-    // 调查阶段：不能自行结束，也不能以部分覆盖提交。
+    // Investigation phase: no stopping on its own and no submission with partial coverage.
     clock = 359_000;
     assert.equal(turnEnd(), undefined);
-    assert.match(settle().entries[0].content, /仍有 pending 文件.*不能以范围大、时间不足或未完成为由结束/);
+    assert.match(settle().entries[0].content, /files are pending.*do not stop because the scope is large, time is short, or work is unfinished/);
     await assertSubmissionFailed(submit.execute('call', result), /1 files still pending.*only after the wrap-up notice/);
 
-    // 收尾阶段：只通知一次，未提交就结束时再次要求收尾，并接受部分结论。
+    // Wrap-up phase: notify once, ask again to wrap up when stopping without submission, and accept partial conclusions.
     clock = 360_000;
-    assert.match(turnEnd().entries[0].content, /时间预算已进入收尾阶段/);
+    assert.match(turnEnd().entries[0].content, /The time budget has entered wrap-up/);
     assert.equal(turnEnd(), undefined);
-    assert.match(settle().entries[0].content, /时间预算已进入收尾阶段/);
+    assert.match(settle().entries[0].content, /The time budget has entered wrap-up/);
     assert.equal(call('bash'), undefined);
 
-    // 到期后只允许提交；仍不提交时只再提醒一次，随后如实结束。
+    // After expiry only submission is allowed; without one, remind once more and then end truthfully.
     clock = 540_000;
-    assert.match(call('bash').reason, /除 `submit_review` 外的工具都会被拒绝/);
+    assert.match(call('bash').reason, /every tool except `submit_review` is rejected/);
     assert.equal(call('submit_review'), undefined);
-    assert.match(settle().entries[0].content, /时间预算已用尽/);
+    assert.match(settle().entries[0].content, /The time budget is exhausted/);
     assert.equal(settle(), undefined);
     assert.deepEqual((await submit.execute('call', result)).details, { queued: true });
     assert.equal(call('bash'), undefined);
@@ -402,7 +402,7 @@ test('时间预算由扩展执行：预算内拒绝提前结束和部分提交�
   }
 });
 
-test('小 PR 全部完成后立即提交，不等待收尾阶段', async () => {
+test('A small PR submits as soon as everything is complete without waiting for wrap-up', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-budget-small-'));
   const originalEnv = { ...process.env };
   try {
@@ -427,7 +427,7 @@ test('小 PR 全部完成后立即提交，不等待收尾阶段', async () => {
   }
 });
 
-test('时间预算必须显式配置且大于收尾预留', async () => {
+test('The time budget must be configured explicitly and exceed the wrap-up reserve', async () => {
   const { reviewBudgetSeconds, reviewPhase } = await import('../scripts/review-budget.ts');
   for (const value of [undefined, '', '180', '600.5', 'abc']) assert.throws(() => reviewBudgetSeconds(value), /REVIEW_TIME_BUDGET_SECONDS/);
   assert.equal(reviewBudgetSeconds('540'), 540);
@@ -437,7 +437,7 @@ test('时间预算必须显式配置且大于收尾预留', async () => {
   assert.equal(reviewPhase(0, 540_000, 540), 'submit_only');
 });
 
-test('页脚展示费用估算，省略 Action 版本与审查范围', () => {
+test('The footer shows the cost estimate and omits the Action version and review scope', () => {
   assert.deepEqual(
     buildFooter({
       runUrl: 'https://github.test/run',
@@ -476,15 +476,15 @@ test('production workflow shares the thinking level between Pi and the published
   }
 });
 
-test('可评论行按 GitHub 的三行上下文与改名识别计算，删除的文件没有可评论行', () => {
+test('Commentable lines follow GitHub\'s three-line context and rename detection; deleted files have none', () => {
   const ranges = commentableRanges([
     'diff --git a/old name.ts b/new name.ts', 'similarity index 90%', 'rename from old name.ts', 'rename to new name.ts',
     '--- a/old name.ts\t', '+++ b/new name.ts\t', '@@ -10,7 +10,8 @@ fn', ' a', '+b',
     'diff --git a/gone.ts b/gone.ts', '--- a/gone.ts', '+++ /dev/null', '@@ -1,3 +0,0 @@',
     'diff --git a/one.ts b/one.ts', '--- a/one.ts', '+++ b/one.ts', '@@ -1 +1 @@', '@@ -5,0 +6,0 @@',
-    // 以 `++ ` 开头的新增内容在 hunk 中显示为 `+++ `，后续 hunk 仍属于同一文件。
+    // Added content starting with `++ ` appears as `+++ ` in a hunk, and later hunks still belong to the same file.
     'diff --git a/plus.md b/plus.md', '--- a/plus.md', '+++ b/plus.md', '@@ -1,2 +1,3 @@', ' a', '+++ b', '--- c', '@@ -20,3 +21,4 @@', ' d',
-    // 含双引号、反斜杠或控制字符的路径带 C 风格引号；core.quotePath=false 时非 ASCII 字符原样输出。
+    // Paths with double quotes, backslashes, or control characters get C-style quotes; with core.quotePath=false non-ASCII characters are output as is.
     'diff --git "a/q\\"\\\\\\t中.ts" "b/q\\"\\\\\\t中.ts"', '--- "a/q\\"\\\\\\t中.ts"', '+++ "b/q\\"\\\\\\t中.ts"', '@@ -1 +1 @@',
     'diff --git a/x b/x', '--- a/x', '+++ "b/\\303\\251.ts"', '@@ -1 +1 @@',
   ].join('\n'));

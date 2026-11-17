@@ -36,8 +36,8 @@ export default function reviewCost(pi: ExtensionAPI) {
   let priceKnown = true;
   pi.on('before_provider_request', (event, ctx) => {
     if (!priced && ctx.model) {
-      // 显式注册的模型没有单价；首次请求前取目录价格，之后 SDK 照常按 model.cost 与分档计费。
-      // 目录没有该模型时 Review 照常运行，但费用必须标记为未知，不能显示为 0。
+      // Explicitly registered models have no price; take catalog prices before the first request, after which the SDK prices by model.cost and tiers as usual.
+      // Without a catalog entry the review still runs, but cost must be marked unknown, never shown as 0.
       const cost = findCatalogCost(ctx.model.id, ctx.modelRegistry.getAll());
       if (cost) ctx.model.cost = cost;
       else console.info('[review-price-missing]', ctx.model.id);
@@ -48,7 +48,7 @@ export default function reviewCost(pi: ExtensionAPI) {
     const payload = event.payload as Record<string, unknown>;
     const result: Record<string, unknown> = { ...payload, prompt_cache_key: 'agentic-review' };
     if (!ctx.model.compat?.supportsExplicitPromptCacheMode) return result;
-    // compaction 移除固定规则后仍需显式保留短期缓存参数。
+    // After compaction removes the fixed rules, the short-term cache parameter must still be kept explicitly.
     result.prompt_cache_options = { mode: 'implicit', ttl: '30m' };
     const input = payload.input as Array<{ role?: string; content?: Array<{ type: string; text?: string }> }>;
     const index = Array.isArray(input) ? input.findIndex(message => message.role === 'user'
@@ -56,7 +56,7 @@ export default function reviewCost(pi: ExtensionAPI) {
       && message.content[0].type === 'input_text'
       && message.content[0].text === prompt) : -1;
     if (index === -1) {
-      // 首次必须能定位规则；长审查 compaction 后原消息可能已被移除。
+      // The first request must locate the rules; after compaction in long reviews the original message may be gone.
       if (firstRequest) {
         ctx.abort();
         throw new Error('Fixed review prompt is missing from the provider request');
@@ -64,8 +64,8 @@ export default function reviewCost(pi: ExtensionAPI) {
       return result;
     }
     if (firstRequest) {
-      // 对实际发送的固定前缀取指纹；不记录规则、源码、请求正文或凭据。
-      // 增量材料位于固定规则之后，不应改变这些指纹。
+      // Fingerprint the fixed prefix actually sent; never log rules, source, request bodies, or credentials.
+      // Incremental material sits after the fixed rules and must not change these fingerprints.
       const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex');
       const prefix = { model: payload.model, instructions: payload.instructions, tools: payload.tools,
         parallel_tool_calls: payload.parallel_tool_calls, reasoning: payload.reasoning, text: payload.text,
@@ -77,8 +77,8 @@ export default function reviewCost(pi: ExtensionAPI) {
     }
     firstRequest = false;
     const message = input[index];
-    // 新模型只给最新消息写 implicit 缓存；固定规则需要独立断点。
-    // 仅固定前缀保留 12h；动态材料和后续工具交互继续使用 30m implicit 缓存。
+    // New models write implicit cache only for the latest message; the fixed rules need their own breakpoint.
+    // Only the fixed prefix is kept 12h; dynamic material and later tool interaction keep the 30m implicit cache.
     return { ...result,
       input: input.map((item, position) => position === index
         ? { ...message, content: [{ ...message.content![0], prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' } }] }
@@ -89,8 +89,8 @@ export default function reviewCost(pi: ExtensionAPI) {
     if (ended.role !== 'assistant') return;
     try {
       const usage = (ended as AssistantMessage).usage;
-      // 网关不区分写入 TTL；沿用 SDK 的官方目录估算，缓存策略不决定计价。
-      // 仅校验已有标准统计，不要求网关额外返回生命周期字段。
+      // The gateway does not distinguish write TTLs; keep the SDK's official catalog estimate, since caching policy does not decide pricing.
+      // Validate only the standard statistics already present; the gateway need not return lifetime fields.
       parseReviewUsage({ turns: 1, priceKnown, first: usage, total: usage });
     } catch (error) {
       usageError = error as Error;
@@ -104,20 +104,20 @@ export default function reviewCost(pi: ExtensionAPI) {
   pi.on('turn_end', ({ message: ended }) => {
     if (usageError) throw usageError;
     if (ended.role !== 'assistant') return;
-    // 每回合明细已在会话 JSONL 的 assistant 消息中，这里只累计，不写入运行日志。
+    // Per-turn details are already in the session JSONL assistant messages; only accumulate here, never log them.
     const usage = structuredClone((ended as AssistantMessage).usage);
     if (!summary) summary = { turns: 1, priceKnown, first: usage, total: structuredClone(usage) };
     else {
       summary.turns++;
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'] as const) summary.total[key] += usage[key];
-      // 部分 provider 不报告推理分项；缺失保持未知，不能写成零。
+      // Some providers do not report reasoning separately; keep it unknown rather than zero.
       summary.total.reasoning = summary.total.reasoning === undefined || usage.reasoning === undefined
         ? undefined : summary.total.reasoning + usage.reasoning;
       for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const) summary.total.cost[key] += usage.cost[key];
     }
     const workspace = process.env.REVIEW_WORKSPACE_PATH;
     if (!workspace) throw new Error('Review workspace is unavailable for usage statistics');
-    // 只保存已有 SDK 统计，不保存正文，不调用模型；缺失或损坏会在发布时被拒绝。
+    // Save only existing SDK statistics, no text and no model calls; missing or corrupt data is rejected at publication.
     writeFileSync(path.join(workspace, 'review-usage.json'), `${JSON.stringify(parseReviewUsage(summary))}\n`, { mode: 0o600 });
   });
 }

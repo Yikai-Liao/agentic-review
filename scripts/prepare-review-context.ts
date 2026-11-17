@@ -25,13 +25,13 @@ const required = (name: string) => {
 };
 
 export async function archiveReviewPublisher(control: string) {
-  // 直接读取可信准备阶段的工作树，不能让部分克隆为打包触发额外 Git 下载。
+  // Read the trusted preparation worktree directly so packing never triggers extra partial-clone downloads.
   const { stdout } = await exec('tar', ['-czf', '-', '-C', control, 'scripts', 'package.json'], { encoding: 'buffer' });
   return stdout.toString('base64');
 }
 
 async function downloadWorkspace(run: string, name: string, directory: string) {
-  // GitHub CLI 负责下载和安全解包；中央制品读取使用 workflow token，目标读取 token 仍保持原范围。
+  // The GitHub CLI downloads and safely extracts artifacts; central artifact reads use the workflow token, and the target read token keeps its scope.
   await exec('gh', ['run', 'download', run, '--repo', required('GITHUB_REPOSITORY'), '--name', name, '--dir', directory], {
     env: { ...process.env, GH_TOKEN: required('CONTROL_TOKEN') },
   });
@@ -75,8 +75,8 @@ export async function main() {
   const workspace = required('GITHUB_WORKSPACE');
   const temporary = required('RUNNER_TEMP');
   const control = fileURLToPath(new URL('../', import.meta.url));
-  // 控制面已按固定 ref 检出，尚未启动 Agent；发布器由 Runner 保存为步骤输出。
-  // 在持久化请求前交付，后续输入准备失败时仍可由该发布器保存恢复范围。
+  // The control plane is checked out at the pinned ref and the agent has not started; the Runner saves the publisher as a step output.
+  // It is delivered before the request is persisted so the publisher can still save a recoverable scope if later input preparation fails.
   await appendFile(required('GITHUB_OUTPUT'), `publisher_archive=${await archiveReviewPublisher(control)}\n`);
   const target = path.join(workspace, 'review-target');
   const base = path.join(workspace, 'review-base');
@@ -96,7 +96,7 @@ export async function main() {
     REVIEW_COMMENT_ID: inputs.comment_id, REVIEW_COMMENT_ROOT_ID: inputs.comment_root_id, REVIEW_COMMENT_BODY: inputs.comment_body,
     CONTROL_REPOSITORY: required('GITHUB_REPOSITORY'),
   });
-  // 讨论可以和 Git 下载同时读取；读取失败要在持久化本次请求后抛出，保留可恢复的范围。
+  // Discussion reads run alongside the Git download; a read failure is thrown after this request is persisted so the scope stays recoverable.
   const discussion = readDiscussion(inputs.repository!, inputs.pull_number!).then(
     value => ({ status: 'fulfilled' as const, value }), reason => ({ status: 'rejected' as const, reason }),
   );
@@ -116,11 +116,11 @@ export async function main() {
   });
   if (previous) {
     const coverage = parseReviewCoverage(JSON.parse(await readFile(path.join(previousRequest, 'review-coverage.json'), 'utf8')));
-    // 显式请求的旧范围可能属于另一条历史；按记录补齐版本，保留失败范围与撤销变化。
+    // An explicit request's old range may belong to another history; fetch versions per records, keeping failed scope and reverted changes.
     const ranges = coverage.scope?.ranges ?? coverage.default_plan?.ranges ?? [];
     await fetchReviewCommits(target, ranges.flatMap(range => [range.comparison_start, range.comparison_end]));
   }
-  // 来源归因在持久化请求前完成：它写入可信上下文，Agent 不能改写来源已审的文件。
+  // Source attribution finishes before the request is persisted: it is written into trusted context, so the agent cannot rewrite source-reviewed files.
   await attributeSources();
   await persistRequest();
   const [checkpoint] = await Promise.all([

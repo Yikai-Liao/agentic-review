@@ -15,7 +15,7 @@ import { findCatalogCost, type CatalogModel } from '../scripts/review-pricing.ts
 
 const price = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 };
 const catalog: CatalogModel[] = [{ provider: 'openai', id: 'gpt-test', cost: price }];
-// 显式注册的模型初始单价为 0；扩展在首次请求前从目录补价。
+// Explicitly registered models start with zero prices; the extension fills them from the catalog before the first request.
 const modelOf = (extra: object = {}) => ({ id: 'gpt-test', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...extra });
 const registry = { getAll: () => catalog };
 
@@ -24,7 +24,7 @@ type Step = { id?: string; name?: string; env?: Record<string, string>; run?: st
 type Workflow = { jobs: { review: { steps: Step[] } } };
 const workflowPath = new URL('../.github/workflows/review-execution.yml', import.meta.url);
 
-test('费用估算保留低成本调用，区分零费用、缺失和无效统计', () => {
+test('The cost estimate keeps low-cost calls and distinguishes zero cost, missing, and invalid stats', () => {
   for (const [cost, expected] of [
     [0.00424, '$0.0042'], [1.23678, '$1.2368'], [0.000001, '<$0.0001'], [0, '$0.0000'],
   ] as const) assert.ok(buildFooter({ ...metadata, cost }).details.endsWith(`费用约 ${expected}`));
@@ -32,7 +32,7 @@ test('费用估算保留低成本调用，区分零费用、缺失和无效统�
   for (const cost of [-0.1, NaN, Infinity]) assert.throws(() => buildFooter({ ...metadata, cost }), /Invalid review cost/);
 });
 
-test('发布费用直接使用 Pi Action 的统计输出', async () => {
+test('Published cost comes directly from the Pi Action\'s stats output', async () => {
   const workflow = parse(await readFile(workflowPath, 'utf8')) as Workflow;
   const publisher = workflow.jobs.review.steps.find(step => step.id === 'publish-review')!;
   assert.equal(publisher.env?.REVIEW_COST, '${{ steps.pi-review.outputs.cost }}');
@@ -40,11 +40,11 @@ test('发布费用直接使用 Pi Action 的统计输出', async () => {
   assert.ok(agent.with.extensions.trim().split(/\s+/).includes('control/.github/pi-extensions/review-cost.ts'));
 });
 
-test('不同 Review 共享 OpenAI 缓存分组，输入、服务档位与其他 API 保持原契约', () => {
+test('Different reviews share the OpenAI cache group while input, service tier, and other APIs keep their contracts', () => {
   const handlers = new Map<string, Function>();
   costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
   const request = handlers.get('before_provider_request')!;
-  const input = [{ role: 'user', content: '相同规则；当前 PR 的独立输入' }];
+  const input = [{ role: 'user', content: 'Shared rules; this PR\'s own input' }];
   for (const key of ['session-1', 'session-2']) {
     const original = { model: 'gpt-6.1-sol', input, prompt_cache_key: key, store: false,
       reasoning: { effort: 'high' }, service_tier: 'priority', prompt_cache_options: { ttl: '30m' } };
@@ -56,7 +56,7 @@ test('不同 Review 共享 OpenAI 缓存分组，输入、服务档位与其他 
   }
 });
 
-test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m implicit 缓存', async t => {
+test('Fixed rules use a 12h cache across commits and tool turns, and dynamic materials use a 30m implicit cache', async t => {
   const prefixes: unknown[] = [];
   t.mock.method(console, 'info', (label: unknown, json: unknown) => {
     if (label === '[review-cache-prefix]' && typeof json === 'string') prefixes.push(JSON.parse(json));
@@ -67,19 +67,19 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
   handlers.get('before_agent_start')!({ prompt });
   const request = handlers.get('before_provider_request')!;
   const ctx = { model: modelOf({ api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } }), modelRegistry: registry,
-    abort: () => assert.fail('正常请求不应中止') };
-  const stable = [{ role: 'developer', content: '固定系统提示' },
+    abort: () => assert.fail('A normal request should not abort') };
+  const stable = [{ role: 'developer', content: 'Fixed system prompt' },
     { role: 'user', content: [{ type: 'input_text', text: prompt }] }];
   const patched: any[] = [];
   for (const commit of ['head-one', 'head-two']) {
     handlers.get('before_agent_start')!({ prompt });
     const original = { model: 'gpt-6.1-sol', input: [...stable,
-      { role: 'user', content: [{ type: 'input_text', text: `本轮材料 ${commit}` }] }],
+      { role: 'user', content: [{ type: 'input_text', text: `Materials for this round ${commit}` }] }],
       tools: [{ type: 'function', name: 'read' }], store: false, reasoning: { effort: 'high' },
       prompt_cache_options: { ttl: '30m' }, prompt_cache_key: commit };
     const saved = structuredClone(original);
     const result = request({ payload: original }, ctx);
-    assert.deepEqual(original, saved, '不得就地改写 SDK 的原请求');
+    assert.deepEqual(original, saved, 'The SDK\'s original request must not be modified in place');
     assert.deepEqual(result.input[1].content[0].prompt_cache_breakpoint, { mode: 'explicit', ttl: '12h' });
     const unmarked = structuredClone(result);
     delete unmarked.input[1].content[0].prompt_cache_breakpoint;
@@ -87,27 +87,27 @@ test('固定规则跨 commit 和工具回合使用 12h，动态材料使用 30m 
       prompt_cache_options: { mode: 'implicit', ttl: '30m' } });
     const later = { ...original, input: [...original.input,
       { type: 'function_call', call_id: 'call-1', name: 'read', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'call-1', output: '固定 SHA 的源码' }] };
+      { type: 'function_call_output', call_id: 'call-1', output: 'Source at the pinned SHA' }] };
     const next = request({ payload: later }, ctx);
     assert.deepEqual(next.input[1], result.input[1]);
     assert.deepEqual(next.input.slice(2), later.input.slice(2));
-    assert.deepEqual(next.prompt_cache_options, { mode: 'implicit', ttl: '30m' }, '动态内容不得写入 12h 缓存');
+    assert.deepEqual(next.prompt_cache_options, { mode: 'implicit', ttl: '30m' }, 'Dynamic content must not be written to the 12h cache');
     patched.push(result);
   }
   assert.deepEqual(patched[0].input.slice(0, 2), patched[1].input.slice(0, 2));
   assert.equal(prefixes.length, 2);
-  assert.deepEqual(prefixes[0], prefixes[1], '新 commit 与增补材料不得改变实际固定前缀的指纹');
-  assert.ok(!JSON.stringify(prefixes).includes('固定系统提示'), '诊断不得记录正文');
-  const compacted = { input: [{ role: 'user', content: [{ type: 'input_text', text: '压缩后的调查摘要' }] }] };
+  assert.deepEqual(prefixes[0], prefixes[1], 'New commits and added materials must not change the actual fixed prefix fingerprint');
+  assert.ok(!JSON.stringify(prefixes).includes('Fixed system prompt'), 'Diagnostics must not record content');
+  const compacted = { input: [{ role: 'user', content: [{ type: 'input_text', text: 'Investigation summary after compaction' }] }] };
   assert.deepEqual(request({ payload: compacted }, ctx), { ...compacted, prompt_cache_key: 'agentic-review',
-    prompt_cache_options: { mode: 'implicit', ttl: '30m' } }, '压缩移除固定规则后仍须显式请求短期缓存');
+    prompt_cache_options: { mode: 'implicit', ttl: '30m' } }, 'After compaction removes the fixed rules, a short-term cache must still be requested explicitly');
   handlers.get('before_agent_start')!({ prompt });
   let aborted = false;
   assert.throws(() => request({ payload: compacted }, { ...ctx, abort: () => { aborted = true; } }), /Fixed review prompt is missing/);
-  assert.equal(aborted, true, 'SDK 会吞普通 hook 异常，首次缺规则必须同时中止');
+  assert.equal(aborted, true, 'The SDK swallows ordinary hook exceptions, so missing rules on the first request must also abort');
 });
 
-test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位价格保持原样', t => {
+test('When the relay returns no TTL breakdown, the SDK cost is kept and tiered and service tier prices stay unchanged', t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-mixed-cache-'));
   const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
   process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -119,19 +119,19 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   t.mock.method(console, 'info', () => {});
   const handlers = new Map<string, Function>();
   costExtension({ on: (event, handler) => { handlers.set(event, handler); } });
-  handlers.get('before_agent_start')!({ prompt: '固定规则' });
+  handlers.get('before_agent_start')!({ prompt: 'Fixed rules' });
   const request = (compacted = false) => handlers.get('before_provider_request')!({ payload: { input: [
-    { role: 'user', content: [{ type: 'input_text', text: '固定规则' }] },
-    { role: 'user', content: [{ type: 'input_text', text: '动态材料' }] },
+    { role: 'user', content: [{ type: 'input_text', text: 'Fixed rules' }] },
+    { role: 'user', content: [{ type: 'input_text', text: 'Dynamic materials' }] },
   ].slice(compacted ? 1 : 0) } }, { model: modelOf({ api: 'openai-responses', compat: { supportsExplicitPromptCacheMode: true } }), modelRegistry: registry });
   const end = handlers.get('message_end')!;
   const turn = handlers.get('turn_end')!;
-  const ctx = { abort: () => assert.fail('有效标准统计不应中止') };
+  const ctx = { abort: () => assert.fail('Valid standard stats should not abort') };
   for (const [turnIndex, writes, sdkWriteCost, stopReason] of [
     [0, 4000, 0.01, 'toolUse'],
-    [1, 4000, 0.02, 'error'], // 更高分档或服务档位的目录价格。
+    [1, 4000, 0.02, 'error'], // Catalog price for a higher tier or service tier.
     [2, 0, 0, 'stop'],
-    [3, 1000, 0.0025, 'stop'], // compaction 后只剩动态上下文。
+    [3, 1000, 0.0025, 'stop'], // Only dynamic context remains after compaction.
   ] as const) {
     request(turnIndex === 3);
     const message = { role: 'assistant', provider: 'openai', model: 'gpt-6.1-sol', responseId: `resp_${turnIndex}`, stopReason,
@@ -143,7 +143,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
       message.usage.cost.total = 0.02168;
     }
     const saved = structuredClone(message);
-    assert.equal(end({ message }, ctx), undefined, '统计扩展不应替换 SDK 的消息或费用');
+    assert.equal(end({ message }, ctx), undefined, 'The stats extension must not replace the SDK\'s message or cost');
     assert.deepEqual(message, saved);
     turn({ turnIndex, message });
   }
@@ -152,7 +152,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   assert.ok(Math.abs(saved.total.cost.total - 0.0367) < 1e-12);
   assert.doesNotMatch(usageDetails(saved), /缓存写入生命周期/);
 
-  // 标准统计本身损坏仍须中止并撤掉旧文件，不能用上一轮统计掩盖失败。
+  // Corrupt standard stats must still abort and remove the old file; the previous round's stats never mask the failure.
   request();
   let aborted = false;
   assert.throws(() => end({ message: { role: 'assistant', responseId: 'resp_missing',
@@ -162,7 +162,7 @@ test('中转站未返回 TTL 明细时沿用 SDK 费用，分档与服务档位�
   assert.throws(() => turn({ turnIndex: 3, message: { role: 'assistant' } }), /review token usage/);
 });
 
-test('逐轮费用保留失败及推理分项，只保存无正文的累计与首轮统计供发布，不写运行日志', t => {
+test('Per-turn cost keeps failures and reasoning breakdowns, saves only content-free totals and first-turn stats for publication, and writes no run log', t => {
   const directory = mkdtempSync(path.join(tmpdir(), 'review-usage-'));
   const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
   process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -197,7 +197,7 @@ test('逐轮费用保留失败及推理分项，只保存无正文的累计与�
   assert.equal(parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8'))).total.reasoning, undefined);
 });
 
-test('footer 链接与运行信息各占一行，用量明细展示首轮命中和分项费用，零输入及缺失推理保持准确', () => {
+test('The footer puts links and run info on separate lines; usage details show first-turn hits and itemized cost, and stay accurate for zero input and missing reasoning', () => {
   const first: ModelUsage = { input: 3, output: 132, cacheRead: 1972, cacheWrite: 41123, reasoning: 0, totalTokens: 43230,
     cost: { input: 0.000006, output: 0.00132, cacheRead: 0.0001972, cacheWrite: 0.1028075, total: 0.1043307 } };
   const footer = buildFooter({ ...metadata, cost: 0.1505318, controlSha: 'b64df5114c7fe64a9eb7ff3361a13d36ba9305b2' });
@@ -220,7 +220,7 @@ test('footer 链接与运行信息各占一行，用量明细展示首轮命中�
   }
 });
 
-test('运行时注册 Responses 模型并保留原生重试，显式缓存默认关闭并由仓库变量控制', async () => {
+test('The runtime registers a Responses model and keeps native retries; explicit caching is off by default and controlled by a repository variable', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-model-cost-'));
   try {
     await mkdir(path.join(directory, 'control/scripts'), { recursive: true });
@@ -261,7 +261,7 @@ test('运行时注册 Responses 模型并保留原生重试，显式缓存默认
         env: { PATH: process.env.PATH, REVIEW_RUNTIME_HOME: path.join(directory, 'invalid'),
           REVIEW_AGENT_MODEL: 'gpt-6.1-sol', REVIEW_EXPLICIT_PROMPT_CACHE: setting,
           REVIEW_WORKSPACE_PATH: path.join(directory, 'workspace') },
-      }), /Command failed/, '非法配置必须使准备阶段失败');
+      }), /Command failed/, 'Invalid configuration must fail the preparation step');
     }
     const prompt = await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)));
     assert.ok(prompt.includes(await readFile(new URL('../skills/agentic-review/SKILL.md', import.meta.url), 'utf8')));
@@ -270,7 +270,7 @@ test('运行时注册 Responses 模型并保留原生重试，显式缓存默认
   }
 });
 
-test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同档位取最新版本，找不到则标记费用未知', t => {
+test('Explicitly registered models take prices from the Pi catalog: exact ID first, then the latest version of the same family and tier, otherwise cost is marked unknown', t => {
   const entry = (provider: string, id: string, input: number) => ({ provider, id, cost: { input, output: input * 5, cacheRead: 0, cacheWrite: 0 } });
   const models = [entry('openai', 'gpt-5.6-terra', 2), entry('openai', 'gpt-6-terra', 3), entry('openai', 'gpt-6.1-sol', 4),
     entry('openai', 'gpt-6.1-luna', 0), entry('bedrock', 'openai.gpt-7-terra', 9), entry('openai', 'deepseek-flash', 1)];
@@ -278,7 +278,7 @@ test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同
   assert.equal(findCatalogCost('deepseek-flash', models)?.input, 1);
   assert.equal(findCatalogCost('gpt-6.1-terra', models)?.input, 3);
   assert.equal(findCatalogCost('gpt-5.2-terra', models)?.input, 3);
-  // 零价条目是被显式注册遮住的模型，不能当作目录价格。
+  // A zero-price entry is a model shadowed by explicit registration and is not a catalog price.
   assert.equal(findCatalogCost('gpt-6.1-luna', models), undefined);
   assert.equal(findCatalogCost('gateway/opus-alias', models), undefined);
 
@@ -288,7 +288,7 @@ test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同
   handlers.get('before_provider_request')!({ payload: { input: [] } }, { model, modelRegistry: registry });
   assert.deepEqual(model.cost, price);
 
-  // 经扩展完整处理一次请求与回合，再从它保存的 review-usage.json 生成发布结果。
+  // Run one full request and turn through the extension, then build the publication from the review-usage.json it saved.
   const directory = mkdtempSync(path.join(tmpdir(), 'review-price-'));
   const originalWorkspace = process.env.REVIEW_WORKSPACE_PATH;
   process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -303,21 +303,21 @@ test('显式注册的模型从 Pi 目录取价：精确 ID 优先，同系列同
     costExtension({ on: (event, handler) => { run.set(event, handler); } });
     const registered = modelOf({ id, api: 'openai-responses' });
     run.get('before_provider_request')!({ payload: { input: [] } },
-      { model: registered, modelRegistry: registry, abort: () => assert.fail('缺少价格不应中止 Review') });
-    // 模拟 SDK 按注册模型当时的 cost 计算用量。
+      { model: registered, modelRegistry: registry, abort: () => assert.fail('A missing price should not abort the review') });
+    // Simulate the SDK computing usage from the registered model's cost at that time.
     const rate = registered.cost.input;
     const usage = { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 1_000_000,
       cost: { input: rate, output: 0, cacheRead: 0, cacheWrite: 0, total: rate } };
-    run.get('message_end')!({ message: { role: 'assistant', usage } }, { abort: () => assert.fail('用量有效') });
+    run.get('message_end')!({ message: { role: 'assistant', usage } }, { abort: () => assert.fail('Usage is valid') });
     run.get('turn_end')!({ turnIndex: 0, message: { role: 'assistant', provider: 'openai', model: id, stopReason: 'stop', usage } });
     const saved = parseReviewUsage(JSON.parse(readFileSync(path.join(directory, 'review-usage.json'), 'utf8')));
     return { saved, footer: `${buildFooter({ ...metadata, cost: rate, priceKnown: saved.priceKnown }).details}\n${usageDetails(saved)}` };
   };
-  // 有价模型：保存价格已知，费用正常显示。
+  // Priced model: the saved price is known and cost is shown normally.
   const known = publishedFooter('gpt-test');
   assert.equal(known.saved.priceKnown, true);
   assert.match(known.footer, /费用约 \$2\.0000/);
-  // 目录没有价格的网关别名：Review 照常运行，保存价格未知，发布时费用显示“未提供”。
+  // Gateway alias with no catalog price: the review runs as usual, the saved price is unknown, and publication shows the cost as not provided.
   const unknown = publishedFooter('gateway/opus-alias');
   assert.equal(unknown.saved.priceKnown, false);
   assert.match(unknown.footer, /费用未提供/);

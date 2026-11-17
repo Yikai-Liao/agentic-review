@@ -1,96 +1,96 @@
-# 架构审查：让设计承接目标并支持协作
+# Architecture Review: Designs That Carry the Goal and Support Collaboration
 
-架构审查要判断：设计能否实现用户目标，各部分按自己的约定工作时能否组合成功，状态与失败由谁负责，以及关键取舍是否合理。具体技术与设计风格由这些判断决定。
+Architecture review judges whether the design can achieve the user's goal, whether parts that each honor their own contracts combine correctly, who owns state and failure, and whether key trade-offs are sound. Those judgments, not style, decide technology and design choices.
 
-图、分层说明和场景演练按当前设计需要选择。
+Choose diagrams, layer descriptions, and scenario walkthroughs as the design needs.
 
-## 选择本次要检查的内容
+## Scope
 
-按表中条件选择方法和场景；窄审仅检查所选项及必要依赖，场景演练在同一轮调查中完成。
+Pick methods and scenarios by the conditions below; a narrow review checks only the chosen items and necessary dependencies, and scenario walkthroughs happen in the same round.
 
-| 检查内容 | 方法 | 何时使用 |
+| What to check | Method | When |
 |---|---|---|
-| 设计是否支持原始目标 | [意图对齐](../focuses/alignment.md)及下文目标检查 | 默认 |
-| 各部分组合后是否正确 | 下文组合检查与场景演练 | 默认 |
-| 状态与失败是否有人负责 | [可靠性](../focuses/reliability.md)及下文责任检查 | 默认；按实际约定检查，不增加无关故障范围 |
-| 新旧系统如何过渡和兼容 | 下文演进检查 | 默认；既有系统发生变化时检查 |
-| 关键理由与决定是否成立 | 下文理由检查 | 默认；检查会影响本次决定的理由与取舍 |
-| 现实规模下的运行和资源成本是否合理 | [性能](../focuses/performance.md)及下文容量检查 | 条件触发：明确性能审查，或设计改变数据规模、远程边界、并发、共享资源及容量机制 |
-| 是否存在可避免的修改或协作成本 | [可维护性](../focuses/maintainability.md) | 明确委托：成本或简化审计 |
-| 信任与隔离边界是否可靠 | [安全](../focuses/security.md) | 条件触发：明确安全审查，或安全边界发生变化 |
-| 验证是否足以支撑当前保证 | [验证](../focuses/verification.md) | 条件触发：明确验证审计，或当前阶段应完成相关验证 |
+| Design supports the original goal | [Intent alignment](../focuses/alignment.md) and the goal check below | Default |
+| Parts are correct together | Composition check and scenario walkthrough below | Default |
+| State and failure have owners | [Reliability](../focuses/reliability.md) and the ownership check below | Default; by actual contracts, without unrelated failure scope |
+| Old and new systems transition and coexist | Evolution check below | Default when an existing system changes |
+| Key rationale and decisions hold | Rationale check below | Default; for rationale and trade-offs affecting this decision |
+| Runtime and resource cost at realistic scale | [Performance](../focuses/performance.md) and the capacity check below | Triggered: explicit performance review, or the design changes data scale, remote boundaries, concurrency, shared resources, or capacity mechanisms |
+| Avoidable change or collaboration cost | [Maintainability](../focuses/maintainability.md) | Explicit request: cost or simplification audit |
+| Trust and isolation boundaries hold | [Security](../focuses/security.md) | Triggered: explicit security review, or a security boundary changes |
+| Verification supports current guarantees | [Verification](../focuses/verification.md) | Triggered: explicit verification audit, or verification is due at this stage |
 
-`simplify` 检查修改与协作成本；`harden` 检查状态、失败责任和验证充分性。二者保持受托边界，探索阶段按当前到期的验证要求取证。
+`simplify` checks change and collaboration cost; `harden` checks state, failure ownership, and verification sufficiency. Both stay within the delegation; exploration gathers verification evidence only as currently due.
 
-## 分清现状、提案与已作出的决定
+## Current State, Proposal, and Decisions
 
-先读相关原始需求、现行边界、有效决定、本次提案和实际依赖，区分当前实现、已批准目标与历史理由。理解局部变化不需要重建整个项目。
+Read the relevant original requirements, current boundaries, valid decisions, this proposal, and actual dependencies, and separate current implementation, approved goals, and historical rationale. Understanding a local change does not require rebuilding the whole project.
 
-新设计没有代码或旧版本时，仍可按目标与设计机制审查。已有代码用于核对现状，用户需求来自原始诉求和有效决定；“已批准”状态由任务认可的授权来源证明。
+A new design without code or an old version can still be reviewed against goals and mechanisms. Existing code shows the current state; user needs come from the original request and valid decisions; "approved" status is proven by a source the task recognizes.
 
-登记受影响的能力、关键决定、责任、状态和外部接口约定，以及它们之间的必要连接。先理解系统边界，再进入涉及的服务或模块；不要把业务目标、部署单元和内部函数当作同一层的检查项。文字能说明清楚时，不要求作者重画图。
+List the affected capabilities, key decisions, responsibilities, state, external contracts, and the necessary connections between them. Understand system boundaries before entering the services or modules involved; do not treat business goals, deployment units, and internal functions as items at one level. If prose explains it, do not ask the author to redraw diagrams.
 
-## 检查目标是否有真正的实现机制
+## A Real Mechanism for Each Goal
 
-按[意图对齐](../focuses/alignment.md)，将原始场景对应到设计中的负责方及机制。按真实需要区分身份、历史数据、恢复、阶段、子对象和使用方。职责名称或图上连线只提供设计入口，目标支持须由完整机制证明。
+Per [intent alignment](../focuses/alignment.md), map each original scenario to an owner and mechanism in the design, distinguishing identities, historical data, recovery, stages, sub-objects, and consumers as actually needed. A responsibility name or a line on a diagram is only an entry point; support for the goal requires a complete mechanism.
 
-例如，用户要求一次执行开始后，后续配置编辑不能影响它。方案只固定主定义，执行时却仍读取可变的子定义。报告问题时，要说明子定义在开始后、使用前被编辑怎样改变当前执行；冻结范围由这条实际路径和用户目标决定。
+Example: the user requires that edits after a run starts do not affect it. The design pins the main definition but still reads mutable sub-definitions at execution time. Report how editing a sub-definition after start and before use changes the current run; the freeze scope follows this real path and the user's goal.
 
-报告前检查用户是否只要求固定主定义、子定义是否已有不可变引用，或该行为是否已经明确接受。合理解释成立就排除疑点。
+Before reporting, check whether the user only required pinning the main definition, whether sub-definitions already have immutable references, or whether the behavior was explicitly accepted. Exclude the suspicion if such an explanation holds.
 
-## 检查各部分组合后是否仍满足要求
+## Do the Parts Still Meet the Requirement Together?
 
-对实际需要共同完成目标的两个部分，尝试构造以下情况：
+For two parts that must jointly achieve a goal, try to construct:
 
 ```text
-甲遵守自己的全部约定，产生结果甲。
-乙也遵守自己的全部约定，产生结果乙。
-两者按设计在共享边界交互，却无法满足上层目标。
+A honors all its contracts and produces result A.
+B honors all its contracts and produces result B.
+They interact at the shared boundary as designed, yet the higher-level goal fails.
 ```
 
-核对共享标识、字段含义、状态写入权、顺序、生命周期和失败责任。这里的两个部分可以是模块、服务、迁移批次或并行任务，不默认是两个 Agent。
+Check shared identifiers, field meanings, state write ownership, ordering, lifecycle, and failure ownership. The parts may be modules, services, migration batches, or parallel tasks — not necessarily two agents.
 
-内部实现差异只有传到共享边界并破坏上层目标时才构成组合问题。两部分根本不交互、差异由适配器隔离、外部含义一致，或者必要共同约定已安排在独立实施前由指定人员确定，都是应核对的合理解释。
+Internal differences are a composition problem only when they reach the shared boundary and break the goal. Parts that never interact, differences isolated by an adapter, consistent external meaning, or a shared contract scheduled to be settled by a named owner before independent implementation are all explanations to check.
 
-已有约定明确冲突并造成违约时，按缺陷（defect）处理。马上要独立实施，却没有任何共同机制确定必要边界时，可提出待决事项（decision），说明最少需要统一什么。尚未需要确定的内部选择不升级为设计问题。
+Existing contracts that clearly conflict and cause a violation are a `defect`. When independent implementation is about to start with no mechanism to settle a necessary boundary, raise a `decision` stating the minimum that must be unified. Internal choices not yet due do not become design problems.
 
-## 用场景逐步使用这份设计
+## Walk the Design Through Scenarios
 
-选择来自真实目标或使用方、能够区分方案好坏的场景，按材料已有机制走过入口、责任分配、持久状态、对外保证和最终结果。每一步保留依据，不靠作者现场补设定使旧版方案成立。
+Choose scenarios from real goals or consumers that discriminate between designs, and step through entry points, responsibility, persistent state, external guarantees, and final outcome using only mechanisms in the material. Keep the basis for each step; do not let the author invent settings on the spot to rescue the old version.
 
-某一步无法继续时，依次检查：
+When a step cannot continue, check in order:
 
-1. 是否已有跨文件引用或现行约定？先读取。
-2. 是否是当前阶段允许省略、且已分配给后续实现的细节？不报缺陷。
-3. 是否缺少当前目标必须依赖的机制或决定？按缺陷或待决事项的门槛判断。
-4. 是否只是审查者不熟悉术语？先查明含义，不转成作者整改义务。
+1. Is there a cross-file reference or current contract? Read it.
+2. Is it a detail this stage may omit and that is assigned to later implementation? Not a defect.
+3. Is a mechanism or decision the goal must rely on now missing? Apply the defect or decision bar.
+4. Is the reviewer just unfamiliar with a term? Look it up; it is not the author's fix obligation.
 
-定位最早卡住的步骤，是为了找清根因。报告门槛取决于当前实质影响，并区分“还没有定义”和“已经证明错误”。
+Locate the earliest stuck step to find the root cause. The reporting bar depends on current material impact; distinguish "not yet defined" from "proven wrong".
 
-## 检查状态、失败与恢复责任
+## State, Failure, and Recovery Ownership
 
-按[可靠性方法](../focuses/reliability.md)，从已有约定和设计中明确写出的责任、持久事实与机制推演失败顺序。设计机制本身的矛盾可以在实现前证明；合理留给后续的内部细节按阶段安排处理。
+Per [reliability](../focuses/reliability.md), reason about failure orderings from existing contracts and the responsibilities, persistent facts, and mechanisms the design states. Contradictions in the mechanism can be proven before implementation; internal details legitimately left for later follow the stage plan.
 
-明确违反保证可以作为缺陷。如果机制依赖尚未证实的外部能力，而且下一步已经要依赖它，则调查是否存在必须解决的事实或决定，不猜测该能力不存在。
+A clear guarantee violation can be a defect. If a mechanism relies on an unproven external capability and the next step already depends on it, investigate whether a fact or decision must be settled; do not assume the capability is absent.
 
-## 检查现实规模下的运行成本
+## Runtime Cost at Realistic Scale
 
-按[性能方法的架构分支](../focuses/performance.md#架构沿设计路径核对容量机制)，比较设计路径的成本与容量，核对承担这些保证的机制和负责方。尚无实现时使用已知上下界；必须依赖实测时，记录假设、所需证据及最晚取得阶段。
+Per [the architecture branch of performance](../focuses/performance.md#architecture-check-capacity-mechanisms-along-the-design-path), compare path cost with capacity and check the mechanisms and owners for these guarantees. Without an implementation, use known bounds; when measurement is required, record the assumption, needed evidence, and latest stage to obtain it.
 
-## 检查新旧系统怎样过渡
+## Transition Between Old and New
 
-已有系统变化时，区分当前状态、允许的中间状态和目标状态。沿实际部署与数据演化边界，检查受支持的新旧参与方如何共存、已有数据怎样迁移，以及是否满足回退约定。不遍历系统本来不支持的版本组合。
+When an existing system changes, separate the current state, allowed intermediate states, and target state. Along real deployment and data-evolution boundaries, check how supported old and new participants coexist, how existing data migrates, and whether rollback agreements hold. Do not enumerate version combinations the system never supported.
 
-其他活动中的变更涉及同一主题时，把它作为调查线索。要求协调时，指出它改变的共享前提。判断进度时使用对应证据：提案描述目标，当前实现与部署记录反映现状，已完成 PR 计入其覆盖的变更，跨 PR 目标按全部必要变更逐项核对。
+Other active changes on the same subject are leads. When coordination is needed, name the shared premise they change. Judge progress with matching evidence: proposals describe goals, current implementation and deployment records show reality, merged PRs count for what they cover, and cross-PR goals are checked change by change.
 
-## 检查关键取舍是否有依据
+## Grounds for Key Trade-offs
 
-对影响边界、代价或后续投入的重要选择，核对理由来自事实还是猜测。必要时与最有竞争力的可行替代比较，但不要求每项选择固定列三种方案。
+For choices affecting boundaries, cost, or follow-on investment, check whether the rationale comes from facts or guesses. Compare with the strongest feasible alternative when needed; do not require three options per choice.
 
-只有错误前提或缺少证据会改变当前选择时，才报告。技术选择错误须由影响当前决定的前提或证据问题证明；用户尚未决定的价值取舍作为待决事项返回，已接受且未越界的代价沿用原决定。
+Report only when a wrong premise or missing evidence would change the current choice. A wrong technical choice is proven by a premise or evidence problem affecting this decision; value trade-offs the user has not made return as decisions, and accepted costs within scope keep the original decision.
 
-## 交付和复核
+## Delivery and Re-review
 
-记录问题的原始要求、负责方、场景或组合、设计路径及依据、最先不满足要求的位置、已核对的合理解释、处理者和完成条件。需要改变上层目标或取舍时，只反馈本层无权决定的部分，不把全部下层调查日志交给用户。
+Record each problem's original requirement, owner, scenario or composition, design path and basis, first point of failure, explanations checked, handler, and completion condition. When a higher-level goal or trade-off must change, return only the part this level cannot decide; do not hand the whole investigation log to the user.
 
-受影响的要求、必要连接和重要决定都有调查结论，并已区分合理省略后，才算完成受托范围。输出按[结论要求](../findings.md)，说明需要处理的决定和关键剩余风险；无问题结论限定在已查范围和证据内。
+The delegated scope is complete when every affected requirement, necessary connection, and important decision has a conclusion and legitimate omissions are identified. Output follows the [finding requirements](../findings.md), naming decisions to handle and key remaining risks; a no-problem conclusion is limited to the checked scope and evidence.

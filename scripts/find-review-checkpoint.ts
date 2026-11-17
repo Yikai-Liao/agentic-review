@@ -38,7 +38,7 @@ function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// runs 限定每个 suite 返回的成功记录数；同一 head 被多个 PR 复用时，目标 PR 的记录可能排在前 10 条之后。
+// runs limits successful records per suite; when several PRs share one head, the target PR's record may fall after the first 10.
 export function checkpointQuery(count: number, runs = 10) {
   const oids = Array.from({ length: count }, (_, index) => `$oid${index}: GitObjectID!`).join(', ');
   const commits = Array.from(
@@ -69,7 +69,7 @@ fragment Checkpoint on Commit {
 }`;
 }
 
-// baseSha 省略时不限定比较基线：来源 PR 的 base 与当前 PR 不同，只要求其 head 上有完成的 automatic 审查。
+// Without baseSha the comparison base is unrestricted: a source PR's base differs from the current PR, so only a completed automatic review on its head is required.
 export function reviewedRunId(
   commit: RecordValue,
   sha: string,
@@ -82,7 +82,7 @@ export function reviewedRunId(
   return check ? check.runId : null;
 }
 
-// 返回最新一条匹配的成功审查及其审查时的 base；GraphQL 按时间倒序返回记录。
+// Returns the latest matching successful review and its base at review time; GraphQL returns records newest first.
 export function reviewedCheck(
   commit: RecordValue,
   sha: string,
@@ -246,9 +246,9 @@ export async function main() {
   if (!shaPattern.test(mergeBase)) throw new Error('Invalid merge base');
   const { stdout } = await exec('git', ['-C', targetPath, 'rev-list', '--topo-order', headSha, `^${mergeBase}`]);
   const commits = stdout.trim() ? stdout.trim().split('\n') : [];
-  // 候选均为当前 head 的祖先；merge 的净变化（含冲突解决）仍进入 focus diff。
-  // 同一 head 的本轮 Check 已在查询前创建；查询 ALL，避免 LATEST 将旧成功记录隐藏。
-  // 未改完成项可延续；间接影响由 Agent 沿增量按需重开。
+  // Candidates are all ancestors of the current head; a merge's net change (including conflict resolution) still enters the focus diff.
+  // This round's Check on the same head exists before the query; query ALL so LATEST cannot hide older successful records.
+  // Unchanged completions may carry over; the agent reopens indirect impact along the increment as needed.
   let checkpoint = await findReviewCheckpointSafely({
     commits,
     repository,
