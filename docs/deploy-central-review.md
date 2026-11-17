@@ -2,9 +2,17 @@
 
 ## 主仓库与生产同步
 
-`Yikai-Liao/agentic-review` 是公开开发主仓库，`Qiyin-Tech/agentic-review` 是独立的 internal 生产仓库。生产 Worker 保持 `CONTROL_REPOSITORY=Qiyin-Tech/agentic-review`、`ALLOWED_OWNER=Qiyin-Tech`，App 安装和生产凭据继续留在组织侧。
+`Yikai-Liao/agentic-review` 是公开开发主仓库，`Qiyin-Tech/agentic-review` 是独立的 internal 副本。两边分别运行中央 Review，App、Worker 和凭据独立；源码同步不改变运行配置。
 
-中央 Review 和飞书续期仅在 repository variable `AGENTIC_REVIEW_PRODUCTION=true` 时运行；公开主仓库不设置此变量，也不保存生产 Secrets。其他部署者在自己的中央仓库显式启用此变量。
+| 配置 | 个人部署 | 组织部署 |
+| --- | --- | --- |
+| `CONTROL_REPOSITORY` | `Yikai-Liao/agentic-review` | `Qiyin-Tech/agentic-review` |
+| `ALLOWED_OWNER` | `Yikai-Liao` | `Qiyin-Tech` |
+| `REVIEW_LANGUAGE` | `en` | `zh-CN` |
+
+各部署在自己的中央仓库设置 `AGENTIC_REVIEW_PRODUCTION=true`，并保存自己的 Review App 私钥和模型 API key。公开中央仓库的日志和 artifacts 对外可读，个人 Review App 只安装到准备审查的个人公开仓库。个人仓库仅启用 `Agentic Review` 和 `Agentic Review Execution`，组织同步与飞书续期 workflow 保持禁用。
+
+个人和组织的 Review App、Dispatcher App 都选择 `Only on this account`。Review App 安装到各自目标仓库，Dispatcher App 只安装到各自中央仓库。每个 Worker 使用自己那一套 webhook secret 和 Dispatcher 凭据。
 
 组织仓库的 `sync-upstream.yml` 每五分钟尝试从公开主仓库快进同步 `main`，也支持 `workflow_dispatch`。GitHub 定时调度可能延迟；同步成功前生产仍运行上一次同步的版本。同步使用只绑定组织仓库的可写 deploy key，私钥存入组织仓库的 `UPSTREAM_SYNC_SSH_KEY` Secret，不进入 Review Agent。同步不创建合并提交、不强推、不删除分支，也不复制 PR、Issue、Actions 记录或 Secrets。组织分支分叉或上游改写历史会使同步明确失败。
 
@@ -16,7 +24,7 @@
 
 ## 1. Dispatcher App
 
-在中央仓库所属 organization 创建 Dispatcher GitHub App：
+在中央仓库所属个人账号或 organization 创建 private Dispatcher GitHub App：
 
 - 关闭 webhook；
 - 仅 `Actions: read and write`；
@@ -69,6 +77,8 @@ App repository permissions 至少为：
 
 中央仓库 Actions variables：
 
+- `AGENTIC_REVIEW_PRODUCTION`：设为 `true` 启用中央 Review；
+- `REVIEW_LANGUAGE`：报告语言，必填；支持 `zh-CN` 与 `en`。缺失或其他值在签发 Review token 前失败。此变量属于中央运行仓库，控制所有目标仓库的总评、finding、状态说明、请求答复、发布器固定文字和 Check 文案；不翻译 JSON schema 字段或枚举值；
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
 - `REVIEW_AGENT_MODEL`：Responses API 接受的模型 ID，例如 `gpt-6-luna`、`deepseek-flash` 或网关自定义别名；workflow 会显式注册该 ID，无须出现在 Pi 模型目录中；
 - `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；

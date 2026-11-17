@@ -38,6 +38,7 @@ permissions:
   contents: read
 
 env:
+  REVIEW_LANGUAGE: ${{ vars.REVIEW_LANGUAGE }}
   # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
   REVIEW_THINKING_LEVEL: ${{ vars.REVIEW_THINKING_LEVEL }}
   REVIEW_FAST_MODE: ${{ vars.REVIEW_FAST_MODE }}
@@ -69,6 +70,10 @@ jobs:
         shell: bash
         run: |
           : "${REVIEW_THINKING_LEVEL:?Set the REVIEW_THINKING_LEVEL repository variable}"
+          case "${REVIEW_LANGUAGE:-}" in
+            zh-CN|en) ;;
+            *) echo 'REVIEW_LANGUAGE must be zh-CN or en' >&2; exit 1 ;;
+          esac
           case "${REVIEW_FAST_MODE:-false}" in
             true|false) ;;
             *) echo 'REVIEW_FAST_MODE must be true or false' >&2; exit 1 ;;
@@ -157,6 +162,10 @@ jobs:
           github-token: ${{ steps.check-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
+            const { parseReviewLanguage, reviewCheckMessages } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/review-language.ts`);
+            // Agent 启动前固定本轮文案；完成步骤只读取可信步骤输出。
+            const messages = reviewCheckMessages(parseReviewLanguage(process.env.REVIEW_LANGUAGE));
+            core.setOutput('messages', JSON.stringify(messages));
             const response = await github.rest.checks.create({
               owner,
               repo,
@@ -167,8 +176,8 @@ jobs:
               started_at: new Date().toISOString(),
               details_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
               output: {
-                title: 'Agentic Review 正在审查',
-                summary: '中央 Review Agent 已开始处理当前 PR。',
+                title: messages.in_progress[0],
+                summary: messages.in_progress[1],
               },
             });
             core.setOutput('check_id', String(response.data.id));
@@ -489,6 +498,7 @@ jobs:
           COVERAGE_TOTAL: ${{ steps.publish-review.outputs.coverage_total }}
           # 运行、用量与发布结果的长期记录；发布器未运行到输出时为空。
           CHECK_TEXT: ${{ steps.publish-review.outputs.check_text }}
+          REVIEW_CHECK_MESSAGES: ${{ steps.review-check.outputs.messages }}
           REVIEW_JOB_STATUS: ${{ job.status }}
         with:
           github-token: ${{ steps.publication-token.outputs.token }}
@@ -502,12 +512,10 @@ jobs:
             const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled' || process.env.REVIEW_JOB_STATUS === 'cancelled'
               ? 'cancelled'
               : !delivered || !(pending >= 0) ? 'failure' : pending > 0 ? 'action_required' : 'success';
-            const outputs = {
-              success: ['Agentic Review 已完成', '审查已完成。'],
-              action_required: ['Agentic Review 部分完成', `时间预算内已审查 ${total - pending}/${total} 个文件，结论已发布；其余 ${pending} 个文件尚未审查，清单见 Review 正文。PR 评论区的评论请求可以接着审查剩余文件并发布结论，但不会更新本 Check；推送新提交或重新运行自动审查后才会重新评定，在此之前当前提交保持不可合并。`],
-              cancelled: ['Agentic Review 已取消', '该审查已取消，当前提交保持不可合并。'],
-              failure: ['Agentic Review 执行失败', '审查或发布未全部完成；部分结果可能已经发布。失败明细见 Actions 运行摘要和 publication report，当前提交保持不可合并。'],
-            };
+            const outputs = JSON.parse(process.env.REVIEW_CHECK_MESSAGES);
+            const [title, template] = outputs[conclusion];
+            const summary = template.replaceAll('{reviewed}', String(total - pending))
+              .replaceAll('{total}', String(total)).replaceAll('{pending}', String(pending));
             await github.rest.checks.update({
               owner,
               repo,
@@ -515,5 +523,5 @@ jobs:
               status: 'completed',
               conclusion,
               completed_at: new Date().toISOString(),
-              output: { title: outputs[conclusion][0], summary: outputs[conclusion][1], ...(process.env.CHECK_TEXT ? { text: process.env.CHECK_TEXT } : {}) },
+              output: { title, summary, ...(process.env.CHECK_TEXT ? { text: process.env.CHECK_TEXT } : {}) },
             });

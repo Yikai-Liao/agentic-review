@@ -122,7 +122,7 @@ if(args[0]==='run' && args[1]==='download') {
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: 'target-readonly', CONTROL_TOKEN: 'control-readonly',
     GITHUB_WORKSPACE: workspace, RUNNER_TEMP: temporary, GITHUB_REPOSITORY: 'control/review', GITHUB_SERVER_URL: `file://${path.join(directory, 'git')}`,
     GITHUB_RUN_ID: '20', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputs, GITHUB_API_URL: api, GITHUB_GRAPHQL_URL: `${api}/graphql`,
-    REVIEW_REPOSITORY: 'owner/repo', REVIEW_REPOSITORY_ID: '1', REVIEW_PULL_NUMBER: '7', REVIEW_TRIGGER_SOURCE: source,
+    REVIEW_REPOSITORY: 'owner/repo', REVIEW_REPOSITORY_ID: '1', REVIEW_PULL_NUMBER: '7', REVIEW_TRIGGER_SOURCE: source, REVIEW_LANGUAGE: 'zh-CN',
     REVIEW_COMMENT_ID: source === 'automatic' ? '' : '456', REVIEW_COMMENT_ROOT_ID: source === 'thread' ? '123' : source === 'automatic' ? '' : '456', REVIEW_COMMENT_BODY: '请继续审查',
     REVIEW_SNAPSHOT_PATH: snapshot, REVIEW_APP_SLUG: 'review-app', FIXTURE_SOURCE: source, FIXTURE_AUDIT: previous, FIXTURE_REQUESTED: requested };
   return { env, workspace, temporary, outputs, previous, head, history, prepare: (extra: Record<string, string> = {}) =>

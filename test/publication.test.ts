@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 import { createPublication, finishPublication } from '../scripts/publication.ts';
-import { checkText, coverageNotice, latestAutomaticRun, publishReview } from '../scripts/publish-review.ts';
+import { buildFooter, checkText, coverageNotice, latestAutomaticRun, publishReview } from '../scripts/publish-review.ts';
 import type { ReviewResult } from '../scripts/review-result.ts';
+import { reviewCheckMessages } from '../scripts/review-language.ts';
 
 const result: ReviewResult = {
   body: '审查正文；历史问题已修复。',
@@ -114,6 +115,68 @@ function publish(state: ReturnType<typeof fixture>, override: Partial<Parameters
     // 插入顺序表示首次开始执行的先后；重跑沿用原运行号，不改变首次执行位置。
     runId, latestAutomaticRun: async () => [...state.started].at(-1)!, fetchImpl: state.fetchImpl, ...override });
 }
+
+test('英文发布覆盖问题、索引和状态；历史英文标签在续审和切换语言后保持原分组', async () => {
+  const state = fixture();
+  const footer = buildFooter({ language: 'en', runUrl: 'https://github.test/run', workspaceUrl: 'https://github.test/workspace', model: 'test' });
+  const body = 'The new path needs a decision.\n\n### What was checked\n\nChecked the caller.';
+  const englishResult: ReviewResult = { body, comments: [
+    { path: 'auth.ts', line: 1, start_line: null, label: '验证缺口', title: 'Unverified caller', body: 'The caller lacks a verified contract.' },
+    { path: 'auth.ts', line: 2, start_line: null, label: '需人工确认', title: 'Confirm the new scope', body: 'The new scope needs an explicit decision.' },
+  ], thread_updates: [], request_reply: null };
+  ok(await publish(state, { language: 'en', footer, requestSource: 'automatic', result: englishResult }));
+  const first = state.reviews.at(-1);
+  assert.match(first.body, /## Automated review: 1 finding to address; 1 decision needs confirmation/);
+  assert.ok(first.body.indexOf('### Confirmation needed') < first.body.indexOf('### What was checked'));
+  const gap = state.comments.find(comment => comment.body.includes('> **Verification gap:'));
+  assert.ok(gap);
+  assert.doesNotMatch(first.body + first.inline.map((item: any) => item.body).join(''), /[\u3400-\u9fff]/);
+  ok(await publish(state, { language: 'en', footer, requestSource: 'automatic', publicationId: 'run-2', result: {
+    ...empty, body, thread_updates: [{ root_comment_id: gap.id, status: 'resolved', evidence: 'The caller contract is now verified.' }],
+  } }));
+  const next = state.reviews.at(-1).body;
+  assert.match(next, /## Automated review: 1 decision needs confirmation/);
+  assert.match(next, /### Confirmation needed\n\n- Confirmation needed: Confirm the new scope/);
+  assert.match(next, /### Resolved this round/);
+  assert.match(gap.body, /^\*\*✅ Resolved\*\*/);
+  assert.doesNotMatch(next + gap.body, /[\u3400-\u9fff]/);
+  ok(await publish(state, { language: 'zh-CN', requestSource: 'automatic', publicationId: 'run-3', result: { ...empty, body: '结论。' } }));
+  assert.match(state.reviews.at(-1).body, /## 自动审查：1 项需要你确认/);
+});
+
+test('中英文发布失败都能在 Check 中读出失败操作与被阻断的后续操作', async () => {
+  for (const language of ['en', 'zh-CN'] as const) {
+    const state = fixture();
+    state.fail = call => call.method === 'GET' && call.url.includes('/comments?')
+      ? new Response('unavailable', { status: 503 }) : undefined;
+    const report = await publish(state, { language, requestSource: 'automatic', result: empty });
+    const text = checkText({ language, operations: report.operations });
+    assert.ok(report.operations.some(item => item.status === 'failed'));
+    if (language === 'en') {
+      assert.match(text, /Failed: Read PR comments/);
+      assert.match(text, /Blocked by a failed prerequisite: Review body/);
+      assert.doesNotMatch(text, /[\u3400-\u9fff]/);
+    } else {
+      assert.match(text, /失败：读取 PR 评论/);
+      assert.match(text, /前置失败，未执行：Review 正文/);
+    }
+  }
+});
+
+test('英文发布报告保存失败时，覆盖撤回与存储操作仍以英文记录', async () => {
+  const publication = createPublication('en');
+  let completion: boolean | undefined;
+  await finishPublication(publication, {
+    saveReport: async () => { throw new Error('storage unavailable'); },
+    saveCoverage: async value => { completion = value; },
+    writeCheckText: async () => {},
+  });
+  assert.equal(completion, false);
+  const text = checkText({ language: 'en', operations: publication.operations });
+  assert.match(text, /Failed: Save publication report/);
+  assert.ok(publication.operations.some(item => item.id === 'Revoke coverage completion' && item.status === 'succeeded'));
+  assert.doesNotMatch(text, /[\u3400-\u9fff]/);
+});
 
 const mutations = (calls: Call[]) => calls.filter(call => call.method !== 'GET' && !call.body?.query?.startsWith('query'));
 const ok = (report: Awaited<ReturnType<typeof publishReview>>) =>
@@ -862,7 +925,8 @@ test('workflow 按依赖继续执行；发布或存储失败不能让 Check 成�
     await runInNewContext(`(async () => { ${script} })()`, {
       process: { env: { REPOSITORY: 'owner/repo', CHECK_ID: '1', PI_REVIEW_OUTCOME: agentOutcome,
         PUBLISH_REVIEW_OUTCOME: publicationOutcome, COMPLETION_WORKSPACE_OUTCOME: archiveOutcome, REVIEW_JOB_STATUS: jobStatus,
-        COVERAGE_PENDING: pending, COVERAGE_TOTAL: '5', CHECK_TEXT: checkDetails } },
+        COVERAGE_PENDING: pending, COVERAGE_TOTAL: '5', CHECK_TEXT: checkDetails,
+        REVIEW_CHECK_MESSAGES: JSON.stringify(reviewCheckMessages('zh-CN')) } },
       github: { rest: { checks: { update: async (value: any) => { payload = value; } } } },
     });
     return payload.conclusion;
