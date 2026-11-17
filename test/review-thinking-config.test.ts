@@ -30,7 +30,7 @@ test('missing repository thinking level fails before issuing review tokens, conf
         if (environment.REVIEW_THINKING_LEVEL !== '${{ vars.REVIEW_THINKING_LEVEL }}') return false;
         const run = (level: string) => spawnSync('bash', ['-e', '-c', step.run!], {
           encoding: 'utf8', cwd: directory, env: { ...process.env,
-            REVIEW_THINKING_LEVEL: level, REPOSITORY: 'owner/repo', REPOSITORY_ID: '1', PULL_NUMBER: '2',
+            REVIEW_THINKING_LEVEL: level, REVIEW_LANGUAGE: 'zh-CN', REPOSITORY: 'owner/repo', REPOSITORY_ID: '1', PULL_NUMBER: '2',
             TRIGGER_SOURCE: 'automatic', BASE_SHA: '', HEAD_SHA: '', GITHUB_OUTPUT: path.join(directory, 'output') },
         });
         const missing = run('');

@@ -63,7 +63,7 @@ function assertAgentCredentials(workflow: any) {
       // 配置变量也能存放令牌；只允许已约定为非敏感配置的来源，不能按 env 名称猜测。
       const variables = /(?<![\w.])vars\.([\w-]+)/gi;
       for (const reference of normalized.matchAll(variables)) {
-        assert.ok(['REVIEW_AGENT_MODEL', 'REVIEW_AGENT_BASE_URL', 'REVIEW_THINKING_LEVEL', 'REVIEW_FAST_MODE'].includes(reference[1].toUpperCase()),
+        assert.ok(['REVIEW_AGENT_MODEL', 'REVIEW_AGENT_BASE_URL', 'REVIEW_THINKING_LEVEL', 'REVIEW_FAST_MODE', 'REVIEW_LANGUAGE'].includes(reference[1].toUpperCase()),
           'unapproved Agent variable source');
       }
       assert.doesNotMatch(normalized.replace(variables, ''), /(?<![\w.])vars\b/i, 'unapproved Agent variable source');

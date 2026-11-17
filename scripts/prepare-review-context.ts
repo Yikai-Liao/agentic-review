@@ -14,6 +14,7 @@ import { main as persistRequest } from './review-request.ts';
 import { readDiscussion } from './refresh-review-discussion.ts';
 import { validateReviewTrigger } from './validate-review-trigger.ts';
 import { loadReviewPrompt } from './load-review-prompt.ts';
+import { parseReviewLanguage } from './review-language.ts';
 import type { ReviewSnapshot } from './resolve-review-snapshot.ts';
 
 const exec = promisify(execFile);
@@ -131,7 +132,7 @@ export async function main() {
   const currentDiscussion = await discussion;
   if (currentDiscussion.status === 'rejected') throw currentDiscussion.reason;
   await prepareReviewInput(snapshot, currentDiscussion.value);
-  const prompt = await loadReviewPrompt(control);
+  const prompt = await loadReviewPrompt(control, parseReviewLanguage(process.env.REVIEW_LANGUAGE));
   const delimiter = `REVIEW_PROMPT_${crypto.randomUUID()}`;
   await appendFile(required('GITHUB_OUTPUT'), [
     `previous_workspace=${checkpoint ? previousAudit : ''}`, `previous_request_workspace=${previous ? previousRequest : ''}`,

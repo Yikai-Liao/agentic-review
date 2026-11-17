@@ -2,7 +2,9 @@
 
 agentic-review 提供可独立安装的 Review Skill，也提供基于 GitHub App 的中央 PR Review 服务。
 
-开发主仓库为 [Yikai-Liao/agentic-review](https://github.com/Yikai-Liao/agentic-review)，开发、PR 和 Issue 在此进行。`Qiyin-Tech/agentic-review` 保持 internal，承载生产中央 Review，每五分钟尝试快进同步公开主仓库的 `main`；GitHub 定时调度可能延迟，也可手动运行 `Sync Public Upstream`。同步保留原始 commit SHA，不同步 PR、Issue、运行记录或凭据；组织侧不单独提交代码，出现分叉时同步失败。配置见[主仓库与生产同步](docs/deploy-central-review.md#主仓库与生产同步)。
+开发主仓库为 [Yikai-Liao/agentic-review](https://github.com/Yikai-Liao/agentic-review)，开发、PR 和 Issue 在此进行。个人公开仓库与 `Qiyin-Tech/agentic-review` internal 副本分别运行中央 Review，使用各自的 private GitHub Apps、Worker 和凭据，只审查各自 owner 的目标仓库。个人部署使用英文，组织部署使用简体中文，由各中央仓库的 `REVIEW_LANGUAGE` 变量选择。
+
+组织副本每五分钟尝试快进同步公开主仓库的 `main`；GitHub 定时调度可能延迟，也可手动运行 `Sync Public Upstream`。同步保留原始 commit SHA，不同步 PR、Issue、运行记录或凭据；组织侧不单独提交代码，出现分叉时同步失败。配置见[主仓库与生产同步](docs/deploy-central-review.md#主仓库与生产同步)。
 
 Skill 支持审查需求、架构、开发计划和代码，按需组合意图对齐、可维护性、可靠性、安全和验证等视角，各层级共用证据、结论与复核方法。Skill 名称为 `agentic-review`。
 
@@ -162,6 +164,8 @@ Review 重点应绑定具体路径、文件类型、业务对象或变更信号�
 
 Repository variables：
 
+- `AGENTIC_REVIEW_PRODUCTION`：设为 `true` 才启用中央 Review；
+- `REVIEW_LANGUAGE`：报告语言，必填；`zh-CN` 为简体中文，`en` 为英文，控制模型正文、发布器固定文字和 Check 文案；
 - `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
 - `REVIEW_AGENT_MODEL`：模型名称，必填；当前 workflow 使用 OpenAI-compatible provider；
 - `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；

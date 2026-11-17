@@ -142,7 +142,7 @@ test('非法 fast mode 仓库变量在签发 token 前失败', () => {
   assert.ok(validation);
   for (const value of ['', 'true', 'false', 'yes']) {
     const result = spawnSync('bash', ['-e', '-c', validation.run], { encoding: 'utf8', env: {
-      ...process.env, REVIEW_FAST_MODE: value, REVIEW_THINKING_LEVEL: 'xhigh', REPOSITORY: 'owner/repo',
+      ...process.env, REVIEW_FAST_MODE: value, REVIEW_THINKING_LEVEL: 'xhigh', REVIEW_LANGUAGE: 'zh-CN', REPOSITORY: 'owner/repo',
       REPOSITORY_ID: '1', PULL_NUMBER: '2', TRIGGER_SOURCE: 'automatic', BASE_SHA: '', HEAD_SHA: '', GITHUB_OUTPUT: '/dev/null',
     } });
     assert.equal(result.status, value === 'yes' ? 1 : 0);

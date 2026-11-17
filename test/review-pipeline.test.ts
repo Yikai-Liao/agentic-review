@@ -115,7 +115,7 @@ test(`${source}: CLI 按可信请求发布并维护审查完成状态`, async ()
       REVIEW_CONTEXT_DIGEST: outputs.context_digest,
       REVIEW_RUN_ID: '20', REVIEW_RUN_ATTEMPT: '1', REVIEW_RESULT_PATH: resultPath, REVIEW_COVERAGE_PATH: coveragePath, REVIEW_BOT_LOGIN: 'review-app[bot]',
       REVIEW_RUN_URL: 'https://github.test/run', REVIEW_WORKSPACE_URL: 'https://github.test/workspace', REVIEW_MODEL: 'test',
-      REVIEW_COST: '0.00321',
+      REVIEW_COST: '0.00321', REVIEW_LANGUAGE: 'zh-CN',
       GITHUB_STEP_SUMMARY: path.join(directory, 'summary'), GH_TOKEN: 'test-token', GITHUB_API_URL: `http://127.0.0.1:${address.port}` };
     const publish = () => exec(process.execPath, ['scripts/publish-review.ts'], { env: publishEnv });
     const assemble = () => exec(process.execPath, ['scripts/prepare-review-publication.ts'], { env: publishEnv });
