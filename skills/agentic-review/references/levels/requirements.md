@@ -1,78 +1,78 @@
-# 需求审查：理解并完善要做什么
+# Requirements Review: Understanding and Completing What to Build
 
-需求审查关注用户、场景、目标、约束、范围、例外和验收。它既检查整理后的需求是否忠实于用户，也寻找需要澄清的遗漏、矛盾和取舍；架构与实现留给后续阶段。
+Requirements review covers users, scenarios, goals, constraints, scope, exceptions, and acceptance. It checks whether the written requirements are faithful to the user and looks for omissions, contradictions, and trade-offs that need clarifying; architecture and implementation belong to later stages.
 
-判断依据来自用户原话、实际场景、外部约束和明确决定。原始诉求含糊时，指出哪些选择会改变结果，并将偏好留给用户决定。
+Grounds come from the user's own words, real scenarios, external constraints, and explicit decisions. When the original request is ambiguous, point out which choices would change the outcome and leave preferences to the user.
 
-## 选择本次要检查的内容
+## Scope
 
-按表中条件选择方法，围绕受影响的要求调查；“只审某项”限于该项及必要依据。
+Pick methods by the conditions below and investigate around the affected requirements; "only review X" covers X and its necessary grounds.
 
-| 检查内容 | 方法 | 何时使用 |
+| What to check | Method | When |
 |---|---|---|
-| 是否忠实表达意图和范围 | [意图对齐](../focuses/alignment.md)及下文场景检查 | 默认 |
-| 要求之间是否冲突，取舍是否明确 | 下文一致性检查 | 默认 |
-| 验收是否会接受错误的结果 | [验证](../focuses/verification.md)中的验收有效性方法及下文例子 | 默认；不要求现在就完成实测 |
-| 假设和决定是否足以支持下一步 | 下文假设检查 | 默认 |
-| 性能目标和验收是否足以支持下一步 | [性能](../focuses/performance.md)及下文性能目标检查 | 条件触发：明确性能审查，或规模、容量、延迟及资源边界发生变化 |
-| 是否增加了不必要的实现约束 | 下文方案约束检查 | 明确委托：要求简化或审计约束成本时 |
+| Intent and scope faithfully expressed | [Intent alignment](../focuses/alignment.md) and the scenario check below | Default |
+| Requirements conflict, trade-offs explicit | Consistency check below | Default |
+| Acceptance would accept a wrong outcome | Acceptance validity in [Verification](../focuses/verification.md) and the example below | Default; no measurement required yet |
+| Assumptions and decisions support the next step | Assumption check below | Default |
+| Performance targets and acceptance support the next step | [Performance](../focuses/performance.md) and the target check below | Triggered: explicit performance review, or scale, capacity, latency, or resource bounds change |
+| Unnecessary implementation constraints | Solution-constraint check below | Explicit request: simplification or constraint-cost audit |
 
-`simplify` 在本层检查不必要的方案约束，同时保留用户目标。`harden` 检查实际相关的例外、保证、验收和必要决定，故障范围来自真实场景。明确审安全需求时，用场景和一致性方法检查身份、资源以及允许或禁止的操作；实现安全留给设计或代码机制证明。
+`simplify` checks unnecessary solution constraints at this level while keeping user goals. `harden` checks exceptions, guarantees, acceptance, and necessary decisions that are actually relevant, with failure scope drawn from real scenarios. For explicit security requirements, use the scenario and consistency methods on identities, resources, and allowed or forbidden operations; implementation security is proven at design or code level.
 
-## 先明确当前需要确定什么
+## Decide What Must Be Settled Now
 
-登记受影响的用户结果、场景、约束、范围决定和验收，并从原始诉求反查遗漏。区分用户需要、作者假设、拟作出的决定，以及已经有效的决定。
+List the affected user outcomes, scenarios, constraints, scope decisions, and acceptance, and work back from the original request to find omissions. Separate user needs, author assumptions, proposed decisions, and decisions already in force.
 
-探索阶段可以保留待验证假设，但要能够说明什么证据会改变选择、何时必须知道答案。准备确定范围或移交实施时，影响目标和验收的选择不能无人负责。
+Exploration may keep hypotheses open, but it must say what evidence would change the choice and when the answer is needed. When scope is being fixed or handed to implementation, choices affecting goals and acceptance must have an owner.
 
-技术方案、接口格式和内部实现通常留待后续阶段决定；它们本身已经是外部约束时，才属于当前需求。合法的阶段分工按相应到期时间记录。
+Technical approach, interface formats, and internals usually wait for later stages; they belong to requirements only when they are already external constraints. Record legitimate stage splits with their due dates.
 
-## 检查意图和范围是否走样
+## Intent and Scope Drift
 
-按[意图对齐](../focuses/alignment.md)，比较用户原始场景与需求中的适用条件。重点看不同用户、时间、身份、历史数据及例外是否仍得到支持，定位到具体条款或范围决定；实现路径由后续设计提供。
+Per [intent alignment](../focuses/alignment.md), compare the user's original scenarios with the conditions in the requirements. Check whether different users, times, identities, historical data, and exceptions are still supported, and locate the clause or scope decision; later design supplies the implementation path.
 
-例如，用户要求离线也能记录，整理稿却只承诺在线提交。无网络的真实使用场景说明目标被排除了。提出问题前，核对用户是否已明确同意本期只支持在线，或是否有另一个已纳入交付的机制承担离线记录。若有，就按实际批准范围判断，不恢复用户已经放弃的目标。
+Example: the user needs to record entries offline, but the written requirement only promises online submission. A real no-network scenario shows the goal was dropped. Before reporting, check whether the user explicitly agreed to online-only for this phase or another delivered mechanism handles offline recording. If so, judge by the approved scope and do not restore a goal the user gave up.
 
-## 检查同一场景下的要求是否冲突
+## Conflicting Requirements in One Scenario
 
-尝试找出一个合法场景，使两项要求必须给出互相冲突的结果。核实它们是否作用于同一对象、时间和条件；不同角色或不同阶段使用不同规则，不自动构成矛盾。
+Try to find one legitimate scenario where two requirements demand conflicting outcomes. Confirm they apply to the same object, time, and conditions; different rules for different roles or stages are not automatically a contradiction.
 
-例如，同一数据既要求到期后不可恢复地删除，又要求删除后任意时刻恢复原内容，两项要求在相同范围内无法同时满足。若实际只要求删除在线副本，并明确允许限期保留备份，则要按这个约定判断，不能擅自加上更严格的删除含义。
+Example: the same data must be irrecoverably deleted on expiry and also restorable at any time after deletion; both cannot hold in the same scope. If only online copies must be deleted and time-limited backups are explicitly allowed, judge by that agreement and do not impose a stricter meaning of deletion.
 
-已经确定的要求互相冲突，可以形成缺陷（defect）。文档列出的互斥选项仍是待选择方案；下一步已经依赖选择结果时，作为待决事项（decision），说明谁需要决定什么代价。
+Conflicting settled requirements can be a `defect`. Mutually exclusive options listed in a document are still pending choices; when the next step already depends on the choice, raise a `decision` stating who must decide which cost.
 
-## 检查验收是否能排除错误结果
+## Acceptance That Lets Wrong Outcomes Through
 
-验收有效性关注：能否构造一个通过全部验收，却没有满足用户目标的产物。本层可以用假想产物推演，不要求存在可运行测试。方法见[验证说明](../focuses/verification.md)。
+Acceptance validity asks whether an artifact could pass every acceptance check without meeting the user's goal. At this level, reason with a hypothetical artifact; no runnable test is required. See [Verification](../focuses/verification.md).
 
-例如，目标是“操作失败后，用户知道下一步如何处理”，验收却只要求显示一条消息。始终显示“操作失败”也能通过验收，却无法让用户区分应该重试还是修正输入。只有原始目标确实需要这一区分时，问题才成立；处理目标是补足必要的行为区分，HTTP 状态码或界面实现留给后续方案。
+Example: the goal is "after a failure the user knows what to do next", but acceptance only requires showing a message. Always showing "operation failed" passes yet does not let the user tell whether to retry or fix the input. This holds only if the goal truly needs that distinction; the fix adds the necessary behavioral distinction and leaves HTTP codes or UI to later design.
 
-也要检查相反情况：验收是否拒绝了本来满足目标的结果。精确文案、页面数或工具名称可能来自品牌、法规、无障碍等真实约束；删除建议须先核对这些依据。
+Also check the reverse: whether acceptance rejects outcomes that meet the goal. Exact wording, page counts, or tool names may come from real brand, legal, or accessibility constraints; check those before suggesting removal.
 
-具体的错误验收按缺陷证明。如果本次是在审查“当前应取得的验证证据是否足够”，则按验证缺口（verification-gap）的独立要求判断；尚无测试只提供调查线索。
+A specific wrong acceptance is proven as a defect. If the review asks whether verification evidence due now is sufficient, apply the separate `verification-gap` bar; the absence of tests is only a lead.
 
-## 检查假设是否足以支持下一步
+## Assumptions Behind the Next Step
 
-分开看事实、产品假说和价值选择。说明哪项后续投入或范围决定依赖未知，不同答案会怎样改变目标或验收。已有资料能够回答的先读取，不把普通调查转交用户。
+Separate facts, product hypotheses, and value choices. Say which follow-on investment or scope decision depends on an unknown and how different answers change the goal or acceptance. Read what existing material can answer; do not hand ordinary investigation to the user.
 
-例如，计划确定范围时假定“所有目标客户都能联网”，但已有用户场景包含离线人员，应先处理事实冲突。只有目标用户群本身尚未确定，而且选择会改变本期目标时，才返回最小需要决定的问题。
+Example: a scope plan assumes "all target customers are online", but existing scenarios include offline staff; resolve the factual conflict first. Return the smallest decision question only when the target user group itself is undecided and the choice changes this phase's goal.
 
-“先访谈验证，再决定范围”是合理的探索安排；调查结果产生前，已获授权的探索可以继续。
+"Interview first, then decide scope" is a reasonable exploration plan; authorized exploration may continue until results arrive.
 
-## 检查性能目标是否需要现在确定
+## Performance Targets Due Now
 
-按[性能方法的需求分支](../focuses/performance.md#需求确定目标不提前指定实现)，检查下一步依赖的规模、容量、时限或资源边界是否足以支持决定和验收。用户明确依赖的性能目标属于需求，内部批大小、缓存、索引和并发方式通常留给后续阶段。
+Per [the requirements branch of performance](../focuses/performance.md#requirements-set-targets-without-prescribing-implementation), check whether the scale, capacity, deadlines, or resource bounds the next step depends on are sufficient for the decision and acceptance. Targets the user explicitly relies on are requirements; batch sizes, caches, indexes, and concurrency usually wait.
 
-## 检查是否规定了不必要的实现方案
+## Unnecessary Solution Constraints
 
-只有明确委托简化或成本审计时，才使用这一方法。选取真实的交付或需求修订任务，说明某项实现规定没有独立目标依据，却增加已知成本，或排除了能够保持目标的低成本方案。
+Use only when simplification or cost audit is explicitly requested. Pick a real delivery or requirement revision task and show that an implementation rule has no independent goal basis yet adds known cost or rules out a cheaper approach that keeps the goal.
 
-例如，只需导出标准文件，却规定必须建设专用编辑器。如果现有导出能力已满足全部确认目标，而编辑器带来额外交付责任，可以提出改进机会（improvement）。若用户确实需要编辑器内的交互，则替代方案没有保持目标，不能用它证明约束多余。
+Example: only a standard file export is needed, but a dedicated editor is required. If existing export meets every confirmed goal and the editor adds delivery responsibility, raise an `improvement`. If the user really needs in-editor interaction, the alternative does not keep the goal and cannot prove the constraint unnecessary.
 
-给出可行替代及迁移、沟通代价，并指出该技术约束缺少的目标依据。需求成本由真实交付责任衡量，简化方案须保留合法使用场景。删除冲突要求前，仍需要有权者决定。
+Give the feasible alternative with migration and communication costs and name the goal basis the constraint lacks. Requirement cost is measured by real delivery responsibility; the simplification must keep legitimate scenarios. Removing conflicting requirements still needs a decision from someone with authority.
 
-## 交付和复核
+## Delivery and Re-review
 
-按[结论要求](../findings.md)，每条问题保留原始依据、条款或遗漏位置、具体场景、已核对的合理解释、处理者和完成条件。未知仍写未知，不替用户决定偏好。
+Per [finding requirements](../findings.md), each problem keeps its source, clause or omission location, concrete scenario, the reasonable explanations checked, owner, and completion condition. Unknowns stay unknown; do not choose preferences for the user.
 
-处理完成可以是恢复目标、补足验收区分、取得明确且有范围的决定，或证据推翻了原疑点。需求长度和量化程度由目标所需信息决定。本轮结论覆盖受托的需求审查；设计、实现和产品价值在各自阶段验证。
+Handling is complete when the goal is restored, acceptance gains the needed distinction, an explicit scoped decision is obtained, or evidence refutes the suspicion. Requirement length and precision follow what the goal needs. Conclusions cover the delegated requirements review; design, implementation, and product value are verified at their own stages.

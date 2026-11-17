@@ -1,4 +1,4 @@
-// 修改 Pi 请求恢复或摘要边界时运行；SDK 隔离安装，命令见部署说明。
+// Run when changing Pi request recovery or summary boundaries; the SDK is installed in isolation, see the deployment guide for commands.
 import assert from 'node:assert/strict';
 import { createServer, type ServerResponse } from 'node:http';
 import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -13,7 +13,7 @@ import { parse } from 'yaml';
 const sdkDirectory = process.env.PI_SDK_DIRECTORY;
 if (!sdkDirectory) throw new Error('Set PI_SDK_DIRECTORY to the isolated @earendil-works/pi-coding-agent package directory');
 const sdkPackage = JSON.parse(await readFile(path.join(sdkDirectory, 'package.json'), 'utf8'));
-assert.equal(sdkPackage.version, '1.3.0', '验证 SDK 必须与 Action v2.30.1 的内置版本一致');
+assert.equal(sdkPackage.version, '1.3.0', 'The SDK under test must match the version bundled with Action v2.30.1');
 const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
   await import(pathToFileURL(path.join(sdkDirectory, 'dist/index.js')).href);
 const workflow = parse(await readFile(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
@@ -35,7 +35,7 @@ function stream(response: ServerResponse, error?: string) {
   response.end(`data: ${JSON.stringify(terminal)}\n\n`);
 }
 
-test('实际 workflow 配置注册目录外模型，并使用原模型名调用 Responses API', async () => {
+test('The real workflow configuration registers an off-catalog model and calls the Responses API with the original model name', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-review-custom-model-'));
   const requests: any[] = [];
   const server = createServer(async (request, response) => {
@@ -63,7 +63,7 @@ test('实际 workflow 配置注册目录外模型，并使用原模型名调用 
       const runtime = await ModelRuntime.create({ authPath: path.join(agentDir, 'auth.json'),
         modelsPath: path.join(agentDir, 'models.json'), refreshOnCreate: false });
       await runtime.setRuntimeApiKey('openai', 'test-key');
-      // 与 Action 相同：设置网关后按 provider/model 查找，不能依靠测试额外注册模型。
+      // Same as the Action: look up provider/model after setting the gateway; the test must not register the model itself.
       runtime.registerProvider('openai', { baseUrl });
       const model = runtime.getModel('openai', id);
       assert.ok(model, `Model not found: openai/${id}`);
@@ -121,7 +121,7 @@ async function run(compact: boolean, reply: (response: ServerResponse, attempt: 
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
       }
     }
-    // 验收缩短时间尺度；生产配置在上方独立核对，重试仍完全由 SDK 执行。
+    // The check shortens time scales; production settings are verified separately above, and retries are still done entirely by the SDK.
     const settingsManager = SettingsManager.inMemory({ ...settings, retry: { ...settings.retry, baseDelayMs: 20 }, cacheWarming: 'off',
       compaction: { enabled: compact, reserveTokens: 512, keepRecentTokens: 1 } });
     const agentDir = path.join(directory, 'agent');
@@ -136,7 +136,7 @@ async function run(compact: boolean, reply: (response: ServerResponse, attempt: 
     await session.prompt('Continue the review.');
     const sessionLog = (await readFile(manager.getSessionFile(), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.equal(sessionLog[0].type, 'session');
-    assert.ok(sessionLog.some(entry => entry.type === 'message'), '失败时也必须保留已落盘的会话');
+    assert.ok(sessionLog.some(entry => entry.type === 'message'), 'The persisted session must be kept on failure too');
     verify({ requests, events, session, sessionLog });
   } finally {
     session?.dispose();
@@ -146,8 +146,8 @@ async function run(compact: boolean, reply: (response: ServerResponse, attempt: 
   }
 }
 
-for (const [name, retryAfter] of [['持续 HTTP 503', '0.001'], ['Retry-After: 121', '121']] as const) {
-  test(`实际自动压缩：${name} 使用 Pi 默认预算，最终失败后中止 Review`, async () => {
+for (const [name, retryAfter] of [['persistent HTTP 503', '0.001'], ['Retry-After: 121', '121']] as const) {
+  test(`Real auto-compaction: ${name} uses Pi's default budget and aborts the review after final failure`, async () => {
     await run(true, response => {
       response.writeHead(503, { 'content-type': 'application/json', 'retry-after': retryAfter });
       response.end(JSON.stringify({ error: { type: 'server_error', message: 'Temporary service unavailable' } }));
@@ -156,33 +156,33 @@ for (const [name, retryAfter] of [['持续 HTTP 503', '0.001'], ['Retry-After: 1
       assert.ok(requests.every(request => JSON.stringify(request.body).includes('context summarization assistant')));
       assert.ok(events.some(event => event.type === 'compaction_start' && event.reason === 'threshold'));
       assert.deepEqual(events.filter(event => event.type === 'summarization_retry_scheduled').map(event => event.delayMs), [20, 40, 80]);
-      assert.ok(events.some(event => event.type === 'agent_settled' && event.aborted), '压缩失败必须中止 Review');
+      assert.ok(events.some(event => event.type === 'agent_settled' && event.aborted), 'Compaction failure must abort the review');
     });
   });
 }
 
-test('实际普通回合：Pi 原生重试按配置指数等待并原样继续', async () => {
+test('Real normal turn: Pi native retry waits exponentially as configured and continues unchanged', async () => {
   const hints = [0.08, 0.01, 0.005];
   await run(false, (response, attempt) => stream(response, attempt <= hints.length
     ? `${tpm} Please try again in ${hints[attempt - 1]}s.` : undefined),
   ({ requests, events, session, sessionLog }) => {
     assert.equal(requests.length, 4);
     for (const [index, minimum] of [[1, 15], [2, 35], [3, 75]]) {
-      assert.ok(requests[index].time - requests[index - 1].time >= minimum, `第 ${index} 次恢复不得缩短指数退避`);
+      assert.ok(requests[index].time - requests[index - 1].time >= minimum, `Recovery ${index} must not shorten exponential backoff`);
       assert.deepEqual(requests[index].body.input, requests[0].body.input);
     }
     assert.deepEqual(events.filter(event => event.type === 'auto_retry_start').map(event => event.delayMs), [20, 40, 80]);
     assert.equal(events.filter(event => event.type === 'entry_appended' && event.entry.type === 'context_edit').length, 3);
     assert.equal(session.agent.state.messages.at(-1).stopReason, 'stop');
     assert.ok(sessionLog.some(entry => entry.type === 'message' && entry.message.stopReason === 'error'));
-    assert.ok(sessionLog.some(entry => entry.type === 'context_edit'), '归档须保留省略失败消息的原始记录');
+    assert.ok(sessionLog.some(entry => entry.type === 'context_edit'), 'The archive must keep the original record of omitted failure messages');
   });
 });
 
-test('实际错误：Pi 默认把 billing 帮助链接归为不可重试，保留原始失败', async () => {
+test('Real error: Pi classifies billing help links as non-retryable by default and keeps the original failure', async () => {
   const error = `${tpm} Please try again in 7.296s. You can increase your rate limit at https://platform.openai.com/account/billing.`;
   await run(false, response => stream(response, error), ({ requests, events, session, sessionLog }) => {
-    assert.equal(requests.length, 1, '原生分类的限制必须如实保留，不能伪造恢复成功');
+    assert.equal(requests.length, 1, 'The native classification limit must be kept as is, never faking a successful recovery');
     assert.ok(!events.some(event => event.type === 'auto_retry_start'));
     const providerError = `rate_limit_exceeded: ${error}`;
     assert.equal(session.agent.state.messages.at(-1).errorMessage, providerError);
@@ -191,7 +191,7 @@ test('实际错误：Pi 默认把 billing 帮助链接归为不可重试，保�
 });
 
 for (const explicitCache of [false, true]) {
-  test(`实际自动压缩：显式缓存${explicitCache ? '开启' : '关闭'}时均能完成，费用沿用 SDK`, async () => {
+  test(`Real auto-compaction completes with explicit caching ${explicitCache ? 'on' : 'off'}, with cost taken from the SDK`, async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pi-review-cache-'));
     const previousWorkspace = process.env.REVIEW_WORKSPACE_PATH;
     process.env.REVIEW_WORKSPACE_PATH = directory;
@@ -248,7 +248,7 @@ for (const explicitCache of [false, true]) {
       session.subscribe((event: any) => events.push(event));
       await session.prompt('Fixed review rules.');
 
-      assert.equal(requests.length, 3, '应依次完成工具回合、自动摘要和压缩后的普通回合');
+      assert.equal(requests.length, 3, 'Should complete a tool turn, the auto summary, and a normal turn after compaction in order');
       assert.ok(events.some(event => event.type === 'tool_execution_end' && event.toolName === 'inspect' && !event.isError));
       assert.ok(events.some(event => event.type === 'compaction_end' && event.result && !event.aborted));
       assert.ok(JSON.stringify(requests[1]).includes('context summarization assistant'));
@@ -257,8 +257,8 @@ for (const explicitCache of [false, true]) {
         assert.ok(!JSON.stringify(payload).includes('prompt_cache_breakpoint'));
         assert.equal(payload.prompt_cache_options, undefined);
       }
-      assert.ok(!JSON.stringify(requests[2]).includes('Fixed review rules.'), '用例必须实际移除原固定规则消息');
-      assert.ok(!JSON.stringify(requests[2]).includes('"ttl":"12h"'), '不得为压缩后的动态上下文新增长期断点');
+      assert.ok(!JSON.stringify(requests[2]).includes('Fixed review rules.'), 'The case must actually remove the original fixed rules message');
+      assert.ok(!JSON.stringify(requests[2]).includes('"ttl":"12h"'), 'No long-lived breakpoint may be added for the dynamic context after compaction');
       assert.deepEqual(requests[2].prompt_cache_options, explicitCache ? { mode: 'implicit', ttl: '30m' } : undefined);
       assert.equal(session.agent.state.messages.at(-1).stopReason, 'stop');
       assert.ok(!events.some(event => event.type === 'extension_error'));

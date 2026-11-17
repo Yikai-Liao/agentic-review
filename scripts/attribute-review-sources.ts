@@ -9,16 +9,16 @@ import { fetchReviewCommits } from './prepare-review-sources.ts';
 
 const exec = promisify(execFile);
 const batchSize = 50;
-// 每个来源最多 100 个 suite × 100 条记录；批次缩小以留在 GraphQL 节点上限内。
+// Each source has up to 100 suites × 100 runs; small batches stay within the GraphQL node limit.
 const checkBatchSize = 10;
 const shaPattern = /^[0-9a-f]{40}$/;
 const repositoryPattern = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 export type SourcePullRequest = { number: number; title: string; url: string };
 
-// reviewed：文件在每个合入步骤里都与已审来源 PR 的 head 一致。
-// composition：来源 PR 已审，但合入后的内容与其 head 不同（叠加或冲突解决产生了审查者没见过的内容）。
-// 其余文件（来源未审、无来源 PR、不在任何第一父步骤的净变化里）不出现在结果中，按普通审查处理。
+// reviewed: the file matches the reviewed source PR's head in every merge step.
+// composition: the source PR was reviewed, but the merged content differs from its head (stacking or conflict resolution produced content its reviewers never saw).
+// Other files (unreviewed source, no source PR, not in any first-parent step's net change) are omitted and reviewed normally.
 export type SourceAttribution = {
   reviewed: string[];
   composition: Array<{ path: string; pull_requests: SourcePullRequest[] }>;
@@ -27,7 +27,7 @@ export type SourceAttribution = {
 
 export const emptyAttribution: SourceAttribution = { reviewed: [], composition: [], pull_requests: [] };
 
-// base 是来源 PR 通过审查时的比较基线，来源审查的差异是 merge-base(base, head)..head。
+// base is the comparison base when the source PR passed review; the source review's diff is merge-base(base, head)..head.
 type Source = SourcePullRequest & { head: string; reviewed: boolean; base: string };
 type FileState = 'reviewed' | 'composition' | 'direct';
 const rank: Record<FileState, number> = { reviewed: 0, composition: 1, direct: 2 };
@@ -40,7 +40,7 @@ async function git(target: string, args: string[]) {
   return (await exec('git', ['-C', target, ...args], { encoding: 'utf8', maxBuffer: 1 << 28 })).stdout;
 }
 
-// 一次进程读取全部 `rev:path` 的 blob；缺失（文件在该版本不存在）返回 null。
+// Reads every `rev:path` blob in one process; a missing file at that revision returns null.
 function blobIds(target: string, specs: string[]): Promise<Array<string | null>> {
   if (!specs.length) return Promise.resolve([]);
   return new Promise((resolve, reject) => {
@@ -84,7 +84,7 @@ function mergedSourceQuery(count: number) {
   return `query MergedSources($owner: String!, $name: String!, ${declarations(count)}) { repository(owner: $owner, name: $name) { ${commits} } }`;
 }
 
-// 每个第一父步骤是否恰好是某个已合入 PR 的合入提交；是则返回该来源 PR。
+// Whether each first-parent step is exactly the merge commit of a merged PR; if so, returns that source PR.
 async function mergedSources(options: AttributeOptions, steps: string[]) {
   const [owner, name] = options.repository.split('/');
   const sources = new Map<string, Source>();
@@ -114,7 +114,7 @@ async function mergedSources(options: AttributeOptions, steps: string[]) {
   return sources;
 }
 
-// 来源 PR 的 head 上有同一 Review App 完成的 automatic audit，才算已审。
+// A source PR counts as reviewed only when its head has a completed automatic audit by the same Review App.
 async function markReviewed(options: AttributeOptions, sources: Source[]) {
   const [owner, name] = options.repository.split('/');
   for (let offset = 0; offset < sources.length; offset += checkBatchSize) {
@@ -150,7 +150,7 @@ export async function attributeReviewSources(options: AttributeOptions): Promise
   const sources = await mergedSources(options, steps);
   await markReviewed(options, [...sources.values()]);
   const reviewedSources = [...sources.values()].filter((source) => source.reviewed);
-  // 已审来源的 head 可能不在共享 Git 对象库中（squash 合入后分支已删除），补取后才能比较内容。
+  // A reviewed source head may be missing from the shared object store (branch deleted after a squash merge); fetch it before comparing.
   await fetchReviewCommits(target, reviewedSources.flatMap((source) => [source.head, source.base]));
 
   const states = new Map<string, FileState>();
@@ -166,12 +166,13 @@ export async function attributeReviewSources(options: AttributeOptions): Promise
       files.forEach((file) => raise(file, 'direct'));
       continue;
     }
-    // 含换行的路径无法放进 cat-file 的行协议，保守地按普通审查处理。
+    // Paths with newlines cannot use cat-file's line protocol, so they are conservatively reviewed normally.
     const comparable = files.filter((file) => !file.includes('\n'));
     files.filter((file) => file.includes('\n')).forEach((file) => raise(file, 'direct'));
-    // 来源审查的是 merge-base(审查时的 base, head)..head 的改动。合入结果等于 head，且合入前的基线一侧
-    // 相对该起点未变，这一步对文件的改动才与审查看到的完全一致；否则（含来源改基后带入的其他历史、
-    // 整体采用来源版本而丢弃基线一侧的改动）来源审查者没见过这些内容。
+    // The source review covered merge-base(base at review time, head)..head. Only when the merged result equals head
+    // and the pre-merge base side has not moved from that start does this step match what the review saw; otherwise
+    // (other history carried in by a rebased source, or taking the source version wholesale and dropping base-side
+    // changes) the source reviewers never saw this content.
     const reviewStart = (await git(target, ['merge-base', source.base, source.head])).trim();
     const ids = await blobIds(target, comparable.flatMap((file) => [`${step}:${file}`, `${source.head}:${file}`, `${step}^1:${file}`, `${reviewStart}:${file}`]));
     comparable.forEach((file, index) => {
@@ -203,7 +204,7 @@ export async function main() {
     || !shaPattern.test(baseSha) || !shaPattern.test(headSha) || !/^[A-Za-z0-9-]+$/.test(appSlug)) {
     throw new Error('Invalid review attribution environment');
   }
-  // thread 请求只审查被讨论的文件，不使用来源归因。
+  // Thread requests review only the discussed file and skip source attribution.
   let attribution = emptyAttribution;
   if (source !== 'thread') {
     const mergeBase = (await git(targetPath, ['merge-base', baseSha, headSha])).trim();

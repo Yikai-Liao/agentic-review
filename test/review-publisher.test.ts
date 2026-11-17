@@ -10,7 +10,7 @@ import { archiveReviewPublisher } from '../scripts/prepare-review-context.ts';
 
 const exec = promisify(execFile);
 
-test('稀疏部分克隆在远端不可用时仍可封存已检出的发布器，不补取范围外对象', async t => {
+test('A sparse partial clone still seals the checked-out publisher when the remote is unavailable, without fetching out-of-scope objects', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-publisher-partial-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const origin = path.join(directory, 'origin');
@@ -22,7 +22,7 @@ test('稀疏部分克隆在远端不可用时仍可封存已检出的发布器�
   await mkdir(path.join(origin, 'scripts'));
   await writeFile(path.join(origin, 'scripts/publish-review-run.ts'), 'export async function main() {}');
   await writeFile(path.join(origin, 'package.json'), '{"type":"module"}');
-  await writeFile(path.join(origin, '.agentic-review.md'), '范围外材料，不应为发布器打包而下载。');
+  await writeFile(path.join(origin, '.agentic-review.md'), 'Out-of-scope material that publisher packaging must not download.');
   git('add', '.'); git('commit', '-qm', 'control');
   execFileSync('git', ['clone', '--quiet', '--filter=blob:none', '--no-checkout', `file://${origin}`, control]);
   execFileSync('git', ['-C', control, 'sparse-checkout', 'set', '--no-cone', '/scripts/', '/package.json']);
@@ -36,7 +36,7 @@ test('稀疏部分克隆在远端不可用时仍可封存已检出的发布器�
   assert.equal(execFileSync('tar', ['-xzOf', '-', 'package.json'], { input: archive, encoding: 'utf8' }), '{"type":"module"}');
 });
 
-test('发布启动器只执行可信步骤输出，忽略本地脚本篡改；缺失、损坏及发布失败均失败', async t => {
+test('The publication launcher runs only trusted step output and ignores local script tampering; missing, corrupt, and failed publication all fail', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-publisher-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const source = path.join(directory, 'source');

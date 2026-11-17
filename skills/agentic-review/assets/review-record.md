@@ -1,33 +1,33 @@
-# 保存本轮私有工作稿
+# Private Round Record
 
-工作稿是供审查者恢复进度、依据和判断的私有记录。任务已有布局、覆盖清单或最终结果时直接使用，以下内容只补缺失信息。记录粒度和状态定义以[工作稿与复核](../references/review-state.md)为准。
+The workspace is the reviewer's private record for restoring progress, grounds, and judgments. If the task already provides a layout, coverage list, or final result, use it; this template only fills gaps. Granularity and state definitions follow [Workspace and re-review](../references/review-state.md).
 
-## 本轮入口
+## Round Entry
 
-- 审查对象、固定版本和比较基线：
-- 范围、所选层级与视角、可信规则入口：
-- 审查独立性、证据限制与前轮记录位置：
+- Target, fixed version, and comparison baseline:
+- Scope, chosen level and focuses, trusted rule entry point:
+- Independence, evidence limits, and location of earlier records:
 
-## 覆盖清单
+## Coverage
 
-已有覆盖清单直接更新；没有时按文件或业务行为记录。覆盖状态只记录调查进度，问题状态保存在正式结果中。
+Update an existing coverage list directly; otherwise record by file or behavior. Coverage tracks investigation progress only; problem status lives in the formal result.
 
-| 文件或行为 | 覆盖状态 |
+| File or behavior | Coverage |
 |---|---|
 | … | pending / complete / blocked |
 
-## 私有调查依据
+## Private Investigation Evidence
 
-保存已完成调查中未进入公开结果的支持证据，包括无 finding 的判断。按共同机制合写，已有记录只更新变化部分。
+Keep supporting evidence from completed investigation that is not in public results, including judgments without findings. Group by shared mechanism and update only what changed.
 
-- 实际检查的调用关系、行为或失败路径，关键保护与成立前提，源码或契约定位：
-- 已排除疑点的实际证据和生效前提：
-- 未完成项的当前判断、具体缺口和下一处读取位置：
+- Call relationships, behavior or failure paths actually checked, key protections and preconditions, source or contract locations:
+- Evidence and preconditions for excluded suspicions:
+- Current judgment, specific gap, and next read location for unfinished items:
 
-例如：`提交链 api.ts:submit → store.ts:save：第二条写入失败会抛出到事务边界，全部写入回滚后才返回错误；该判断依赖 save 覆盖全部写入、submit 不吞异常。`
+Example: `submit chain api.ts:submit → store.ts:save: a failed second write throws to the transaction boundary and all writes roll back before the error returns; relies on save covering every write and submit not swallowing exceptions.`
 
-## 正式问题
+## Formal Findings
 
-任务有独立最终结果时引用其位置，不复制完整证明。没有独立结果存储时，在这里保留正式 finding、当前状态、证据和关闭条件。
+If the task has a separate final result, cite its location instead of copying full proofs. Without one, keep formal findings, current status, evidence, and closing conditions here.
 
-结束本轮表示当前审查已交付；问题修复和交付批准分别按各自状态与权限判断。
+Ending the round means this review is delivered; fixes and delivery approval follow their own status and authority.

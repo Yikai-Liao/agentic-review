@@ -1,80 +1,80 @@
-# 测试经济性：独立检测能力与删除证明
+# Test Economics: Independent Detection and Deletion Proof
 
-按 [测试审查](test-contracts.md) 完成共同的范围核对、行为调查、反证与记录；本文件只补充受托的测试经济性证明。
+Complete the shared scope check, behavior investigation, counter-evidence check, and records per [test review](test-contracts.md); this file only adds the delegated test-economics proof.
 
-## 先区分真实输入类别，再选择代表
+## Partition Real Inputs Before Choosing Representatives
 
-先按实际生产条件和契约划分等价类（partition），再比较具体值：
+Partition by real production conditions and contracts before comparing specific values:
 
-| 输入 | 应先区分什么 | 通常不足以证明新增检测能力的差异 |
+| Input | Distinguish first | Differences that usually do not add detection power |
 |---|---|---|
-| 数值与长度 | 非法下界、恰好边界、内部值、溢出、饱和或精度边界 | 同一内部区间的普通正数，或同一超限类别中的普通长度 |
-| 字符串与标识 | 空值、枚举、保留值、非保留值、格式和编码类别 | 同一非保留 key 下替换普通 value |
-| 路径与前缀 | 根路径、匹配与不匹配、目录穿越、盘符、平台分隔符 | 相同深度和形状下换普通目录名或文件名 |
-| 集合 | 空、单个、多个、重复、乱序、上限和分页边界 | 同一规模和顺序语义下替换普通成员 |
-| 状态与身份 | 未认证、角色、租户、归属、前置状态、终态和重试 | 未参与权限、分支或输出的任意名称变化 |
+| Numbers and lengths | Illegal lower bound, exact boundary, interior value, overflow, saturation, or precision boundary | Ordinary positive values in the same interior range, or ordinary lengths in the same over-limit class |
+| Strings and identifiers | Empty, enum, reserved, non-reserved, format, and encoding classes | Swapping an ordinary value under the same non-reserved key |
+| Paths and prefixes | Root, match and non-match, traversal, drive letters, platform separators | Different ordinary directory or file names at the same depth and shape |
+| Collections | Empty, one, many, duplicates, unordered, limits, and pagination boundaries | Swapping ordinary members at the same size and order semantics |
+| State and identity | Unauthenticated, roles, tenants, ownership, preconditions, terminal states, retries | Arbitrary name changes that take no part in permissions, branches, or output |
 
-有限的权限、身份或协议集合中，不同成员可能有独立错误风险；集合外的普通值通常属于同一类别。没有分支的公式，也可用输入区分生产表达式或独立契约支持的漏项、错项、比较符、精度或溢出错误。
+In a finite set of permissions, identities, or protocols, different members may carry independent error risk; ordinary values outside the set usually share a class. For branchless formulas, inputs can still separate omitted terms, wrong terms, comparison operators, precision, or overflow supported by the production expression or an independent contract.
 
-由生产校验、数据约束或协议确定的边界，有独立检查价值。下界、边界、内部值、上界及上界外按真实分界分别判断，即使当前返回值相同。原来没覆盖的真实边界应直接保留；相邻类别无需另造错误。名字自称“边界”而生产条件和变化前契约没有分界时，仍按普通输入处理。
+Boundaries fixed by production validation, data constraints, or protocols have independent value. Judge lower bound, boundary, interior, upper bound, and beyond separately at real dividing points, even when current returns match. A real boundary not previously covered is kept outright; adjacent classes need no invented error. A test named "boundary" with no dividing point in production conditions or the pre-change contract is still ordinary input.
 
-比较替代关系时，按同一行为约定、生产边界与测试层级分组；输入类别、实际路径、预期判定或独立风险不同的成员分别判断。每组选择原有或最小保留代表，成员只与同组代表比较，共同证据直接复用。
+Compare substitutability within groups of the same behavior contract, production boundary, and test layer; members differing in input class, real path, expected verdict, or independent risk are judged separately. Each group picks an existing or minimal representative; members compare only with their group's representative, reusing shared evidence.
 
-## 证明 T2 冗余：删除后不会损失检测能力
+## Proving T2 Redundancy: Deletion Loses No Detection
 
-先找独立检测能力，再定位重复，最后证明删除不会漏检。找到保留理由即可结束该成员的冗余调查，其他受托的有效性分支仍须完成。
+First look for independent detection power, then locate duplication, then prove deletion misses nothing. A retention reason ends the redundancy investigation for that member; other delegated validity branches still run.
 
-这里只做静态删除分析，不授权修改或运行目标测试。
+This is static deletion analysis only; it does not authorize modifying or running target tests.
 
-### 先检查必须保留的理由
+### Reasons to keep
 
-沿以下差异查找独立检测能力：
+Look for independent detection power along:
 
-- **行为或边界不同**：真实校验、原来未覆盖的明确边界、权限或归属、状态分支；
-- **适用环境不同**：平台、运行环境、编码或外部使用方；
-- **验证责任不同**：实际不同的单元、集成、契约测试层级，或独立的判定依据。
+- **different behavior or boundary**: real validation, a previously uncovered explicit boundary, permissions or ownership, state branches;
+- **different environment**: platform, runtime, encoding, or external consumer;
+- **different verification responsibility**: genuinely different unit, integration, or contract layers, or an independent verdict basis.
 
-静态证明其中任一项提供独立价值，就保留该成员并结束其冗余调查。
+If any of these is statically shown to add value, keep the member and end its redundancy investigation.
 
-例如，契约与生产校验要求 `count <= 100`，已有测试只检查 50，新增测试检查 100。两者当前都成功，但 100 能识别误将 `<=` 写成 `<` 的错误，是应保留的新边界。
+Example: the contract and production validation require `count <= 100`; the existing test checks 50 and a new test checks 100. Both pass now, but 100 catches `<=` written as `<`, so it is a new boundary to keep.
 
-### 再定位重复的判定信号
+### Locating duplicate verdict signals
 
-没有上述保留理由时，用以下形态定位冗余疑点，再做删除分析：
+Without a retention reason, these shapes locate redundancy suspicions for deletion analysis:
 
-- **重复断言**：同一测试观察相同状态、表达式并作相同判定，期间没有修改、await、重试、迭代、时钟推进或有副作用的求值。
-- **相同或仅改名的测试**：忽略名称、class 与顶层包装、无语义差异的中间变量后，准备、实际调用、结果、预期和输入作用相同。
-- **判定包含关系**：完整对象比较已经包含状态字段，完整集合判定包含相同成员，或原测试已覆盖新增的准备、实际结果和预期。
-- **普通数据替换**：只改普通值、名称或局部变量，测试结构、输入类别、生产路径和判定方式相同。
-- **重复准备**：准备相同还不够，调用、判定和可发现的错误也相同或已被包含时，才成为冗余疑点。
+- **Duplicate assertions**: one test observes the same state or expression with the same verdict, with no mutation, await, retry, iteration, clock advance, or side-effecting evaluation in between.
+- **Identical or renamed tests**: ignoring names, classes, top-level wrappers, and meaningless intermediate variables, setup, call, result, expectation, and input role are the same.
+- **Verdict containment**: a whole-object comparison already includes the state field, a whole-collection verdict includes the same members, or the original test already covers the new setup, result, and expectation.
+- **Ordinary data substitution**: only ordinary values, names, or locals change; structure, input class, production path, and verdict are the same.
+- **Duplicate setup**: same setup is not enough; it is a suspicion only when calls, verdicts, and detectable errors are also the same or contained.
 
-### 用删除分析检查是否会漏检
+### Deletion analysis
 
-对具有共同冗余原因的一组成员做一次分析，不逐成员重复同一份证明。假设移除这些成员，寻找一种真实、局部、违反契约的错误：其余测试仍会通过，被移除的成员却会失败。这样的实例能够证明删除会损失检测能力，需要连起以下依据：
+Analyze a group sharing one redundancy cause once, not per member. Assume these members are removed and look for a real, local contract-violating error that the remaining tests pass while a removed member fails. Such an instance proves deletion loses detection power and must connect:
 
-1. 什么错误或行为边界违反了要求；
-2. 它怎样经过生产路径影响实际结果；
-3. 为什么原有及保留的相关测试仍会通过；
-4. 为什么当前成员会失败；
-5. 错误来自生产表达式、校验、状态机、外部约定或真实风险，具有独立于待审样本的依据。
+1. which error or behavior boundary violates the requirement;
+2. how it reaches the actual result through the production path;
+3. why the existing and retained related tests still pass;
+4. why the current member fails;
+5. that the error comes from a production expression, validation, state machine, external contract, or real risk, grounded independently of the reviewed samples.
 
-反例可来自上述保留理由，以及真实的并发、清理、异常、终态，或生产表达式可推导的漏字段、漏项、错误映射与比较符。名称、普通值或 fixture 描述不同，本身不能证明独立价值。
+Counterexamples may come from the retention reasons above, real concurrency, cleanup, exceptions, terminal states, or omitted fields, terms, wrong mappings, and comparison operators derivable from the production expression. Different names, ordinary values, or fixture descriptions alone do not prove independent value.
 
-按具体值、数据表、枚举成员或来源分支区别测试，需要生产代码、当前生产或契约变化，或者独立有效约定中的相应证据。单纯假设实现会硬编码原测试值缺少这种依据；待审测试、断言、预期和同期新增说明只用于定位样本。
+Distinguishing tests by specific values, data tables, enum members, or source branches needs corresponding evidence in production code, current production or contract changes, or an independent valid contract. Merely assuming the implementation hard-codes the original test value lacks such grounds; the reviewed tests, assertions, expectations, and notes added with them only locate samples.
 
-删除分析须明确保留集合，每组至少保留能覆盖相应语义的代表。已有代表时比较新增成员；没有旧代表或进行整体审计时，先确定最小保留集合。参数化减少代码重复，检测能力仍由所含语义决定。
+Deletion analysis names the retained set, keeping at least one representative per semantic group. With an existing representative, compare the new members; without one, or in an audit, first fix the minimal retained set. Parameterization reduces code duplication; detection power still follows the semantics included.
 
-### 同时满足以下条件，才报告冗余
+### Report redundancy only when all hold
 
-1. **有明确的覆盖关系**：该成员的判定已被保留测试包含；或者它与代表的职责、输入类别、边界、生产与判定路径、错误方式及层级相同。
-2. **没有独立价值被丢弃**：已核对前述行为边界、环境、测试层级和判定依据等差异，没有成立的保留理由。
-3. **删除不会漏检**：已完成对照分析，明确保留集合，没有发现原来能检出、删除后会漏掉的真实错误。
-4. **重复有实际成本**：能说明多出的失败信号或维护点。
+1. **Clear coverage relation**: the member's verdict is contained in a retained test, or it matches a representative in responsibility, input class, boundary, production and verdict path, error mode, and layer.
+2. **No independent value discarded**: behavior boundary, environment, layer, and verdict-basis differences are checked and no retention reason holds.
+3. **Deletion misses nothing**: comparative analysis is done, the retained set is named, and no real error caught before would be missed after.
+4. **Duplication has real cost**: the extra failure signals or maintenance points can be named.
 
-四项缺一不可；单纯没有找到反例不能代替覆盖关系和完整删除分析。
+All four are required; failing to find a counterexample does not replace the coverage relation and full deletion analysis.
 
-## 归并冗余根因
+## Merging Redundancy Root Causes
 
-冗余问题按共同业务行为、输入类别或边界、判定方式、可发现的错误和测试层级归并，记录为 **cluster key**，即同根因分组的标识。不同生产符号、业务职责或外部边界分别归并；测试生成方式和“重复原有覆盖”只记录调查来源。
+Group redundancy by shared business behavior, input class or boundary, verdict style, detectable errors, and test layer, recorded as a **cluster key** identifying the root-cause group. Different production symbols, business responsibilities, or external boundaries form separate groups; how tests were generated or "duplicates existing coverage" only records where the investigation came from.
 
-同一根因中的完全复制、改名、普通数据替换、包含关系和重复断言，只作一条 finding 的不同证据。整个测试已冗余、内部又有重复断言时，优先报告整个测试的冗余；若测试本身有独立检测能力，则只报告其中真正重复的断言。
+Exact copies, renames, ordinary data substitution, containment, and duplicate assertions under one root cause are evidence for a single finding. When a whole test is redundant and also contains duplicate assertions, report the whole test; if the test has independent detection power, report only the truly duplicated assertions.

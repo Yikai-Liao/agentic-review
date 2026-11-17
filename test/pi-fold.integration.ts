@@ -1,4 +1,4 @@
-// 使用第三方 Action 的发布产物验证 pi-fold；隔离安装与执行命令见部署说明。
+// Verify pi-fold with the third-party Action's release artifact; see the deployment guide for isolated install and run commands.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -24,14 +24,14 @@ const foldPackage = JSON.parse(await readFile(path.join(foldDirectory, 'node_mod
 assert.equal(foldPackage.version, workflow.env.PI_FOLD_VERSION);
 const configure = steps.find((step: any) => step.name === 'Configure Pi runtime').run;
 
-// 每次 bash 返回约 45KB 原文（低于 Pi 的 50KB/2000 行截断），约 18 次后超过 272K 窗口的 80%；
-// 70 次读取使 pi-fold 多次提交折叠，规则 Prompt 要在多次折叠后仍保持原文。
+// Each bash call returns about 45KB of raw text (under Pi's 50KB/2000-line truncation), passing 80% of the 272K window after about 18 calls;
+// 70 reads make pi-fold commit several folds, and the rules prompt must stay verbatim after them.
 const READS = 70;
-// 约 100KB，与中央规则 Prompt 同一量级；Action 经环境变量传入，单项上限 128KB。
-const PROMPT = `逐份核对证据。\n${'RULE_LINE 固定规则正文。\n'.repeat(3000)}`;
+// About 100KB, the same order as the central rules prompt; the Action passes it through an environment variable capped at 128KB.
+const PROMPT = `Check each piece of evidence.\n${'RULE_LINE fixed rule text.\n'.repeat(3000)}`;
 const evidence = (index: number) => `EVIDENCE_${index}: verify resource ownership before reading data.\n`.repeat(700);
 
-test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型摘要，审查继续完成', async () => {
+test('Real third-party Action: pi-fold folds old evidence automatically without model summaries, and the review completes', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-action-fold-'));
   const requests: any[] = [];
   const server = createServer(async (request, response) => {
@@ -44,7 +44,7 @@ test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型�
       ? { type: 'function_call', id: `fc_${turn}`, call_id: `call_${turn}`, name: 'bash',
         arguments: JSON.stringify({ command: `cat evidence-${turn}.txt` }) }
       : { type: 'message', id: 'msg_done', role: 'assistant', content: [{ type: 'output_text', text: 'Review complete.' }] };
-    // 按请求体大小报告输入 token，使 Pi 与 pi-fold 得到真实的窗口占用。
+    // Report input tokens by request size so Pi and pi-fold see real window usage.
     const input = Math.ceil(JSON.stringify(payload.input).length / 4);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.write(`data: ${JSON.stringify({ type: 'response.output_item.done', output_index: 0, item })}\n\n`);
@@ -95,32 +95,32 @@ test('实际第三方 Action：pi-fold 自动折叠旧证据，不调用模型�
     });
     const log = stdout + stderr;
     assert.doesNotMatch(log, /\[extension\].*(?:Error|error)|unknown tool name|unsupported host|compaction failed/i);
-    // 每个请求都是带工具的审查回合；原生摘要请求没有工具，出现即说明退回了模型压缩。
+    // Every request is a review turn with tools; a native summary request has none, so one appearing means it fell back to model compaction.
     assert.equal(requests.length, READS + 1, log);
-    assert.ok(requests.every(request => request.tools?.length), '不应出现模型摘要请求');
+    assert.ok(requests.every(request => request.tools?.length), 'No model summary request should appear');
     const names = requests[0].tools.map((tool: any) => tool.name);
-    for (const tool of agent.with.loaded_tools.trim().split(/\s+/)) assert.ok(names.includes(tool), `请求缺少工具 ${tool}`);
-    assert.ok(!names.includes('pi_fold_context'), '模型不应获得上下文调度工具');
-    // 请求体经 JSON 序列化，证据原文按同样的转义形式比较。
+    for (const tool of agent.with.loaded_tools.trim().split(/\s+/)) assert.ok(names.includes(tool), `Request is missing tool ${tool}`);
+    assert.ok(!names.includes('pi_fold_context'), 'The model must not get the context scheduling tool');
+    // Request bodies are JSON-serialized, so raw evidence is compared in the same escaped form.
     const raw = (index: number) => JSON.stringify(evidence(index)).slice(1, -1);
     const last = JSON.stringify(requests.at(-1).input);
     const sizes = requests.map(request => JSON.stringify(request.input).length);
-    assert.ok(sizes.some(size => size / 4 > 272000 * 0.8 * 0.9), `上下文应接近折叠阈值：${sizes.join(' ')}`);
-    assert.ok(sizes.some((size, index) => index > 0 && size < sizes[index - 1] / 2), `应出现一次折叠提交：${sizes.join(' ')}`);
-    assert.ok(JSON.stringify(requests[1].input).includes(raw(1)), '证据先以原文进入窗口');
-    assert.ok(!last.includes(raw(1)), '最早的证据原文应已折叠出窗口');
-    assert.ok(last.includes(raw(READS)), '最近的证据保持原文');
-    assert.ok(last.length / 4 < 272000 * 0.8, '折叠后的请求回到阈值以下');
-    assert.ok(sizes.filter((size, index) => index > 0 && size < sizes[index - 1] / 2).length >= 3, `应连续提交多次折叠：${sizes.join(' ')}`);
-    // 整轮审查是同一个未结束的 user 回合；pi-fold 不折叠该回合的首条消息。
-    // 折叠摘要只保留 Prompt 的前 120 个字符；完整 Prompt 的尾部仍在请求中，说明它没有被摘要替换。
-    assert.ok(last.includes(JSON.stringify(PROMPT.trimEnd()).slice(1, -1)), '多次折叠后完整启动 Prompt 保持原文');
+    assert.ok(sizes.some(size => size / 4 > 272000 * 0.8 * 0.9), `Context should approach the fold threshold: ${sizes.join(' ')}`);
+    assert.ok(sizes.some((size, index) => index > 0 && size < sizes[index - 1] / 2), `A fold commit should appear: ${sizes.join(' ')}`);
+    assert.ok(JSON.stringify(requests[1].input).includes(raw(1)), 'Evidence first enters the window verbatim');
+    assert.ok(!last.includes(raw(1)), 'The earliest raw evidence should be folded out of the window');
+    assert.ok(last.includes(raw(READS)), 'Recent evidence stays verbatim');
+    assert.ok(last.length / 4 < 272000 * 0.8, 'Requests after folding drop below the threshold');
+    assert.ok(sizes.filter((size, index) => index > 0 && size < sizes[index - 1] / 2).length >= 3, `Several folds should be committed in sequence: ${sizes.join(' ')}`);
+    // The whole review is one unfinished user turn; pi-fold does not fold that turn's first message.
+    // A fold summary keeps only the first 120 characters of the prompt; the full prompt's tail still being in the request shows it was not replaced.
+    assert.ok(last.includes(JSON.stringify(PROMPT.trimEnd()).slice(1, -1)), 'The full startup prompt stays verbatim after several folds');
     const files = await readdir(path.join(directory, '.pi/agent/sessions'), { recursive: true });
     const session = files.find(file => file.endsWith('.jsonl'));
     assert.ok(session);
     const entries = (await readFile(path.join(directory, '.pi/agent/sessions', session), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    assert.ok(entries.some(entry => entry.type === 'custom' && String(entry.customType).startsWith('pi-fold')), '落盘会话应保存折叠记录');
-    assert.ok(!entries.some(entry => entry.type === 'compaction'), '不应触发原生压缩');
+    assert.ok(entries.some(entry => entry.type === 'custom' && String(entry.customType).startsWith('pi-fold')), 'The persisted session should keep fold records');
+    assert.ok(!entries.some(entry => entry.type === 'compaction'), 'Native compaction should not trigger');
     assert.match(await readFile(path.join(directory, 'outputs'), 'utf8'), /^success<<[^\n]+\ntrue\n/m);
   } finally {
     server.closeAllConnections();

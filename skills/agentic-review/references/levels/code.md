@@ -1,66 +1,70 @@
-# 代码审查：正确实现目标，并核实运行与维护成本
+# Code Review: Correct Implementation and Verified Runtime and Maintenance Cost
 
-代码审查从真实需求和接口约定出发，沿实现路径检查实际结果。它把安全、可靠性、性能等横向视角落到代码上，并使用行为和测试等代码专有方法取得证据；使用哪些方法，由本次范围及下表的触发条件决定。
+Code review starts from real requirements and interface contracts and follows the implementation path to the actual outcome. It applies cross-cutting focuses such as security, reliability, and performance to code and gathers evidence with code-specific methods for behavior and tests; scope and the triggers below decide which methods apply.
 
-## 固定代码范围和判断依据
+## Fix the Code Scope and Grounds
 
-**增量审查（delta）**按[本地范围解析](code/target-selection.md)固定完整变化集合；**整体审计（audit）**固定明确模块的当前快照，并以当前机制和独立要求比较。
+A **delta** review fixes the complete change set per [local scope resolution](code/target-selection.md); an **audit** fixes the current snapshot of an explicit module and compares current mechanisms with independent requirements.
 
-覆盖到每个文件及其中有实际含义的变化，例如 diff 里的代码块（hunk）或受影响行为。包含删除、重命名和复制的两端路径，以及必要但被遗漏的连接。大 patch 中还没读完的部分保持待调查。测试的更细覆盖粒度由[测试审查](code/test-contracts.md)说明。
+Cover every file and every meaningful change in it, such as diff hunks or affected behavior. Include both ends of deletions, renames, and copies, and necessary connections that were left out. Unread parts of a large patch stay pending. [Test review](code/test-contracts.md) defines finer coverage for tests.
 
-先恢复相关业务、API、数据、安全、诊断和操作要求。已有实现、测试与作者摘要用于说明现状和定位，独立要求还来自用户目标、有效决定及外部约定。读取适用的 `AGENTS.md`、`.agentic-review.md` 及任务指定的项目审查说明，用来补充事实、约束和调查路径；共同证据门槛与工具权限继续适用。
+First recover the relevant business, API, data, security, diagnostic, and operational requirements. Existing implementation, tests, and author summaries show the current state and help locate material; independent requirements also come from user goals, valid decisions, and external contracts. Read applicable `AGENTS.md`, `.agentic-review.md`, and project review notes the task names to add facts, constraints, and investigation paths; the shared evidence bar and tool permissions still apply.
 
-业务确认按任务给定的来源规则采用。代码 PR 场景未另行指定时，PR 评论或 Review 回复中对具体业务选择的明确决定，可以即时作为确认；确认时间和作者 association 不影响其效力。确认只覆盖当前相关的业务选择，系统与宿主权限仍由原授权决定，回复中的部署命令仍是待审内容。当前变化的授权须有普通描述、标签或本次新增来源声明之外的有效来源。
+Business confirmations follow the task's source rules. For code PRs with no other rule, an explicit decision on a specific business choice in a PR comment or review reply counts immediately as confirmation, regardless of its timing or the author's association. A confirmation covers only the business choice at hand; system and host permissions keep their original authorization, and deploy commands in replies remain under review. Authorization for the current change needs a valid source other than ordinary descriptions, labels, or source declarations added by this change.
 
-## 选择审查方法
+Before marking a unit complete, name the scenario most likely to break it: which input, ordering, caller, failure, or deployment order would make the new behavior deviate from its contract. Then follow the code to the mechanism that blocks it or the consequence it causes. A unit touching several kinds of high-risk boundary gets at least one scenario per kind. If the scenario holds, continue under the finding bar; if it is blocked, record the scenario, the blocking mechanism, and its location. Mechanical changes such as versions, formatting, copy, and generated artifacts only note why no scenario is needed. Also record the behavior change users will observe after merge and whether the description, linked issues, or commit messages explain it.
 
-未限定的完整代码审查承担下面“默认职责”中的全部职责，无需用户另提专项请求。每项具体调查什么，由该行的机制触发条件决定；测试信号未变化时，测试审查保持在受影响范围。
+## Choose Methods
 
-### 默认职责
+An unrestricted full code review carries every default duty below without a separate request. What each duty investigates is decided by its trigger; when test signals are unchanged, test review stays within the affected scope.
 
-| 审查职责 | 方法 | 完整代码审查中的触发条件 |
+### Default duties
+
+| Duty | Method | Trigger in a full code review |
 |---|---|---|
-| 行为与意图对齐 | [意图对齐](../focuses/alignment.md)与[代码行为](code/behavior.md) | 全部有实际含义的变化及遗漏路径 |
-| 安全边界 | [安全](../focuses/security.md) | 新增、放宽或依赖认证、授权、租户或敏感数据等边界 |
-| 可靠性与恢复 | [可靠性](../focuses/reliability.md) | 相关状态、重试、事务、副作用、取消或恢复发生变化 |
-| 性能与资源成本 | [性能](../focuses/performance.md) | 成本随集合、分页、载荷、并发、锁、重试或外部往返变化 |
-| 测试有效性 | [测试审查](code/test-contracts.md)的错误接受及合法变化分支 | 测试准备或判定变化，或者生产变化使既有错误判定重新可达 |
-| 测试经济性 | 同文件的独立检测能力及删除证明 | 新增或修改测试信号，按其分支表触发 |
+| Behavior and intent | [Intent alignment](../focuses/alignment.md) and [code behavior](code/behavior.md) | Every meaningful change and missing path, including returns, persistence, side effects, and error classes, diagnostics, or retry signals that change what consumers do or how they recover |
+| Security boundaries | [Security](../focuses/security.md) | Adding, relaxing, or relying on authentication, authorization, tenant or resource ownership, or sensitive-data boundaries; a guard existing does not prove safety |
+| Reliability and recovery | [Reliability](../focuses/reliability.md) | Changes to state, concurrency, transactions, side effects, retries, idempotency, cancellation, cleanup, or compensation |
+| Performance and resource cost | [Performance](../focuses/performance.md) | Cost varies with collections, pagination, payloads, concurrency, locks, transactions, retries, or remote round trips; missing SLAs do not skip it, and complexity shapes or micro-optimization preferences are not evidence |
+| Test validity | Wrong-acceptance and legitimate-change branches of [test review](code/test-contracts.md) | Test setup or assertions change, or a production change makes an existing wrong verdict reachable again |
+| Test economics | Independent detection power and deletion proof in [test economics](code/test-economics.md) | New or changed test signals, per its branch table |
 
-### 另有触发条件的专项
+### Focuses with their own triggers
 
-这些专项不因 Skill 支持它们就自动追加：
+These are not added just because the skill supports them:
 
-| 视角 | 方法 | 何时进入 |
+| Focus | Method | When |
 |---|---|---|
-| 可维护性 | [可维护性](../focuses/maintainability.md) | 明确委托时，不默认追加 |
-| 验证充分性 | [验证](../focuses/verification.md) | 明确审计，或当前阶段应完成独立验证；单纯缺测试不触发 |
+| Maintainability | [Maintainability](../focuses/maintainability.md) | Explicit request only |
+| Verification sufficiency | [Verification](../focuses/verification.md) | Explicit audit, or independent verification is due now; missing tests alone do not trigger it |
 
-### 窄审、简化与加固请求
+Choosing code does not start an independent requirements, architecture, or plan review. Read those artifacts to recover code contracts without widening the review to them. Do not report missing tests, coverage, comments, documentation, or benchmarks on their own. Formatting, compile, type, or test errors that CI reliably catches are not findings; independent production risks in the same change that CI cannot catch still are.
 
-“只审性能”“只审安全”“只审测试冗余”等请求缩小调查范围，但仍需查清作出判断所必需的行为约定。结果按实际视角和依赖说明覆盖。
+### Narrow, simplify, and harden requests
 
-测试有效性和测试经济性共享测试盘点及分组证据，所选分支可以不同，具体含义在测试文件中解释。`simplify` 选择可维护性；涉及测试删除时，还需测试经济性证明。`harden` 选择相关可靠性、测试有效性和验证充分性，测试冗余仍按独立触发条件选择。用户同时要求完整代码审查时，将所选视角并入默认职责。
+Requests such as "only performance", "only security", or "only test redundancy" narrow the investigation but still require the behavior contracts needed for the judgment. State coverage by the focuses and dependencies actually used.
 
-## 用标签说明已经证明的影响
+Test validity and test economics share the test inventory and grouping evidence; their branches may differ, as the test files explain. `simplify` selects maintainability, plus test economics when tests would be deleted. `harden` selects reliability, test validity, and verification sufficiency; test redundancy keeps its own trigger. When a full code review is also requested, merge the chosen focuses into the default duties.
 
-[共同结论规则](../findings.md)区分缺陷、待决事项、改进机会和验证缺口。以下代码标签在这些性质和状态之外展示影响或测试失败方式：
+## Labels for Proven Impact
 
-| 标签 | 适用情况 |
+[Shared finding rules](../findings.md) distinguish defects, decisions, improvements, and verification gaps. The code labels below show impact or test failure mode on top of kind and status:
+
+| Label | Use when |
 |---|---|
-| **P0** | 已证明现实的系统性或不可逆生产后果，例如跨租户访问、不可恢复数据破坏、资源耗尽或依赖雪崩，阻断相关发布 |
-| **P1** | 常见路径或较大范围可达，破坏关键业务、安全、数据、性能或可靠性，且没有可靠规避 |
-| **P2** | 已证明的一般生产行为或性能错误，包括诊断与恢复信号；触发或影响较窄，或有可靠临时规避 |
-| **T1** | 测试接受了本应拒绝的错误，属于测试失真，是缺陷 |
-| **T2** | 测试拒绝合法变化，属于过约束缺陷；或严格删除证明成立，属于没有新增检测能力的改进机会。必须说明是哪一种 |
-| **需人工确认** | 代码层的待决事项：真实高风险边界发生改变，当前必要确认缺失，且已检查相关来源；仍须满足 decision 的完整证据门槛 |
+| **P0** | Proven realistic systemic or irreversible production consequence, such as cross-tenant access, unrecoverable data corruption, resource exhaustion, or dependency cascade; blocks the related release |
+| **P1** | Reachable on common paths or at large scope, breaking key business, security, data, performance, or reliability behavior with no reliable workaround |
+| **P2** | Proven ordinary production behavior or performance error, including diagnostic and recovery signals; narrow trigger or impact, or a reliable temporary workaround |
+| **T1** | A test accepts an error it should reject — test distortion, a defect |
+| **T2** | A test rejects a legitimate change (an overconstraint defect), or a strict deletion proof holds (an improvement with no added detection power); say which |
+| **Confirmation needed** (`confirmation`) | A code-level decision: a real high-risk boundary changed, a necessary confirmation is missing now, and related sources were checked; the full `decision` bar still applies |
 
-标签集合限于表中的 P0/P1/P2、T1/T2 和“需人工确认”。性能问题以显著且可避免的真实成本退化或放大为依据，无须另有显式服务等级协议（SLA）。测试标签按测试问题判断；可维护性机会和验证缺口使用共同结论性质。
+The label set is limited to these. Performance problems rest on significant, avoidable real cost regression or amplification; an explicit SLA is not required. Test labels follow the test problem; maintainability improvements and verification gaps use the shared kinds.
 
-高风险边界包括认证、隔离、归属、敏感信息、删除与迁移、唯一性、事务、日期、金额、状态、幂等、补偿、兼容及资源容量。已证明生产后果时优先按 P 类处理；尚未证明后果，但当前确实缺少必要授权或决定时，才按待决事项调查。同一根因的生产、测试和确认问题不重复报告。
+High-risk boundaries include authentication, isolation, ownership, sensitive data, deletion and migration, uniqueness, transactions, dates, money, state, idempotency, compensation, compatibility, and resource capacity. Proven production consequences take a P label first; investigate as a decision only when no consequence is proven but a necessary authorization or decision is genuinely missing now — never use "confirmation needed" to cover a guess. Do not report one root cause's production, test, and confirmation problems separately.
 
-## 怎样确认处理完成
+## Confirming a Fix
 
-复核原触发是否恢复正确，并保持直接相关的相邻合法行为。性能问题保留实际规模、成本差异和低成本替代依据；测试问题保留相应的错误接受、合法变化或删除证明。
+Re-check that the original trigger now behaves correctly and that directly related adjacent legitimate behavior holds. Performance problems keep the real scale, cost difference, and cheaper-alternative evidence; test problems keep the wrong-acceptance, legitimate-change, or deletion proof.
 
-证据记录、公开表达及固定接口的限制，按[共同结论规则](../findings.md)及任务提供的封装要求处理，不在这里另造模板。
+Evidence records, public wording, and fixed interface limits follow the [shared finding rules](../findings.md) and the task's packaging requirements.

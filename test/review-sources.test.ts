@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { checkoutReviewTarget, prepareReviewBase } from '../scripts/prepare-review-sources.ts';
 import { runGh, type Run } from '../scripts/refresh-review-discussion.ts';
 
-test('已合并且源分支删除后，仍检出原始 PR 快照而非合并提交或最新分支', async t => {
+test('After merge and source branch deletion, checkout still uses the original PR snapshot, not the merge commit or latest branch', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-merged-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const origin = path.join(directory, 'origin');
@@ -22,7 +22,7 @@ test('已合并且源分支删除后，仍检出原始 PR 快照而非合并提�
   await writeFile(path.join(origin, 'file.ts'), 'PR head\n');
   git(origin, 'commit', '-qam', 'feature');
   const headSha = git(origin, 'rev-parse', 'HEAD');
-  // GitHub 保留 PR 引用，源分支删除不等于删除 PR 中的提交。
+  // GitHub keeps PR refs; deleting the source branch does not delete the PR's commits.
   git(origin, 'update-ref', 'refs/pull/7/head', headSha);
   git(origin, 'checkout', '-q', 'main');
   git(origin, 'merge', '--squash', 'feature'); git(origin, 'commit', '-qm', 'squash merge');
@@ -44,7 +44,7 @@ test('已合并且源分支删除后，仍检出原始 PR 快照而非合并提�
   assert.equal(git(target, 'diff', '--name-only', `${baseSha}...${headSha}`), 'file.ts');
 });
 
-for (const side of ['head', 'base'] as const) test(`仅 ${side} 含私有 LFS 文件时保留指针，不启动对象下载`, async t => {
+for (const side of ['head', 'base'] as const) test(`When only ${side} contains private LFS files, pointers are kept and no object download starts`, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-lfs-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const origin = path.join(directory, 'origin');
@@ -65,7 +65,7 @@ for (const side of ['head', 'base'] as const) test(`仅 ${side} 含私有 LFS �
   git('add', '.'); git('commit', '-qm', 'head');
   const headSha = git('rev-parse', 'HEAD');
 
-  // 模拟 runner 系统配置中的 required LFS filter；一旦启动即记录并拒绝下载。
+  // Simulate the runner's system-level required LFS filter; any invocation is recorded and the download refused.
   const marker = path.join(directory, 'lfs-started');
   const filter = path.join(directory, 'lfs-filter');
   await writeFile(filter, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, { mode: 0o755 });
@@ -82,13 +82,13 @@ for (const side of ['head', 'base'] as const) test(`仅 ${side} 含私有 LFS �
   assert.equal(await readFile(path.join(pointerTree, 'asset.bin'), 'utf8'), pointer);
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
 
-  // 对照检出确实会触发该 filter，避免把未生效的配置当作保护。
+  // A control checkout does trigger the filter, so an inactive configuration is not mistaken for protection.
   await rm(path.join(pointerTree, 'asset.bin'));
   await assert.rejects(run('git', ['-C', pointerTree, 'checkout', '--', 'asset.bin']));
   await readFile(marker);
 });
 
-test('base 共用已下载对象；缺少固定快照时补取，保持目标版本并禁止 checkout hook', async t => {
+test('base reuses downloaded objects; a missing pinned snapshot is fetched, the target version is kept, and checkout hooks are disabled', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-sources-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const origin = path.join(directory, 'origin');
@@ -113,7 +113,7 @@ test('base 共用已下载对象；缺少固定快照时补取，保持目标版
   assert.equal(git(base, 'rev-parse', '--git-common-dir'), path.join(target, '.git'));
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
 
-  // 模拟取得 PR 快照后 base 分支推进，target 首次 fetch 未包含该对象。
+  // Simulate the base branch advancing after the PR snapshot, so the first target fetch lacks the object.
   await writeFile(path.join(origin, 'file.ts'), 'new base');
   git(origin, 'commit', '-qam', 'new base');
   const newBaseSha = git(origin, 'rev-parse', 'HEAD');

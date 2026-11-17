@@ -17,7 +17,7 @@ const modelConfig = { providers: { openai: { models: [
   { id: 'gpt-test', contextWindow: 500000, samplingParams: { top_p: 0.9 } },
 ] } } };
 
-test('启动探测确认 priority/fast 后仅写 Pi 原生模型参数，保留其他配置', async t => {
+test('After the startup probe confirms priority/fast, only Pi\'s native model parameters are written and other settings are kept', async t => {
   t.mock.method(console, 'info', () => {});
   const directory = await mkdtemp(path.join(tmpdir(), 'review-fast-mode-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -42,7 +42,7 @@ test('启动探测确认 priority/fast 后仅写 Pi 原生模型参数，保留�
   }
 });
 
-test('启动时拒绝或未确认 priority 则整轮沿用 API 默认模式，不重试探测', async t => {
+test('If priority is rejected or unconfirmed at startup, the whole round uses the API default mode without reprobing', async t => {
   t.mock.method(console, 'info', () => {});
   const directory = await mkdtemp(path.join(tmpdir(), 'review-fast-mode-fallback-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -64,7 +64,7 @@ test('启动时拒绝或未确认 priority 则整轮沿用 API 默认模式，�
   }
 });
 
-test('鉴权、配额、限流、网络和无关参数错误不能降级成成功', async () => {
+test('Authentication, quota, rate-limit, network, and unrelated parameter errors never degrade into success', async () => {
   for (const [status, error] of [
     [401, { message: 'Invalid API key' }],
     [403, { message: 'priority processing not allowed' }],
@@ -88,13 +88,13 @@ test('鉴权、配额、限流、网络和无关参数错误不能降级成成�
   }
 });
 
-test('关闭时不探测、不读取模型配置；非法开关失败', async () => {
+test('When disabled, nothing is probed or read from model settings; an invalid switch fails', async () => {
   const fetchImpl: typeof fetch = async () => assert.fail('unexpected probe');
   for (const enabled of ['', 'false']) await configureReviewFastMode({ ...options, enabled, token: '', fetchImpl });
   await assert.rejects(configureReviewFastMode({ ...options, enabled: 'yes', fetchImpl }), /REVIEW_FAST_MODE/);
 });
 
-test('实际启动步骤只访问模拟网关一次，并把结果写入 Pi 配置，正式请求不加载 fast mode 扩展', async t => {
+test('The real startup step calls the mock gateway once and writes the result to Pi settings; review requests do not load a fast mode extension', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-fast-mode-runtime-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await mkdir(path.join(directory, 'control/scripts'), { recursive: true });
@@ -134,7 +134,7 @@ test('实际启动步骤只访问模拟网关一次，并把结果写入 Pi 配�
   assert.equal(requests.length, 2);
 });
 
-test('非法 fast mode 仓库变量在签发 token 前失败', () => {
+test('An invalid fast mode repository variable fails before any token is minted', () => {
   const workflow = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
   const steps = workflow.jobs.review.steps;
   const mint = steps.findIndex((step: any) => step.uses?.startsWith('actions/create-github-app-token@'));

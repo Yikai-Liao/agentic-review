@@ -1,82 +1,82 @@
-# 开发计划审查：从目标走到完整交付
+# Development Plan Review: From Goal to Complete Delivery
 
-计划审查关注两件事：按列出的工作全部完成后，目标是否真的实现；执行过程中允许出现的中间状态是否合理。计划引用架构决定，并按交付责任组织任务。
+Plan review asks two things: once every listed task is done, is the goal actually achieved; and are the intermediate states allowed during execution reasonable? Plans cite architecture decisions and organize tasks by delivery responsibility.
 
-## 选择本次要检查的内容
+## Scope
 
-按表中条件选择方法；窄审仅检查所选项及必要依据。
+Pick methods by the conditions below; a narrow review checks only the chosen items and necessary grounds.
 
-| 检查内容 | 方法 | 何时使用 |
+| What to check | Method | When |
 |---|---|---|
-| 所有任务完成后能否交付目标 | [意图对齐](../focuses/alignment.md)及下文交付检查 | 默认 |
-| 依赖顺序和并行安排是否可行 | 下文依赖检查 | 默认 |
-| 分阶段交付的中间状态是否安全 | 下文过渡检查；明确失败或中断审计时加[可靠性](../focuses/reliability.md) | 默认；有实际交付边界时检查 |
-| 谁负责集成和有效验收 | [验证](../focuses/verification.md)的验收有效性方法及下文责任检查 | 默认 |
-| 探索是否在相关投入之前完成 | 下文探索顺序检查 | 默认 |
-| 性能事实是否在依赖它的决定前得到验证 | [性能](../focuses/performance.md)及下文性能证据检查 | 条件触发：明确性能审查，或架构选择、迁移、发布及容量承诺依赖尚未确认的性能事实 |
-| 是否存在可避免的协调成本 | [可维护性](../focuses/maintainability.md) | 明确委托：简化或成本审计 |
-| 验证证据是否足以支撑保证 | [验证](../focuses/verification.md) | 条件触发：明确委托验证充分性审计，或当前阶段应完成相关验证 |
+| All tasks done delivers the goal | [Intent alignment](../focuses/alignment.md) and the delivery check below | Default |
+| Dependency order and parallelism are feasible | Dependency check below | Default |
+| Intermediate states of phased delivery are safe | Transition check below; add [Reliability](../focuses/reliability.md) for explicit failure or interruption audits | Default where real delivery boundaries exist |
+| Who owns integration and effective acceptance | Acceptance validity in [Verification](../focuses/verification.md) and the ownership check below | Default |
+| Exploration precedes dependent investment | Exploration-order check below | Default |
+| Performance facts are verified before decisions that depend on them | [Performance](../focuses/performance.md) and the evidence check below | Triggered: explicit performance review, or architecture, migration, release, or capacity commitments depend on unconfirmed performance facts |
+| Avoidable coordination cost | [Maintainability](../focuses/maintainability.md) | Explicit request: simplification or cost audit |
+| Verification evidence supports guarantees | [Verification](../focuses/verification.md) | Triggered: explicit verification audit, or verification is due at this stage |
 
-`simplify` 检查协调成本，任务数量只作结构信息。`harden` 检查实际交付阶段的中断、恢复、验收责任及验证充分性。计划描述实现和验证安排；实验按计划中的到期阶段执行。
+`simplify` checks coordination cost; task count is only structural information. `harden` checks interruption, recovery, acceptance ownership, and verification sufficiency at real delivery stages. Plans describe implementation and verification; experiments run at the stage the plan assigns.
 
-## 先查清真正要交付什么
+## What Must Actually Be Delivered
 
-先读原始目标、有效架构决定、阶段范围和本轮授权，再读任务清单。计划不能自行删减目标，但明确批准的分阶段交付和非目标必须尊重。
+Read the original goal, valid architecture decisions, phase scope, and this round's authorization before the task list. A plan cannot drop goals on its own, but explicitly approved phasing and non-goals must be respected.
 
-登记需要交付的能力、依赖、必要集成、验证任务和过渡条件，并从目标反查作者可能遗漏的工作。记录形式按项目需要选择，无需统一 `tasks.md`、任务数量、文件数或上下文比例。
+List the capabilities, dependencies, necessary integration, verification tasks, and transition conditions to deliver, and work back from the goal to find work the author may have missed. Use whatever record format the project needs; no fixed `tasks.md`, task count, file count, or context ratio.
 
-## 检查全部任务完成后，目标是否成立
+## Does Finishing Every Task Achieve the Goal?
 
-从用户最终能观察到的结果，倒推需要哪些能力、连接和工作：
+Work back from the result the user finally observes:
 
 ```text
-用户得到结果 ← 实际使用了能力 ← 必要连接已接通 ← 相关工作已完成
+user gets the result ← the capability is actually used ← necessary connections are wired ← related work is done
 ```
 
-尝试构造一个“所有任务都按描述完成，但目标仍未实现”的实例。比如 API 和网页按钮分别建好，计划却把两者接通的工作排除在所有任务之外。明确遗漏且没有其他承担者时，可以构成缺陷。
+Try to construct "every task done as described, yet the goal not met". For example, the API and the web button are each built, but wiring them together is excluded from every task. A clear omission with no other owner can be a defect.
 
-如果任务描述或共同验收已经包含连接工作，则连接责任已有安排。结果和验收清楚时，内部 helper 的具体步骤留给实现。
+If task descriptions or shared acceptance already include the wiring, the responsibility is assigned. When results and acceptance are clear, internal helper steps are left to implementation.
 
-## 检查真实依赖和并行顺序
+## Real Dependencies and Parallel Order
 
-从工作需要的实际前置条件判断，`depends_on` 等字段只提供计划声明。检查是否先使用了尚未提供的接口约定、出现循环等待、两方各自决定了共享格式，或多个执行者竞争同一状态。问题应有一条计划允许出现的具体顺序和后果。
+Judge from the real preconditions of the work; fields such as `depends_on` are only declarations. Check for using interface contracts before they exist, circular waits, two parties each deciding a shared format, or several executors racing on the same state. A problem needs a concrete ordering the plan allows and its consequence.
 
-如果已有全局固定的约定、共同验收或明确集成人员解决了顺序，沿用这些安排。任务能否并行取决于真实前置条件和共享状态，文件是否重叠只提供调查线索。
+Reuse existing globally fixed contracts, shared acceptance, or a named integrator that resolves the order. Whether tasks can run in parallel depends on real preconditions and shared state; overlapping files are only a lead.
 
-## 检查分阶段交付的中间状态
+## Intermediate States in Phased Delivery
 
-在实际交付阶段的结束、部分失败、暂停和回退处，检查旧路径是否保留、默认开关如何设置、新旧双方能否交互、数据能否按约定恢复。迁移顺序按这些中间状态独立验证。
+At the end of real delivery phases, and on partial failure, pause, and rollback, check whether old paths remain, how default switches are set, whether old and new parties interoperate, and whether data can recover as agreed. Verify migration order against these intermediate states.
 
-只检查真实的交付边界。本地一次原子修改作为一个交付单元检查；可用性和数据保证按已有要求保持。
+Check only real delivery boundaries. A local atomic change is one delivery unit; availability and data guarantees follow existing requirements.
 
-## 检查集成和验收由谁负责
+## Who Owns Integration and Acceptance
 
-核对哪项任务产生验证证据、谁观察最终集成结果，以及证据何时产生。按[验证方法](../focuses/verification.md)，尝试找出局部验收全部通过、整体却失败的情况。
+Check which task produces verification evidence, who observes the final integrated result, and when the evidence appears. Per [Verification](../focuses/verification.md), try to find a case where every local acceptance passes but the whole fails.
 
-例如，所有任务只验收自己的产物，无人检查必要连接，可能使系统最终不能使用。验收行为清楚且责任已分配时，具体测试命令可以由执行阶段选择。
+Example: every task accepts only its own output and nobody checks the necessary connections, so the system may end up unusable. When acceptance behavior is clear and ownership assigned, specific test commands can be chosen during execution.
 
-普通计划审查仍可报告具体错误验收，或明确遗漏的必要验证任务，无须用户特地说 `harden`。进一步审计验证充分性时，再按上表的条件选择对应方法，不泛化成“测试越多越好”。
+An ordinary plan review may still report a specific wrong acceptance or a clearly missing necessary verification task without the user saying `harden`. Deeper verification-sufficiency audits pick methods per the table above; do not generalize to "more tests is better".
 
-## 检查探索和投入的先后关系
+## Exploration Before Investment
 
-探索任务（常称 spike）用于回答会改变方案的问题。检查它要回答什么、结果如何观察、不同结果会怎样改变后续动作，以及哪些依赖任务在答案产生前不能开始。
+Exploration tasks (often called spikes) answer questions that would change the approach. Check what they answer, how results are observed, how different results change later actions, and which dependent tasks cannot start before the answer.
 
-先调查、再决定、再实施是合理计划，未知由前置调查任务负责。如果计划让不可逆迁移或大范围实现依赖未经确认的接口能力，却把调查排在最后，应指出真实依赖问题。
+Investigate, then decide, then implement is a sound plan; the unknown belongs to the prior investigation task. If an irreversible migration or large implementation depends on an unconfirmed interface capability while the investigation is scheduled last, point out the real dependency problem.
 
-预算和排期依据用户约束。拆分建议须说明已知资源冲突、串行前置条件或当前交付要求；模型估计只作线索。
+Budgets and schedules follow user constraints. Splitting suggestions must cite known resource conflicts, serial preconditions, or current delivery requirements; model estimates are only leads.
 
-## 检查性能证据是否及时产生
+## Performance Evidence in Time
 
-按[性能方法的计划分支](../focuses/performance.md#开发计划让证据先于依赖它的决定)，核对谁在相关投入前取得规模和成本证据、谁据此调整后续任务。静态上下界足以支持决定时直接采用；需要实测时，按[证据权限](../evidence-access.md)和[验证方法](../focuses/verification.md)核对授权、观察和判定。
+Per [the plan branch of performance](../focuses/performance.md#plan-get-evidence-before-the-decisions-that-depend-on-it), check who obtains scale and cost evidence before the related investment and who adjusts later tasks based on it. Use static bounds when they suffice; when measurement is needed, check authorization, observation, and judgment per [evidence access](../evidence-access.md) and [Verification](../focuses/verification.md).
 
-## 把问题交给能够解决它的人
+## Route Problems to Whoever Can Fix Them
 
-局部依赖或任务遗漏，可以由计划编写者修正。若可行路径需要改变已批准的能力、共享责任、接口或保证，应返回相应架构或需求决定。不能以“先做 v1”为由悄悄删除必须交付的目标。
+The plan author can fix local dependencies or missing tasks. If a feasible path requires changing approved capabilities, shared responsibilities, interfaces, or guarantees, return it to the relevant architecture or requirements decision. "Ship v1 first" must not quietly drop goals that must be delivered.
 
-架构本身相互矛盾时，保留原始依据和最小矛盾，不要求计划编写者靠增加任务实现不可能的要求。
+When the architecture contradicts itself, keep the original sources and the minimal contradiction; do not ask the plan author to add tasks that implement the impossible.
 
-## 交付和复核
+## Delivery and Re-review
 
-受托目标的交付路径、相关依赖、中间状态及验收责任都应有调查结论或具体限制。疑点经过反证检查，成立的问题说明处理者和完成条件，按[共同结论要求](../findings.md)交付。
+The delivery path for delegated goals, related dependencies, intermediate states, and acceptance ownership each have a conclusion or a concrete limit. Suspicions pass the counter-evidence check; established problems name a handler and completion condition and are delivered per the [shared finding requirements](../findings.md).
 
-完成调查表示受托计划已得到结论，其中可以包含缺少接线或顺序错误。这里的结论来自静态审查；实际执行结果和进度须由执行记录证明。
+A finished investigation means the delegated plan has conclusions, which may include missing wiring or wrong order. These are static conclusions; actual execution and progress must be proven by execution records.

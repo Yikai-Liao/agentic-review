@@ -70,7 +70,7 @@ test('verifies GitHub webhook signatures', async () => {
 });
 
 test('accepts real mentions and rejects quoted/code examples and bot loops', () => {
-  assert.equal(commentMention('请 @review-app[bot] 复核', '@review-app[bot]'), true);
+  assert.equal(commentMention('Please @review-app[bot] recheck', '@review-app[bot]'), true);
   assert.equal(commentMention('`@review-app[bot]`\n> @review-app[bot]', '@review-app[bot]'), false);
   const comment = {
     action: 'created',

@@ -1,28 +1,28 @@
-# 发起一次独立审查
+# Requesting an Independent Review
 
-当需要把已有产物交给另一个 Agent 审查时，使用下面的提示。直接引用已有信息，请求可以作为消息发送或保存为文件。
+Use the prompt below to hand an existing artifact to another agent for review. Cite existing information directly; send it as a message or save it as a file.
 
 ```text
-使用 agentic-review。你是未参与编写下列产物的独立审查者。
+Use agentic-review. You are an independent reviewer who did not write the artifact below.
 
-审查对象及固定版本：
-范围：本次增量 / 指定范围的整体审计；包括什么，不包括什么：
-层级：需求 / 架构 / 开发计划 / 代码；是否需要跨相关层级：
-视角：使用所选层级的默认范围，或明确指定专项及组合：
-当前准备作出的决定或交付：
-原始目标、有效决定和现状的原文或入口：
-被审产物及必要依赖：
-哪些内容可以留待后续决定，已经由谁负责：
-前次 Review 及本轮新增变化（首次可省略）：
-私有工作稿位置和保留规则（没有指定时按默认规则）：
-权限：只读目标，只写工作稿或指定报告；不运行目标代码、不修复、不发布。
-输出：有证据的问题、当前需要作出的决定、处理完成条件及审查限制。
+Target and fixed version:
+Scope: this delta / an audit of a named scope; what is included and excluded:
+Level: requirements / architecture / plan / code; trace across related levels?
+Focuses: the chosen level's default scope, or explicitly named focuses:
+Decision or delivery about to be made:
+Original goal, valid decisions, and current state (text or entry points):
+Artifact under review and necessary dependencies:
+What may wait for later decisions, and who owns it:
+Previous review and changes since (omit on first review):
+Private workspace location and retention (default rules if unspecified):
+Permissions: target read-only; write only the workspace or designated report; do not run target code, fix, or publish.
+Output: evidenced findings, decisions needed now, completion conditions, and review limits.
 ```
 
-`simplify`、`harden` 按所选层级解释为相应简化或加固视角，并沿用原有权限。实验授权与上述默认不同时，按[证据权限](../references/evidence-access.md)明确实验范围；实际授权以任务为准。
+`simplify` and `harden` map to the chosen level's simplification or hardening focuses under the same permissions. When experiment authorization differs from this default, state the experiment scope per [evidence access](../references/evidence-access.md); actual authorization is whatever the task grants.
 
-版本和来源采用实际读取或任务提供的信息，缺失项保持未知。审查目标是按证据得出结论，问题数量和方案评价由调查结果决定。
+Versions and sources use what was actually read or provided; missing items stay unknown. The goal is evidence-based conclusions; the number of findings and the verdict on the approach follow the investigation.
 
-委派大任务中的一批调查时，额外明确指定单元、递归委派禁令，以及“只返回证据和结论，由主审查者写主工作稿”的分工。其余授权条件仍按共同工作稿规则。
+When delegating a batch of a large investigation, also state the units, that further delegation is forbidden, and that the delegate returns only evidence and conclusions while the lead writes the main workspace. Other authorization follows the shared workspace rules.
 
-按需要选择后续模板：[记录调查](review-record.md)、[报告问题](finding.md)、[提交修复](repair-return.md)、[请求上层决定](escalation.md)。维护或扩展方法时使用[维护者说明](specialization.md)。
+Follow-up templates: [round record](review-record.md), [writing the report](../references/reporting.md), [returning a fix](repair-return.md), [escalating a decision](escalation.md). To maintain or extend the method, use the [maintainer notes](specialization.md).

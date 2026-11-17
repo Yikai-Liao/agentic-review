@@ -8,7 +8,7 @@ function readReviewWorkflow() {
   const entryUrl = new URL('../.github/workflows/agentic-review.yml', import.meta.url);
   const entrySource = readFileSync(entryUrl, 'utf8');
   const entry = parse(entrySource);
-  // 检查实际执行体；入口只负责调用 reusable workflow 时也不能漏掉凭据注入。
+  // Check the actual executor; credential injection must not be missed when the entry only calls a reusable workflow.
   const execution = entry.jobs.review.uses;
   const source = execution
     ? readFileSync(new URL(`../${execution}`, import.meta.url), 'utf8')
@@ -16,12 +16,12 @@ function readReviewWorkflow() {
   return { source, workflow: parse(source) };
 }
 
-test('完整 Pi JSONL 在成功、失败和取消后归档，不依赖成功导出路径', () => {
+test('The full Pi JSONL is archived after success, failure, and cancellation without relying on the success export path', () => {
   const { workflow } = readReviewWorkflow();
   const steps = workflow.jobs.review.steps;
   const agent = steps.find((step: any) => step.id === 'pi-review');
   const archive = steps.find((step: any) => step.id === 'review-session');
-  assert.equal(agent.with.export_session_jsonl, true, '开启导出使 Action 使用落盘 SessionManager');
+  assert.equal(agent.with.export_session_jsonl, true, 'Enabling export makes the Action use the persisted SessionManager');
   assert.notEqual(agent.with.share_session, true);
   assert.deepEqual(archive.with.path.trim().split('\n'), [
     '~/.pi/agent/sessions/**/*.jsonl',
@@ -37,13 +37,13 @@ test('完整 Pi JSONL 在成功、失败和取消后归档，不依赖成功导�
     const context = JSON.parse(JSON.stringify({ steps: { 'pi-review': { outcome } } }), data.reviver);
     const result = new Evaluator(parsed, context).evaluate();
     assert.ok(result instanceof data.BooleanData);
-    assert.equal(result.value, expected, `归档条件：${outcome}`);
+    assert.equal(result.value, expected, `Archive condition: ${outcome}`);
   }
 });
 
 function assertAgentCredentials(workflow: any) {
   const review = workflow.jobs.review;
-  // Action 可直接取得 github.token；job 权限覆盖 workflow，不能依赖仓库默认值。
+  // Actions can read github.token directly; job permissions override the workflow, so repository defaults are not relied on.
   // https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idpermissions
   const permissions = review.permissions ?? workflow.permissions;
   assert.ok(permissions === 'read-all' || (permissions && typeof permissions === 'object'
@@ -60,7 +60,7 @@ function assertAgentCredentials(workflow: any) {
     for (const expression of expressions) {
       const normalized = normalizeReference(expression).replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, "''");
       assert.doesNotMatch(normalized, /(?<![\w.])secrets\b/i, 'unapproved Agent secret source');
-      // 配置变量也能存放令牌；只允许已约定为非敏感配置的来源，不能按 env 名称猜测。
+      // Configuration variables can hold tokens too; only sources agreed to be non-sensitive are allowed, never guessed from env names.
       const variables = /(?<![\w.])vars\.([\w-]+)/gi;
       for (const reference of normalized.matchAll(variables)) {
         assert.ok(['REVIEW_AGENT_MODEL', 'REVIEW_AGENT_BASE_URL', 'REVIEW_THINKING_LEVEL', 'REVIEW_FAST_MODE', 'REVIEW_LANGUAGE'].includes(reference[1].toUpperCase()),
@@ -68,7 +68,7 @@ function assertAgentCredentials(workflow: any) {
       }
       assert.doesNotMatch(normalized.replace(variables, ''), /(?<![\w.])vars\b/i, 'unapproved Agent variable source');
       const outputReference = /(?<![\w.])steps\.([\w-]+)\.outputs\.[\w-]+/gi;
-      // 整体或动态步骤上下文可能包含写令牌；只接受可追踪的输出和无凭据的状态字段。
+      // Whole or dynamic step contexts may contain write tokens; only traceable outputs and credential-free status fields are accepted.
       const otherReferences = normalized.replace(outputReference, '')
         .replace(/(?<![\w.])steps\.[\w-]+\.(?:outcome|conclusion)\b/gi, '');
       assert.doesNotMatch(otherReferences, /(?<![\w.])steps\b/i, 'Agent step source must name a specific output');
@@ -86,7 +86,7 @@ function assertAgentCredentials(workflow: any) {
           assert.ok(permissions.every(([, permission]) => permission === 'read'), 'Agent token must be read-only');
           continue;
         }
-        // 输出可以任意改名；检查生产步骤的输入，不能靠 output 名称判断是否为凭据。
+        // Outputs can be renamed freely; check the producing step's inputs instead of judging credentials by output name.
         const path = new Set([...ancestors, id]);
         for (const fields of [producer.env, producer.with, { run: producer.run }]) {
           for (const input of Object.values(fields ?? {})) assertSafeSource(input, path);
@@ -97,7 +97,7 @@ function assertAgentCredentials(workflow: any) {
 
   for (const [location, fields] of [['env', environment], ['with', agent.with]] as const) {
     for (const [name, value] of Object.entries(fields)) {
-      // 唯一允许直接传入的 Secret 是模型 API key，与变量取名无关。
+      // The only secret allowed directly is the model API key, regardless of variable naming.
       if (location === 'with' && name === 'token') {
         assert.match(String(value).replace(/\s/g, ''), /^\$\{\{secrets(?:\.REVIEW_AGENT_API_KEY|\[['"]REVIEW_AGENT_API_KEY['"]\])\}\}$/i);
       } else {
@@ -118,13 +118,13 @@ test('central Review starts without Lark tools, credentials or a rotation depend
   const agent = workflow.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   assert.ok(agent);
   assertAgentCredentials(workflow);
-  // 本地操作手册仍从可信执行配置取得归档 pin，暂停 Agent 准备不应破坏恢复入口。
+  // The local runbook still takes the archive pin from the trusted execution config; pausing agent preparation must not break the restore entry.
   assert.match(workflow.env.LARK_CLI_VERSION, /^\d+\.\d+\.\d+$/);
   assert.match(workflow.env.LARK_CLI_SHA256_LINUX_AMD64, /^[0-9a-f]{64}$/);
 });
 
 
-test('发布在 Agent 结束后签发独立 token，恢复可信脚本和封存上下文并复用本地结果', () => {
+test('Publication mints a separate token after the agent ends, restores trusted scripts and sealed context, and reuses the local result', () => {
   const { workflow } = readReviewWorkflow();
   const steps = workflow.jobs.review.steps;
   const index = (id: string) => steps.findIndex((step: { id?: string }) => step.id === id);
@@ -172,7 +172,7 @@ test('Agent credential checks reject renamed secrets in inherited env and action
     agent.env.EXTRA_CONTEXT = `\${{ toJSON(${context}) }}`;
     assert.throws(() => assertAgentCredentials(changed), `whole ${context} context contains credentials`);
   }
-  // 写令牌经步骤输出转交、或现有 token 被放宽权限，同样必须失败。
+  // A write token handed over through step output, or an existing token with widened permissions, must fail too.
   const writeToken = structuredClone(workflow);
   const agent = writeToken.jobs.review.steps.find((step: { id?: string }) => step.id === 'pi-review');
   agent.env.EXTRA_TOKEN = '${{ steps.publication-token.outputs.token }}';
@@ -266,7 +266,7 @@ test('Lark token rotation remains scheduled and isolated from the Review Agent',
   const workflow = parse(source);
   const assertHourly = (schedule: Array<{ cron: string }>) => {
     assert.equal(schedule.length, 1);
-    // 每小时一次，分钟可调整；每天一次和每小时多次都不满足续期约定。
+    // Once an hour with an adjustable minute; daily or several times an hour both break the renewal contract.
     assert.match(schedule[0].cron, /^(?:[0-5]?\d) \* \* \* \*$/);
   };
   assertHourly(workflow.on.schedule);

@@ -1,114 +1,114 @@
-# 性能：证明现实规模下显著且可避免的成本
+# Performance: Proving Significant, Avoidable Cost at Realistic Scale
 
-性能审查检查现实规模下的运行与资源成本，以及当前阶段需要的决定和证据。成本包括 CPU、内存、传输、远程往返、锁与事务占用、队列、延迟和外部服务费用；修改与协作的理解成本使用[可维护性方法](maintainability.md)。
+Performance review checks runtime and resource cost at realistic scale and the decisions and evidence this stage needs. Cost includes CPU, memory, transfer, remote round trips, lock and transaction holding, queues, latency, and external service fees; the understanding cost of change and collaboration uses [Maintainability](maintainability.md).
 
-## 先确定当前层要回答什么
+## What Each Level Must Answer
 
-| 层级 | 主要判断 |
+| Level | Main judgment |
 |---|---|
-| 需求 | 当前性能目标及验收是否有依据、足以支持下一步 |
-| 架构 | 现实规模下的机制与容量能否支持目标，成本是否显著且可避免 |
-| 开发计划 | 性能证据是否先于依赖它的决定，容量验证、迁移和上线保护是否有人负责 |
-| 代码 | 真实路径相对修改前或可行替代的操作次数、复杂度、内存与外部往返 |
+| Requirements | Are current performance targets and acceptance grounded and sufficient for the next step? |
+| Architecture | Can mechanisms and capacity support the goal at realistic scale, and is the cost significant and avoidable? |
+| Plan | Does performance evidence precede decisions depending on it; are capacity verification, migration, and rollout protection owned? |
+| Code | Operation counts, complexity, memory, and remote round trips on the real path relative to before the change or a feasible alternative |
 
-已证明的数量级退化或资源耗尽可以依据实际成本报告，无须另有显式服务等级协议（SLA）。性能结论仍须有独立目标、现实规模和成本差异；缺少这些依据时保持未知。
+A proven order-of-magnitude regression or resource exhaustion can be reported on real cost without an explicit SLA. Performance conclusions still need an independent goal, realistic scale, and a cost difference; without them, stay unknown.
 
-增量代码审查（delta）比较 base/head；代码整体审计（audit）比较当前路径与保持行为的可行替代。其他层同样要分别说明比较对象：已有约定、当前提案或保持目标的可行方案。
+A delta code review compares base and head; a code audit compares the current path with a behavior-preserving alternative. Other levels also name their baseline: an existing contract, the current proposal, or a feasible approach that keeps the goal.
 
-## 建立能够核对的成本模型
+## Build a Checkable Cost Model
 
-先查清每次操作花费什么，以及它会重复多少次。可按实际路径组合以下因素，不要求精确预测毫秒：
+Establish what each operation costs and how often it repeats. Combine along the real path, without predicting milliseconds:
 
 ```text
-执行频率 × 单次操作成本 × 分页或集合规模 × 重试、补偿等放大因素
+frequency × per-operation cost × page or collection size × amplifiers such as retries and compensation
 ```
 
-模型必须说明：
+The model must state:
 
-- N、M、页数、批大小、载荷、并发或重试次数各指什么；
-- 规模来自实际场景、调用方、数据结构约束、API 上限、分页配置、租户数据还是已有代码；
-- 当前和对照的操作次数、复杂度、内存峰值或外部往返；
-- 哪条需求场景、设计路径或代码调用路径承担这些成本。
+- what N, M, pages, batch size, payload, concurrency, or retry count mean;
+- whether scale comes from real scenarios, callers, data-structure limits, API limits, pagination config, tenant data, or existing code;
+- current and baseline operation counts, complexity, peak memory, or remote round trips;
+- which requirement scenario, design path, or code call path incurs the cost.
 
-例如，实际请求要读取一万个 ID，现有 API 能按一千个一批等价读取。由十次批量调用改成一万次逐项调用，才能给出具体差异；仅说“循环里调用 API 可能慢”不够。
+Example: a real request reads ten thousand IDs and the existing API reads them equivalently in batches of a thousand. Going from ten batch calls to ten thousand single calls is a concrete difference; "calling an API in a loop might be slow" is not.
 
-## 在各层取得相称的证据
+## Proportionate Evidence per Level
 
-### 需求：确定目标，不提前指定实现
+### Requirements: set targets without prescribing implementation
 
-从真实用户场景和外部约束确认规模、等待时间、容量或资源成本为什么影响结果。只有下一步已经依赖某个目标或取舍时，未知才需要现在决定；内部批大小、缓存或并发方式由架构阶段选择。
+Confirm from real user scenarios and external constraints why scale, waiting time, capacity, or resource cost affects the outcome. An unknown needs deciding now only when the next step already depends on a target or trade-off; batch sizes, caches, or concurrency are chosen at architecture.
 
-验收需要区分满足和不满足目标，指标精度以实际决定所需为准。现有上限、数量级、交互时限或外部配额足以作出决定时，可以直接使用；缺少依据的数值保持未知。
+Acceptance must separate meeting and missing the target, with precision matching the real decision. Existing limits, orders of magnitude, interaction deadlines, or external quotas may be used when they suffice; ungrounded numbers stay unknown.
 
-### 架构：沿设计路径核对容量机制
+### Architecture: check capacity mechanisms along the design path
 
-选择现实场景，沿入口、数据移动、远程边界、共享资源和关键等待路径建立成本模型。检查批处理、分页、背压、缓存、索引、并发限制或离线处理等机制是否真的存在并由相应参与方负责；技术名称只用于定位机制。
+Pick realistic scenarios and build a cost model along entry points, data movement, remote boundaries, shared resources, and critical waits. Check that batching, pagination, backpressure, caching, indexes, concurrency limits, or offline processing actually exist and are owned; technology names only locate mechanisms.
 
-设计还没有实现代码时，可以用已知上下界证明机制矛盾或资源无界；必须依赖尚未取得的测量时，则说明需要验证的假设及其到期阶段。架构层使用设计方案作为比较对象和共同结论性质；benchmark 缺口按当前依赖与到期阶段判断。
+Before code exists, known bounds can prove mechanism contradictions or unbounded resources; when a measurement not yet available is required, state the hypothesis to verify and its due stage. Architecture compares against design alternatives and uses the shared kinds; benchmark gaps follow current dependencies and due stages.
 
-### 开发计划：让证据先于依赖它的决定
+### Plan: get evidence before the decisions that depend on it
 
-当架构选择、迁移、发布或容量承诺依赖尚未确认的性能事实时，检查计划是否在相关投入前安排了可区分结果的分析或实验，并说明谁根据结果调整后续动作。局部实现测试证明局部行为，集成容量另由覆盖真实规模和边界的证据支持。
+When architecture choices, migrations, releases, or capacity commitments depend on unconfirmed performance facts, check that the plan schedules a discriminating analysis or experiment before the related investment and names who adjusts later actions from the result. Local implementation tests prove local behavior; integrated capacity needs evidence covering real scale and boundaries.
 
-压测任务由当前性能保证或后续依赖触发。验证是否充分使用[验证方法](verification.md)；本视角只确定需要验证的性能机制、规模和成本差异。
+Load tests are triggered by current performance guarantees or later dependencies. Verification sufficiency uses [Verification](verification.md); this focus only names the mechanism, scale, and cost difference to verify.
 
-### 代码：沿真实路径寻找成本放大
+### Code: find cost amplification along the real path
 
-以下变化需要调查，但不直接决定 finding：
+These changes warrant investigation but do not decide a finding on their own:
 
-- 嵌套线性扫描，或循环中重复排序、聚合、解析、编译、序列化、解压和拷贝；
-- 每个元素单独调用数据库、GraphQL、REST、对象存储、Redis 或 RPC；
-- 拉取全部数据后才在客户端过滤、去重或分页；
-- 流式处理变成一次性把全部内容放入内存，或反复复制不断增长的 buffer；
-- 有界批处理变成无界并发任务，例如 `Promise.all`、goroutine 或线程；
-- 外部 I/O 进入事务、全局锁、租户锁或关键请求线程；
-- 单项重试变成整批重做，或多层重试相乘；
-- 同一路径重复查询、转换或读取大对象；
-- 失去缓存、去重、分页、短路、索引选择性或在数据源先过滤的能力；
-- 异步、离线或按需工作进入同步高频路径。
+- nested linear scans, or repeated sorting, aggregation, parsing, compiling, serialization, decompression, or copying in loops;
+- per-element database, GraphQL, REST, object storage, Redis, or RPC calls;
+- fetching everything before filtering, deduplicating, or paginating client-side;
+- streaming replaced by loading everything into memory, or repeatedly copying a growing buffer;
+- bounded batching replaced by unbounded concurrency such as `Promise.all`, goroutines, or threads;
+- external I/O moved inside transactions, global locks, tenant locks, or critical request threads;
+- per-item retry becoming whole-batch redo, or retries multiplying across layers;
+- repeated queries, conversions, or large-object reads on the same path;
+- lost caching, deduplication, pagination, short-circuiting, index selectivity, or source-side filtering;
+- asynchronous, offline, or on-demand work moved onto a synchronous hot path.
 
-代码问题还须使用[代码行为方法](../levels/code/behavior.md)证明真实入口、规模和影响。
+Code problems also prove the real entry point, scale, and impact with [code behavior](../levels/code/behavior.md).
 
-## 证明问题达到报告门槛
+## Reaching the Reporting Bar
 
-已有独立性能保证时，按共同缺陷要求证明触发、违约和实际影响。若没有这类保证，而是以“显著且可避免的成本”为根因报告架构或代码问题，则须同时证明三方面：真实成本达到下列门槛、有保持行为的低成本替代，以及成本会造成具体影响。
+With an independent performance guarantee, prove trigger, violation, and real impact per the shared defect bar. Without one, an architecture or code problem rooted in "significant, avoidable cost" must prove all three: real cost meets a threshold below, a cheaper behavior-preserving alternative exists, and the cost causes concrete impact.
 
-### 真实成本至少符合以下一项
+### Real cost meets at least one
 
-1. 输入不是静态小常数，复杂度相对对照恶化一个阶，例如 `O(N)` 变为 `O(N²)`。
-2. 数据库或远程往返从常数或批量调用，变成逐项、两层集合相乘或嵌套分页。
-3. 在项目支持的现实上限或常见规模下，静态下界已证明 CPU、调用、传输、分配或内存峰值放大约一个数量级。
-4. 单个请求或操作可触发无界并发、全量内存展开、队列增长或资源耗尽。
-5. 外部等待显著延长事务或锁持有时间，形成明确的连接池、锁竞争或吞吐限制。
-6. 重试、超时或部分成功会成倍重放同一批工作或外部副作用。
+1. Input is not a small static constant and complexity worsens by an order relative to the baseline, such as `O(N)` to `O(N²)`.
+2. Database or remote round trips go from constant or batched to per-item, multiplied across two collections, or nested pagination.
+3. At project-supported realistic limits or common scale, a static lower bound proves CPU, calls, transfer, allocation, or peak memory grow about tenfold.
+4. One request or operation can trigger unbounded concurrency, full in-memory expansion, queue growth, or resource exhaustion.
+5. External waits significantly extend transaction or lock holding, causing a clear connection-pool, lock-contention, or throughput limit.
+6. Retries, timeouts, or partial success replay the same batch of work or external side effects multiple times.
 
-### 存在保持行为的低成本替代
+### A cheaper behavior-preserving alternative exists
 
-指出当前可行的低成本路径，如旧有机制、标准数据结构或当前依赖已有能力，并证明权限、顺序、事务、错误、返回和恢复行为保持。
+Name a currently feasible cheaper path, such as the old mechanism, a standard data structure, or a capability of current dependencies, and show permissions, ordering, transactions, errors, returns, and recovery hold.
 
-### 说明实际影响和根因
+### Real impact and root cause
 
-结合已核实的触发规模，说明请求数、延迟下界、限流、内存、连接占用、队列或账单等后果，并定位所审产物中最早需要修改的决定或机制。代码 finding 还要定位所审版本中的最小根因行范围。
+From the verified trigger scale, state consequences for request counts, latency lower bounds, rate limits, memory, connections, queues, or bills, and locate the earliest decision or mechanism to change. Code findings also give the smallest root-cause line range in the reviewed version.
 
-“数据大时可能慢”缺少上述成本证明。当前必须确定的性能目标或取舍缺失时，按待决事项证明；当前必须取得的性能证据不足时，按验证缺口证明；已经发生的成本退化须有相应运行或静态下界证据。
+"Might be slow with large data" lacks this proof. A missing performance target or trade-off that must be settled now is a `decision`; missing performance evidence due now is a `verification-gap`; an actual cost regression needs runtime or static lower-bound evidence.
 
-## 核对成本是否有合理理由
+## Reasonable Explanations for the Cost
 
-报告前检查：
+Before reporting, check:
 
-- 输入是否已被目标、类型、结构校验或调用方限制为很小的常数；
-- 路径是否只是一次性迁移、离线维护或极低频管理操作；
-- 设计、辅助函数或 SDK 是否已有批处理、连接复用、缓存、分页、背压或并发控制；
-- 批量或异步方案是否改变授权、原子性、顺序、配额、失败或恢复行为；
-- 顺序执行是否来自限流、幂等、锁或外部协议的必要约束；
-- 当前是否用有界并发换取更低延迟；
-- 对照是否已有相同数量级成本；
-- 替代机制是否改变输出稳定性或其他已确认边界。
+- whether goals, types, schema validation, or callers bound the input to a small constant;
+- whether the path is a one-off migration, offline maintenance, or very rare admin operation;
+- whether the design, helpers, or SDK already batch, reuse connections, cache, paginate, apply backpressure, or limit concurrency;
+- whether batching or async changes authorization, atomicity, ordering, quotas, failure, or recovery;
+- whether sequential execution comes from rate limits, idempotency, locks, or external protocol constraints;
+- whether bounded concurrency is deliberately traded for lower latency;
+- whether the baseline already has the same order of cost;
+- whether the alternative changes output stability or other confirmed boundaries.
 
-任一项能推翻“显著且可避免”，就排除该疑点。已经明确接受的成本也要核对接受范围及前提是否仍成立。
+Any one that refutes "significant and avoidable" excludes the suspicion. For explicitly accepted costs, check that the accepted scope and its preconditions still hold.
 
-## 交付和复核
+## Delivery and Re-review
 
-代码性能问题使用[代码 P0/P1/P2 标签](../levels/code.md)。复杂度符号本身不决定严重度；现实规模、频率、单步成本、并发和实际影响才决定。其他层使用共同结论性质，不套用代码标签。
+Code performance problems use the [code P0/P1/P2 labels](../levels/code.md#labels-for-proven-impact). Complexity notation does not set severity; realistic scale, frequency, per-step cost, concurrency, and real impact do. Other levels use the shared kinds, not code labels.
 
-每个受托性能单元都应有当前与对照的成本模型、规模依据、替代机制和反证结论，或说明当前阶段不适用的原因。复核须以证据确认原成本差异已解决、行为保持；必要实测尚未取得时标为未验证。
+Each delegated performance unit has current and baseline cost models, scale grounds, an alternative, and a counter-evidence conclusion, or a reason it does not apply at this stage. Re-review confirms with evidence that the original cost difference is resolved and behavior kept; when a needed measurement is still missing, mark it unverified.

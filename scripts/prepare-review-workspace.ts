@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { parseReviewCoverage } from './review-coverage.ts';
 import type { ReviewContext, ReviewProgress } from './review-request.ts';
 
-// 启动前迁移证据和可确定的进度；自然语言范围、跨文件影响与讨论反证仍由 Agent 判断。
+// Carry over evidence and determinable progress before startup; natural-language scope, cross-file impact, and counter-evidence in discussion are still judged by the agent.
 export function prepareReviewWorkspace({ workspace, context, previousPath, threadPath, readChanges }: {
   workspace: string;
   context: Pick<ReviewContext, 'request'>;
@@ -31,19 +31,19 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
     ? readChanges?.(previous.request.head_sha, context.request.head_sha) ?? null
     : previous ? [] : null;
   const changed = new Set(changedPaths ?? []);
-  // 可信完整 audit 的未改完成项默认延续；Agent 沿新变化和讨论重开间接受影响的项。
+  // Unchanged completions from a trusted complete audit carry over by default; the agent reopens indirectly affected items along new changes and discussion.
   const continueAudit = context.request.source === 'automatic' && previous?.complete_audit
     && sameBase && changedPaths !== null;
-  // 上一轮在时间预算内只发布了部分结论时，评论请求接着审查剩余文件，不重审已发布部分；
-  // 新提交与 automatic 延续同一规则，只把直接变化的文件重新置为待审。
+  // When the previous round published only partial conclusions within the time budget, a comment request continues with the remaining files
+  // without re-reviewing the published part; new commits follow the automatic carry-over rule and reset only directly changed files to pending.
   const resumePartial = previous?.status === 'published' && previous.ledger.some((entry) => entry.status === 'pending');
   const carryUnchanged = continueAudit || (resumePartial && sameBase && changedPaths !== null);
   if (previous && previousPath) {
     const previousEntries = new Map(previous.ledger.map((entry) => [entry.path, entry]));
     for (const entry of progress.ledger) {
       const old = previousEntries.get(entry.path);
-      // 本轮来源已审条目由可信上下文决定，历史状态只延续到待审条目上；
-      // 上一轮的来源已审条目与完成项同等延续，thread 请求不做归因也不会把它们重新变成待审。
+      // This round's source-reviewed entries come from trusted context, and earlier status carries over only onto pending entries;
+      // earlier source-reviewed entries carry over like completions, so thread requests without attribution never make them pending again.
       if (!old || entry.path === threadPath || entry.status !== 'pending') continue;
       if ((old.status === 'complete' || old.status === 'source_reviewed') && (!repeatPrScope || resumePartial)
         && (sameSnapshot || (carryUnchanged && !changed.has(entry.path)))) {
@@ -61,11 +61,11 @@ export function prepareReviewWorkspace({ workspace, context, previousPath, threa
   }
   const notesPath = path.join(workspace, 'notes.md');
   if (!existsSync(notesPath)) {
-    // 固定事实由准备阶段记录；Agent 只需补充层级、调查证据和判断。
+    // Preparation records the fixed facts; the agent adds only the level, investigation evidence, and judgments.
     const entry = fileURLToPath(new URL('../central/review-rules.md', import.meta.url));
     const { text, ...identity } = context.request;
     const facts = { request: identity, context_path: '$REVIEW_CONTEXT_PATH', rules_path: entry, progress_path: progressPath };
-    writeFileSync(notesPath, `# Review 调查索引\n\n\`\`\`json\n${JSON.stringify(facts, null, 2)}\n\`\`\`\n\n## 调查记录\n`, { mode: 0o600 });
+    writeFileSync(notesPath, `# Review Notes\n\n\`\`\`json\n${JSON.stringify(facts, null, 2)}\n\`\`\`\n\n## Investigation\n`, { mode: 0o600 });
   }
   writeFileSync(progressPath, `${JSON.stringify(progress)}\n`, { mode: 0o600 });
   const manifest = {

@@ -25,7 +25,7 @@ export async function configureReviewFastMode(options: {
   if (options.enabled !== 'true') throw new Error('REVIEW_FAST_MODE must be true or false');
   if (!options.model || !options.baseUrl || !options.token) throw new Error('Fast mode probe requires the Review model, base URL and API key');
 
-  // 每轮启动只探测一次，不在正式模型请求中包装 fetch 或重读请求体。
+  // Probe once per round at startup; never wrap fetch or reread request bodies in real model requests.
   const response = await (options.fetchImpl ?? fetch)(`${options.baseUrl.replace(/\/$/, '')}/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${options.token}`, 'Content-Type': 'application/json' },
@@ -46,7 +46,7 @@ export async function configureReviewFastMode(options: {
 
   const models = JSON.parse(await readFile(options.modelsPath, 'utf8'));
   const model = models.providers.openai.models.find((model: { id: string }) => model.id === options.model);
-  // 给本轮已注册模型写入 Pi 原生参数，不另建请求包装器。
+  // Write Pi's native parameter into this round's registered model instead of adding a request wrapper.
   model.samplingParams = { ...model.samplingParams, service_tier: 'priority' };
   await writeFile(options.modelsPath, `${JSON.stringify(models, null, 2)}\n`);
   console.info('[fast-mode] Priority processing confirmed and enabled for this run.');
@@ -59,7 +59,7 @@ export async function main() {
   if (!model || !baseUrl || !modelsPath) throw new Error('Review model, base URL and models path are required');
   const config = JSON.parse(await readFile(modelsPath, 'utf8'));
   const settings = config.providers.openai.modelOverrides[model];
-  // modelOverrides 不会创建目录外模型；在 Action 查找模型前显式注册 Responses 模型。
+  // modelOverrides cannot create models outside the catalog; register the Responses model explicitly before the action looks it up.
   config.providers.openai = { baseUrl, models: [{ ...settings, id: model, name: model, api: 'openai-responses' }] };
   await writeFile(modelsPath, `${JSON.stringify(config, null, 2)}\n`);
   await configureReviewFastMode({

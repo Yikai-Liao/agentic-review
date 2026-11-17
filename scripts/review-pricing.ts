@@ -1,11 +1,11 @@
 export type ModelCost = { input: number; output: number; cacheRead: number; cacheWrite: number; tiers?: unknown[] };
 export type CatalogModel = { provider: string; id: string; cost: ModelCost };
 
-// 显式注册的网关模型不在 Pi 目录中，SDK 会把它的费用算成 0；这里从目录取价。
-// 精确 ID 优先；否则取同系列、同档位名中版本最高的型号，例如 gpt-6.1-terra → gpt-5.6-terra。
-// 后者是估价，不是该模型的真实价格；找不到时返回 undefined，由调用方标记费用未知，不能按 0 计价。
+// Explicitly registered gateway models are not in Pi's catalog, so the SDK prices them at 0; take prices from the catalog here.
+// Exact ID first; otherwise the highest version with the same family and tier name, e.g. gpt-6.1-terra → gpt-5.6-terra.
+// The latter is an estimate, not the model's real price; when nothing matches, return undefined so the caller marks cost unknown instead of 0.
 export function findCatalogCost(id: string, catalog: readonly CatalogModel[]): ModelCost | undefined {
-  // 同名模型在各 provider 的价格不同，官方 openai 目录优先。
+  // The same model is priced differently across providers; prefer the official openai catalog.
   const rank = (provider: string) => provider === 'openai' ? 0 : provider === 'openai-codex' ? 1 : 2;
   const priced = catalog.filter(model => model.cost.input > 0 || model.cost.output > 0)
     .sort((a, b) => rank(a.provider) - rank(b.provider));

@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 concurrency:
-  # 自动请求只保留一个最新候选；显式请求各自保留，交给执行层串行处理。
+  # Automatic requests keep only the latest candidate; explicit requests are each kept and serialized by the execution layer.
   group: agentic-review-admission-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source == 'automatic' && 'automatic' || github.run_id }}
   cancel-in-progress: false
 

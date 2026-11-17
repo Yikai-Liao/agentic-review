@@ -6,10 +6,7 @@
   "packageManager": "pnpm@11.4.0",
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
-    "eval:prepare": "tsx evals/evaluate.ts prepare",
-    "eval:blind": "tsx evals/evaluate.ts blind",
-    "eval:check": "tsx evals/evaluate.ts check"
+    "test": "tsx --test test/*.test.ts"
   },
   "devDependencies": {
     "@actions/expressions": "0.3.61",

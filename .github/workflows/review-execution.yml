@@ -39,16 +39,16 @@ permissions:
 
 env:
   REVIEW_LANGUAGE: ${{ vars.REVIEW_LANGUAGE }}
-  # Agent 调用与发布 footer 共用推理档位，避免运行元数据错报。
+  # Agent calls and the publication footer share the reasoning level so run metadata stays accurate.
   REVIEW_THINKING_LEVEL: ${{ vars.REVIEW_THINKING_LEVEL }}
   REVIEW_FAST_MODE: ${{ vars.REVIEW_FAST_MODE }}
   PI_FOLD_VERSION: 4.3.0
-  # 保留操作手册使用的官方归档版本与校验值；当前 Review 不准备飞书工具。
+  # Official archive version and checksum used by the operations guide; current reviews prepare no Lark tools.
   LARK_CLI_VERSION: 1.0.88
   LARK_CLI_SHA256_LINUX_AMD64: 497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe
 
 concurrency:
-  # 同一 PR 的自动事件与 @ 请求共享队列；审查与发布全部结束后才释放并发槽。
+  # Automatic events and @ requests for one PR share a queue; the slot is released only after review and publication finish.
   group: agentic-review-${{ inputs.repository_id }}-${{ inputs.pull_number }}
   queue: max
   cancel-in-progress: false
@@ -87,7 +87,7 @@ jobs:
             echo "name=$name"
           } >> "$GITHUB_OUTPUT"
 
-      # Agent 的 token 覆盖该 owner 中安装了 Review App 的仓库，供按下游规则查询关联代码、PR 和 Issue；权限始终只读。
+      # The agent token covers the owner's repositories with the Review App installed, for querying linked code, PRs, and issues per downstream rules; it is always read-only.
       - name: Mint cross-repository read-only token
         id: read-token
         uses: actions/create-github-app-token@v3.2.0
@@ -107,7 +107,7 @@ jobs:
           ref: ${{ github.sha }}
           path: control
           persist-credentials: false
-          # 维护用 Skill 和评测材料不进入 Agent 的控制面工作树或 Skill 发现范围。
+          # Maintenance skills stay out of the agent's control worktree and skill discovery.
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/pi-extensions/
@@ -132,7 +132,7 @@ jobs:
         with:
           github-token: ${{ steps.read-token.outputs.token }}
           script: |
-            // github-script v9 自带 Node 24；后续可信脚本复用该运行时。
+            // github-script v9 ships Node 24; later trusted scripts reuse that runtime.
             core.addPath(require('node:path').dirname(process.execPath));
             const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/resolve-review-snapshot.ts`);
             await main();
@@ -147,7 +147,7 @@ jobs:
           repositories: ${{ steps.target.outputs.name }}
           permission-checks: write
 
-      # workflow_dispatch 不会自动挂到目标 PR；Agent 启动前显式创建关联 Check。
+      # workflow_dispatch does not attach to the target PR; create the linked Check explicitly before the agent starts.
       - name: Start Agentic Review check
         id: review-check
         uses: actions/github-script@v9.0.0
@@ -163,7 +163,7 @@ jobs:
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
             const { parseReviewLanguage, reviewCheckMessages } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/review-language.ts`);
-            // Agent 启动前固定本轮文案；完成步骤只读取可信步骤输出。
+            // Pin this round's messages before the agent starts; the completion step reads only trusted step outputs.
             const messages = reviewCheckMessages(parseReviewLanguage(process.env.REVIEW_LANGUAGE));
             core.setOutput('messages', JSON.stringify(messages));
             const response = await github.rest.checks.create({
@@ -191,11 +191,11 @@ jobs:
 
       - name: Install trusted tokenizer dependencies
         if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
-        # Corepack 按当前目录选择 packageManager；pnpm 的 --dir 参数对它不生效。
+        # Corepack picks packageManager by the current directory; pnpm's --dir does not affect it.
         working-directory: control
         run: corepack pnpm install --prod --frozen-lockfile --ignore-scripts
 
-      # 缓存只由可信准备阶段保存；Agent 运行后不再把可变目录写回缓存。
+      # Only trusted preparation saves caches; mutable directories are never written back after the agent runs.
       - name: Save trusted tokenizer dependencies
         if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
@@ -222,7 +222,7 @@ jobs:
       - name: Ensure ripgrep is available
         run: |
           if ! command -v rg >/dev/null 2>&1; then
-            # 安装进度不进入运行日志；apt 错误仍输出到 stderr 并使步骤失败。
+            # Installation progress stays out of the run log; apt errors still go to stderr and fail the step.
             sudo apt-get update -qq
             sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ripgrep >/dev/null
           fi
@@ -237,13 +237,13 @@ jobs:
 
       - name: Install trusted Pi fold extension
         if: steps.pi-fold.outputs.cache-hit != 'true'
-        # 发布包没有运行时依赖；Pi host 由第三方 Action 提供，不再安装 peer SDK。
+        # The published package has no runtime dependencies; the third-party action provides the Pi host, so no peer SDK is installed.
         run: >-
           npm install --prefix "$RUNNER_TEMP/review-pi-extensions"
           --ignore-scripts --no-audit --no-fund --no-package-lock --legacy-peer-deps
           "pi-fold@$PI_FOLD_VERSION"
 
-      # 与 tokenizer 缓存一样，在 Agent 启动前保存，运行中产生的状态不写回缓存。
+      # Like the tokenizer cache, saved before the agent starts; state produced during the run is never written back.
       - name: Save trusted Pi fold extension
         if: steps.pi-fold.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
@@ -251,7 +251,7 @@ jobs:
           path: ${{ runner.temp }}/review-pi-extensions
           key: ${{ steps.pi-fold.outputs.cache-primary-key }}
 
-      # 中央规则由可信 control checkout 预载；模型覆盖保留 Pi 目录中的公开单价。
+      # Central rules are preloaded from the trusted control checkout; model overrides keep the public prices in Pi's catalog.
       - name: Configure Pi runtime
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
@@ -262,7 +262,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.pi/agent" "$REVIEW_WORKSPACE_PATH"
           chmod 700 "$REVIEW_WORKSPACE_PATH"
-          # 使用 Pi 原生重试，仅将初始等待调为 15 秒，后续为 30、60 秒。
+          # Pi native retry with only the initial wait raised to 15 seconds, then 30 and 60.
           cat > "$HOME/.pi/agent/settings.json" <<'JSON'
           {
             "retry": { "baseDelayMs": 15000 },
@@ -280,7 +280,7 @@ jobs:
                     reasoning: true,
                     input: ["text", "image"],
                     contextWindow: 272000,
-                    # 输入与输出共用 272k 窗口，单次输出上限保持 25k。
+                    # Input and output share a 272k window; per-call output stays capped at 25k.
                     maxTokens: 25000,
                     thinkingLevelMap: {
                       off: "none",
@@ -300,14 +300,14 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
-        # Agent 预算由 review-tools 扩展执行；步骤超时只兜住单个卡死的工具调用。
+        # The review-tools extension enforces the agent budget; the step timeout only catches a single hung tool call.
         timeout-minutes: 15
         uses: shaftoe/pi-coding-agent-action@v2.30.1
         env:
-          # Agent shell 使用只读 installation token；gh 会自动读取 GH_TOKEN。
-          # 该 token 不能评论、修改仓库、合并 PR 或修改 workflow。
+          # The agent shell uses the read-only installation token; gh reads GH_TOKEN automatically.
+          # This token cannot comment, modify repositories, merge PRs, or modify workflows.
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          # 供 Agent 的只读 gh 命令定位目标仓库；不能覆盖保留的 GITHUB_REPOSITORY。
+          # Lets the agent's read-only gh commands locate the target repository; the reserved GITHUB_REPOSITORY cannot be overridden.
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PULL_NUMBER: ${{ inputs.pull_number }}
           REVIEW_BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
@@ -317,56 +317,56 @@ jobs:
           REVIEW_COMMENT_BODY: ${{ inputs.comment_body }}
           REVIEW_COMMENT_ROOT_ID: ${{ inputs.comment_root_id }}
           REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
-          # compaction 后从控制面恢复规则与中央输出协议。
+          # After compaction, rules and the central output protocol are recovered from the control plane.
           REVIEW_CONTROL_PATH: ${{ github.workspace }}/control
-          # 优先读取预先 checkout 的本地代码；按需补充只读代码上下文。
+          # Prefer the pre-checked-out local code; add read-only code context as needed.
           REVIEW_TARGET_PATH: ${{ github.workspace }}/review-target
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.json
-          # diff 由 Agent 在固定 SHA 区间内按路径读取，不生成聚合 diff 文件。
+          # The agent reads diffs by path within the pinned SHA range; no aggregate diff file is generated.
           REVIEW_CHECKPOINT_HEAD: ${{ steps.review-context.outputs.checkpoint_head }}
           REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
           REVIEW_PROGRESS_PATH: ${{ github.workspace }}/review-workspace/review-progress.json
           REVIEW_INVENTORY_DIGEST: ${{ steps.review-context.outputs.inventory_digest }}
-          # 9 分钟调查预算：最后 3 分钟收尾，到期后只允许提交已审部分。
+          # 9-minute investigation budget: the last 3 minutes are wrap-up, after which only submitting the reviewed part is allowed.
           REVIEW_TIME_BUDGET_SECONDS: 540
-          # 上一轮工作稿独立挂载为只读参考，不作为本轮工作稿继续修改。
+          # The previous workspace is mounted separately as a read-only reference, not edited as this round's workspace.
           REVIEW_PREVIOUS_WORKSPACE_PATH: ${{ steps.review-context.outputs.previous_workspace }}
           REVIEW_PREVIOUS_REQUEST_WORKSPACE_PATH: ${{ steps.review-context.outputs.previous_request_workspace }}
-          # Agent 只在隔离工作区写草稿；自定义工具接收结果对象，自动保存工作稿副本并封存到固定结果路径。
+          # The agent writes drafts only in the isolated workspace; the custom tool takes the result object, saves a workspace copy, and seals it at the fixed result path.
           REVIEW_WORKSPACE_PATH: ${{ github.workspace }}/review-workspace
           REVIEW_RESULT_PATH: ${{ runner.temp }}/review-result.json
         with:
-          # Agent 和 action 都只持有目标仓库的只读 installation token。
+          # The agent and the action hold only the target repository's read-only installation token.
           github_token: ${{ steps.read-token.outputs.token }}
-          # 模型服务商和模型名称；均来自中央仓库配置。
+          # Model provider and model name, both from central repository configuration.
           provider: openai
           model: ${{ vars.REVIEW_AGENT_MODEL }}
-          # OpenAI-compatible Azure gateway；不配置时模型会被发送到错误的默认端点。
+          # OpenAI-compatible Azure gateway; without it requests go to the wrong default endpoint.
           base_url: ${{ vars.REVIEW_AGENT_BASE_URL }}
-          # 模型 API 凭证；不与 GitHub installation token 混用。
+          # Model API credential, never mixed with GitHub installation tokens.
           token: ${{ secrets.REVIEW_AGENT_API_KEY }}
-          # 控制 Agent 的推理强度，不改变可用工具或 GitHub 权限。
+          # Controls the agent's reasoning level without changing available tools or GitHub permissions.
           thinking_level: ${{ env.REVIEW_THINKING_LEVEL }}
-          # pi-fold 在窗口达到 80% 时把旧上下文折叠成确定性摘要，不调用模型；
-          # 原生自动压缩保留在下层，只在折叠后仍溢出时兜底。调查证据由工作稿持久化。
+          # pi-fold folds old context into deterministic summaries at 80% of the window without calling the model;
+          # native auto-compaction stays underneath and only catches overflow after folding. The workspace persists investigation evidence.
           auto_compaction: true
-          # Action 仅在开启导出时使用落盘会话；原始 JSONL 也可保留导出前的失败记录。
+          # The action persists sessions only with export enabled; the raw JSONL also keeps failures before export.
           export_session_jsonl: true
-          # 允许用 JavaScript 编排现有工具，并在返回模型前筛选查询结果。
+          # Allows orchestrating existing tools with JavaScript and filtering query results before they reach the model.
           enable_codemode: true
-          # 不注册依赖中央仓库 context 的 shaftoe GitHub 工具。
+          # Do not register shaftoe GitHub tools that depend on the central repository context.
           load_builtin_extensions: false
-          # 外部扩展在可信准备阶段安装并缓存，Action 只加载本地入口。
-          # pi-fold 的 pi_fold_context 工具不进入 loaded_tools，折叠全部自动进行，模型不调度上下文。
+          # External extensions are installed and cached during trusted preparation; the action loads only local entries.
+          # pi-fold's pi_fold_context tool stays out of loaded_tools; folding is fully automatic and the model never schedules context.
           extensions: |
             ${{ runner.temp }}/review-pi-extensions/node_modules/pi-fold/extensions/index.js
             control/.github/pi-extensions/review-cost.ts
             control/.github/pi-extensions/review-runtime.ts
             control/.github/pi-extensions/review-input.ts
             control/.github/pi-extensions/review-tools.ts
-          # write/edit 仅用于 Review 工作区；GitHub 查询工具和 installation token 均只读。
+          # write/edit are only for the review workspace; GitHub query tools and the installation token are read-only.
           loaded_tools: |
             read
             write
@@ -378,10 +378,10 @@ jobs:
             set_review_scope
             submit_review
             codemode
-          # 入口预载固定可信规则；compaction 后按入口从控制面恢复。
+          # The entry preloads the pinned trusted rules; after compaction they are recovered from the control plane through the entry.
           prompt: ${{ steps.review-context.outputs.prompt }}
 
-      # Agent 已结束；写令牌只交给后续可信发布步骤，不注入 Agent。
+      # The agent has ended; the write token goes only to the following trusted publication steps, never to the agent.
       - name: Mint trusted publication token
         id: publication-token
         if: ${{ always() && steps.review-check.outputs.check_id != '' }}
@@ -391,12 +391,12 @@ jobs:
           private-key: ${{ secrets.AGENTIC_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.name }}
-          # GitHub GraphQL 的 resolveReviewThread/unresolveReviewThread 实际要求 contents: write。
+          # GitHub GraphQL resolveReviewThread/unresolveReviewThread actually require contents: write.
           permission-contents: write
           permission-pull-requests: write
           permission-checks: write
 
-      # 可信发布入口负责验证、组装、发布和保存报告；组装成功后即记录可恢复状态。
+      # The trusted publication entry validates, assembles, publishes, and saves the report; recoverable state is recorded once assembly succeeds.
       - name: Publish review
         id: publish-review
         if: ${{ !cancelled() && steps.review-context.outputs.context_digest != '' }}
@@ -411,7 +411,7 @@ jobs:
           HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
           REVIEW_INVENTORY_DIGEST: ${{ steps.review-context.outputs.inventory_digest }}
           REVIEW_COMPARISON_START: ${{ steps.review-context.outputs.comparison_start }}
-          # 总评页脚标出上次完整审查的提交，读者据此判断本轮看了哪段变化。
+          # The summary footer marks the commit of the last complete review so readers can tell which changes this round covered.
           REVIEW_CHECKPOINT_HEAD: ${{ steps.review-context.outputs.checkpoint_head }}
           REVIEW_RUN_ID: ${{ github.run_id }}
           REVIEW_RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -434,10 +434,10 @@ jobs:
           REVIEW_OUTPUT_TOKENS: ${{ steps.pi-review.outputs.output_tokens }}
           REVIEW_COST: ${{ steps.pi-review.outputs.cost }}
         with:
-          # 启动器只用默认只读 token；签发发布 token 失败时也要先保存可恢复范围。
+          # The launcher uses only the default read-only token; even if minting the publication token fails, the recoverable scope is saved first.
           github-token: ${{ github.token }}
           script: |
-            // 只执行准备步骤输出中的固定控制面代码，不读取 Agent 可改写的本地脚本。
+            // Run only the pinned control code from the preparation step output, never local scripts the agent could rewrite.
             const fs = require('node:fs'), path = require('node:path');
             const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'review-publisher-'));
             require('node:child_process').execFileSync('tar', ['-xzf', '-', '-C', directory], {
@@ -452,8 +452,8 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-session-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}
-          # 原始会话包含折叠与原生 compaction 记录；pi-fold-evidence 保存被截断工具结果的原文，
-          # 供重建折叠前的调查过程。归档不包含 auth.json 或运行时配置。
+          # Raw sessions include fold and native compaction records; pi-fold-evidence keeps the full text of truncated tool results
+          # for reconstructing the investigation before folding. The archive excludes auth.json and runtime configuration.
           path: |
             ~/.pi/agent/sessions/**/*.jsonl
             ~/.pi/agent/sessions/**/pi-fold-evidence/**
@@ -461,7 +461,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # 每轮只归档一次：发布成功保存完成工作区，失败或取消仍保存可恢复范围及发布报告。
+      # Archive once per round: successful publication saves the completed workspace; failure or cancellation still saves the recoverable scope and publication report.
       - name: Archive review workspace
         id: review-workspace
         if: ${{ always() && steps.publish-review.outputs.workspace_ready == 'true' }}
@@ -473,7 +473,7 @@ jobs:
           overwrite: true
           retention-days: 7
 
-      # 草稿组装或归档失败时保留原始诊断稿；它不进入下一轮范围恢复。
+      # When draft assembly or archiving fails, keep the raw diagnostic draft; it never enters next-round scope recovery.
       - name: Upload unarchived review draft
         id: diagnostic-workspace
         if: ${{ always() && steps.review-workspace.outcome != 'success' && hashFiles('review-workspace/**') != '' }}
@@ -496,7 +496,7 @@ jobs:
           COMPLETION_WORKSPACE_OUTCOME: ${{ steps.review-workspace.outcome }}
           COVERAGE_PENDING: ${{ steps.publish-review.outputs.coverage_pending }}
           COVERAGE_TOTAL: ${{ steps.publish-review.outputs.coverage_total }}
-          # 运行、用量与发布结果的长期记录；发布器未运行到输出时为空。
+          # Long-lived record of run, usage, and publication results; empty when the publisher never reached its output.
           CHECK_TEXT: ${{ steps.publish-review.outputs.check_text }}
           REVIEW_CHECK_MESSAGES: ${{ steps.review-check.outputs.messages }}
           REVIEW_JOB_STATUS: ${{ job.status }}
@@ -504,11 +504,11 @@ jobs:
           github-token: ${{ steps.publication-token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPOSITORY.split('/');
-            // 发布成功必然写出覆盖统计；缺失时不能当作已全部覆盖。
+            // Successful publication always writes coverage statistics; missing ones never count as full coverage.
             const pending = process.env.COVERAGE_PENDING === '' ? NaN : Number(process.env.COVERAGE_PENDING);
             const total = Number(process.env.COVERAGE_TOTAL);
             const delivered = process.env.REVIEW_JOB_STATUS === 'success' && process.env.PI_REVIEW_OUTCOME === 'success' && process.env.PUBLISH_REVIEW_OUTCOME === 'success' && process.env.COMPLETION_WORKSPACE_OUTCOME === 'success';
-            // 部分覆盖已如实发布，但未审文件不能放行合并：action_required 与 failure 一样阻止 required check。
+            // Partial coverage was published truthfully, but unreviewed files cannot allow merging: action_required blocks required checks like failure.
             const conclusion = process.env.PI_REVIEW_OUTCOME === 'cancelled' || process.env.REVIEW_JOB_STATUS === 'cancelled'
               ? 'cancelled'
               : !delivered || !(pending >= 0) ? 'failure' : pending > 0 ? 'action_required' : 'success';

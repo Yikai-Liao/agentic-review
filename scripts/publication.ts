@@ -8,8 +8,8 @@ export type PublicationOperation = {
 };
 type OperationResult<T> = PublicationOperation & { value?: T };
 
-// 失败停留在操作边界；调用方只声明真正需要的前置结果。
-// 写请求失败也可能已经在远端生效，本轮不自动重试。
+// Failures stop at operation boundaries; callers declare only the prerequisites they truly need.
+// A failed write may still have taken effect remotely, so this round never retries automatically.
 export function createPublication(language: ReviewLanguage = 'zh-CN') {
   const operations: PublicationOperation[] = [];
   return {
@@ -58,10 +58,10 @@ export async function finishPublication(publication: ReturnType<typeof createPub
     rolledBack = true;
     await publication.run(reviewText(language, '撤回覆盖完成状态', 'Revoke coverage completion'), [], () => outlets.saveCoverage!(false));
   };
-  // 报告纳入摘要和覆盖状态的实际结果；报告自身的存储结果由进程日志和 Check 详情记录。
+  // The report includes the actual summary and coverage results; its own storage result goes to the process log and Check details.
   const report = await publication.run(reviewText(language, '保存发布报告', 'Save publication report'), [], outlets.saveReport);
   if (report.status !== 'succeeded') await rollback();
-  // Check 详情是长期记录，最后写入以列出此前全部操作，包括报告存储与覆盖撤回；自身失败由进程日志记录。
+  // Check details are the long-lived record, written last to list every earlier operation, including report storage and coverage revocation; their own failure goes to the process log.
   if (outlets.writeCheckText) {
     const check = await publication.run(reviewText(language, '写入 Check 详情', 'Write Check details'), [], outlets.writeCheckText);
     if (check.status !== 'succeeded') await rollback();

@@ -1,267 +1,161 @@
-# 中央 Review 结果
+# Central Review Result
 
-本文件只定义中央 Action 的持久化、GitHub thread 更新和可信发布格式。finding 门槛、严重度和根因归纳来自可信 `agentic-review` Skill。
+This file defines the central action's workspace, GitHub thread updates, and trusted publication format. Finding bars, severity, and root-cause grouping come from the trusted `agentic-review` skill; report wording comes from `references/reporting.md`.
 
-## 1. 中央工作稿
+## 1. Central Workspace
 
-使用 workflow 提供的隔离目录 `$REVIEW_WORKSPACE_PATH`。中央入口用 `notes.md` 保存一份工作稿，`review-progress.json` 保存文件进度，提交工具自动保存 `review-result.json` 最终结果；不另建 `review.md` 索引。工作稿作为限期、受权限保护的 Actions artifact 保留。
+Use the isolated directory `$REVIEW_WORKSPACE_PATH`. Keep one working note in `notes.md` and file progress in `review-progress.json`; the submit tool saves the final result as `review-result.json`. Do not create a separate `review.md` index. The workspace is kept as a time-limited, access-protected Actions artifact.
 
-准备阶段已经写入固定请求身份、版本、可信规则恢复入口与进度路径。明确覆盖[中央默认层级](review-rules.md#选择审查层级)时，`notes.md` 保留选择及来源；固定事实和文件进度使用已有记录。
+Preparation already wrote the pinned request identity, versions, trusted rule recovery entry, and progress path. When the [central default level](review-rules.md#choose-the-level) is overridden, `notes.md` keeps the choice and its source.
 
-`notes.md` 的记录粒度使用[共同工作稿规则](../skills/agentic-review/references/review-state.md#分开记录调查进度和问题状态)：保留调查中已取得、但公开结果未包含的支持证据、关键前提和未完成项；没有 finding 也保存必要依据。覆盖状态使用 `review-progress.json`；`review-result.json`、PR Thread、回复和 Review 正文已有的内容直接引用。
+Record in `notes.md` at the granularity of the [shared workspace rules](../skills/agentic-review/references/review-state.md#track-investigation-progress-separately-from-problem-status): supporting evidence, key premises, and unfinished items the public result lacks; keep necessary grounds even without findings. Reference rather than copy what `review-result.json`, PR threads, replies, and the review body already contain.
 
-笔记随调查形成，与文件进度在同一次 `bash` 或 `codemode` 调用中保存，不为整理笔记另开回合；最终归纳直接使用当前上下文和已有记录。长工作稿按相关路径或符号定位读取。按风险从高到低调查：认证授权、数据写入与迁移、公共契约、并发与状态，再到测试、文档和生成物。
+Write notes as the investigation forms them, in the same `bash` or `codemode` call that saves file progress; never spend a separate turn tidying notes. Read long notes by path or symbol. Investigate from highest risk down: authentication and authorization, data writes and migrations, public contracts, concurrency and state, then tests, docs, and generated artifacts.
 
-选择 code 时，每个实质变更单元在登记对应文件 complete 前，先提出最可能使它出错的具体场景：哪种输入、时序、调用方、失败或部署顺序会让新行为偏离契约；再沿代码确认该场景被什么机制阻止，或会造成什么后果。单元涉及多类高风险边界时，每类至少检查一个场景。场景成立时按 finding 门槛继续调查；被阻止时在 `notes.md` 记下场景、阻止机制及其代码定位。版本号、格式、文案和生成物同步等机械性变更只注明无需场景的理由。同时记下合并后使用者可观察到的行为变化，以及 PR 描述、关联 Issue 或提交信息是否说明了它；这是总评“合并后的行为”的依据。读过该文件的 patch 或相关源码并完成上述检查后才登记 complete，不按路径模式或整份清单批量登记未读文件。收到收尾通知前，`submit_review` 要求全部 scope 内覆盖完成，不得以范围大为由提前结束；收到收尾通知后，未完成项保持 pending，不生成假 complete，直接提交已审部分的结论，发布器据文件进度列出未审查文件。
+For the code level, the failure scenario and observable behavior change that `references/levels/code.md` requires before marking a unit complete go into `notes.md`; the observable behavior is the basis for the summary's "Behavior after merge". Mark a file `complete` only after reading its patch or relevant source and finishing those checks; never mark unread files by path pattern or in bulk. Before the wrap-up notice, `submit_review` requires all in-scope coverage to be complete; a large scope is no reason to stop early. After the wrap-up notice, leave unfinished items `pending`, never mark them complete falsely, and submit conclusions for the reviewed part; the publisher lists unreviewed files from file progress.
 
-准备阶段已记录默认 scope。调查前对照本轮请求核定；显式请求改变范围时调用 `set_review_scope` 更新 `mode`、`ranges`、`rationale` 和 `explicit_text`，否则直接使用默认值。每个区间包含比较起止 SHA 和足以恢复范围的 targets；保留默认计划中的全部义务，只有显式限定时才缩小范围。最新实际 scope 是下一轮恢复范围的唯一来源。
+Preparation records the default scope. Check it against this round's request before investigating; when an explicit request changes the scope, call `set_review_scope` to update `mode`, `ranges`, `rationale`, and `explicit_text`, otherwise use the default. Each range carries its comparison start and end SHAs and enough targets to recover the scope; keep every obligation in the default plan and narrow only on explicit limits. The latest actual scope is the only source for the next round's scope.
 
-workflow 在 Agent 启动前按完整 PR 与默认计划各区间的文件并集生成 `$REVIEW_PROGRESS_PATH`（`review-progress.json`）的 `ledger`。该文件只包含 scope 决策和文件进度，不保存请求身份或机器状态。保留每个条目的 `path`；首次调查和重开项完成必要调查后登记为 `{"path":"src/example.ts","status":"complete"}`，继承完成项保持原状态。`source_reviewed` 条目由可信准备阶段写入：该文件在已通过审查的来源 PR 中审过，合入后的内容与来源 PR 的 head 一致；它们视为完成，不得改写，也不必重复逐文件审查。未完成条目保持 `pending`；局部范围外条目使用 `out_of_scope`，full 范围不允许排除条目。文件进度是唯一的覆盖状态，不另建工作稿完成清单。
+Before the agent starts, the workflow builds the `ledger` in `$REVIEW_PROGRESS_PATH` (`review-progress.json`) from the union of files in the whole PR and every default-plan range. The file holds only the scope decision and file progress. Keep every entry's `path`; after the necessary investigation of a first-time or reopened item, record `{"path":"src/example.ts","status":"complete"}`, and leave inherited complete items as they are. Trusted preparation writes `source_reviewed` entries: files reviewed in an already-reviewed source PR whose merged content matches that PR's head. They count as complete, must not be rewritten, and need no per-file re-review. Unfinished entries stay `pending`; entries outside a partial scope use `out_of_scope`, and a full scope excludes nothing. File progress is the only coverage state.
 
-可信代码持有请求身份、默认计划和清单摘要，并决定发布状态；Agent 只维护审查判断和文件进度。发布器校验清单未缺失；scope 内仍有 pending 时照常发布已审部分，并据文件进度列出全部未审查文件，该轮不形成完整 audit。工作稿内容用于恢复调查，不以文件非空或笔记字数代替调查证据是否充分的判断。finding 的证明与去重仍满足通用方法，最终结果仍通过固定 schema 校验。automatic 使用完整 PR 的 `full` scope，完整覆盖由可信历史完成项和本轮调查共同构成。
+Trusted code holds the request identity, default plan, and ledger digest and decides publication status; the agent maintains only review judgments and file progress. The publisher checks the ledger is complete; with in-scope items still pending it publishes the reviewed part and lists every unreviewed file, and that round is not a complete audit. Non-empty files or note length never stand in for judging whether evidence suffices. `automatic` uses the whole PR's `full` scope, and full coverage combines trusted inherited completions with this round's investigation.
 
-输入中的 `Workspace resume manifest` 提供本轮工作稿、进度与上一轮结果参考的准确路径。准备阶段已迁移选中历史的 `notes.md` 和 `previous-review-result.json`；当前进度以 `review-progress.json` 为准。同一快照恢复已完成状态；automatic 接入同 base、当前历史中的可信完整 audit 后，未直接变化的完成项也默认延续。上一轮只发布了部分结论时，评论请求同样延续已完成项：同一快照只审查剩余文件，新提交只重开直接变化的文件。直接变化、新增和历史未完成项保留 `pending`；当前 thread 对应文件以及每次 `pr_comment` 请求的范围内文件仍按请求复核。
+Preparation copies the selected history's `notes.md` and `previous-review-result.json` into this workspace; `review-progress.json` is the current progress. The same snapshot keeps completed status. `automatic` inherits a trusted complete audit with the same base in current history, so completed items not directly changed carry over. When the previous round published only partial conclusions, comment requests also carry completed items: the same snapshot reviews only the remaining files, and new commits reopen only directly changed files. Directly changed, new, and earlier unfinished items stay `pending`; files of the current thread and in-scope files of each `pr_comment` request are still re-reviewed per the request.
 
-按 `central/github-context.md` 先调查增量，沿新变化和相关旧记录中的依赖前提定位影响；契约、调用方、保护、状态前提或相关讨论改变时，将对应完成项重开为 pending，局部更新受影响的判断和反证，保留其余证据。其余历史完成项直接继承，不因笔记简短或未写无问题依据而重查；缺少依据确实妨碍本轮影响判断或疑点核验时，只补查相关部分。scope 变化会自动将旧 `out_of_scope` 条目重置为 `pending`。
+Investigate the increment first per `central/github-context.md`, following new changes and the dependent premises of related old records. When a contract, caller, protection, state premise, or related discussion changes, reopen the matching complete item as `pending`, update affected judgments and counter-evidence locally, and keep the rest. Other completed items carry over without re-review just because notes are short; recheck only the part whose missing grounds actually block this round's impact judgment. A scope change resets old `out_of_scope` entries to `pending` automatically.
 
-## 2. 历史 thread 状态
+## 2. Earlier Thread Status
 
-把存活候选与当前 PR 已有 inline thread 和最新回复比较，一个根因只保留一条：
+Compare surviving candidates with the PR's existing inline threads and latest replies, keeping one per root cause:
 
-- 未变化的历史问题：保留工作稿中的核对结论，不生成 thread update；发布器仍把它列在总评的问题索引中；
-- 原问题已修复、被证据推翻、所缺决定已取得，或具体代价已被明确接受：`resolved`；依据按[共同状态规则](../skills/agentic-review/references/review-state.md#状态变更需要什么证据)逐项核对；
-- 影响、成本或严重度扩大：`severity_increased`；T2→T1、P2→P1/P0 或性能从有界路径变为无界/常见路径属于此类，测试问题升级为生产问题时也更新原 thread；
-- 已解决问题重现，或当前实现超出既有确认范围：`reintroduced`。
+- Unchanged earlier problem: keep the check in the workspace and generate no thread update; the publisher still lists it in the summary's finding index.
+- Fixed, refuted by evidence, missing decision obtained, or the specific cost explicitly accepted: `resolved`, checked against the [shared status evidence](../skills/agentic-review/references/review-state.md#evidence-for-status-changes).
+- Impact, cost, or severity grew: `severity_increased`, for example T2→T1, P2→P1/P0, a bounded path becoming unbounded or common, or a test problem becoming a production problem.
+- A resolved problem came back, or the implementation now exceeds a confirmed scope: `reintroduced`.
 
-文档同步记录已确认决定时保持 `resolved`，不能仅因决定写入当前 head 而标记 `reintroduced`。
+A document recording a confirmed decision stays `resolved`; a decision merely landing in the current head is not `reintroduced`.
 
-需人工确认的问题由作者回复决定：回复确认当前行为符合预期时 `resolved`；回复给出不同期望时按该期望核对代码，不符合就作为新 finding 报告并附原讨论链接，原讨论 `resolved`，原因写明已转为新问题。
+The author's reply decides a confirmation-needed problem: confirming the current behavior is intended makes it `resolved`; stating a different expectation means checking the code against it and reporting any mismatch as a new finding linked to the original discussion, whose status becomes `resolved` with the reason that it became a new finding.
 
-`evidence` 是一行状态原因，直接写原因本身。发布器在本 bot 发出的问题首行写成 `**✅ 已关闭**（abc1234）：原因`，并 resolve 或重开讨论；风险升级、问题重现和他人发起的讨论另以回复通知。状态词、提交号和问题标题由发布器补上。原因按处置写：
+`evidence` is the one-line status reason per `references/reporting.md`. The publisher renders it as the first line of the bot's original comment, for example `**✅ Resolved** (abc1234): reason`, and resolves or reopens the thread; severity increases, reintroductions, and threads started by others also get a reply. Partial fixes are judged by the rules above; progress that does not change status stays in the workspace. A new root cause introduced by a fix is a separate finding linking the original thread.
 
-- 已修复：什么让原触发不再发生，附定位，例如“新断言检查扩展保存的价格状态（`test/review-cost.test.ts:120`）”；
-- 被反证：推翻原判断的事实及定位；
-- 已接受：谁在哪条回复接受了什么范围，附回复链接；
-- 升级或重现：新的触发与后果。
+Use the root comment ID of the original thread in this PR; update each at most once per round and skip when the latest status is the same. Resolve or reopen by the review conclusion, not by who opened the thread.
 
-定位使用真实来源，链接目标原样保留，标签与目标类型一致，commit 链接不能冒充文件链接。部分修复仍按上方规则判定状态；状态未变化的进展留在工作稿。修复引入的新根因另记 finding，并在说明新根因时附原 thread 链接。
+An explicit PR comment request to re-review or summarize earlier status is answered in `body` within the request's scope, with necessary unchanged statuses, grounds, and limits, and creates no `thread_updates`. An explicit thread request is answered in `request_reply` even when the conclusion is unchanged; `body` does not repeat the answer.
 
-使用当前 PR 内原 thread 的 root comment ID，每轮最多更新一次；最新状态相同时不重复。根据审查结论决定 resolve/reopen，不以 thread 创建者身份为条件。
+## 3. Final Consolidation
 
-显式 PR 评论请求复核或汇总历史状态时，在 `body` 按请求范围答复，包含必要的未变化状态、依据和限制，不因此生成 `thread_updates`。显式 thread 请求在 `request_reply` 中针对请求答复，即使结论未变，`body` 不重复答案。
+After the investigation and before building the final JSON, run the discussion refresh script from `central/github-context.md`, read every new or edited comment and thread state in full, and then settle earlier statuses per section 2. If a query fails or output is not fully read, complete the evidence first. Closed threads without evidence of reintroduction or severity increase keep their conclusion; closing in the UI is not a fix, and explicit replies are recorded by what they actually decide. A reply missing from the startup snapshot does not prove there was no confirmation. If the refresh prompts more investigation, refresh again afterwards before generating the result.
 
-## 3. 最终归纳
+Check in-scope file progress, coverage of meaningful changes, and inheritance against section 1, and consolidate the deepest shared root causes and evidence per `references/findings.md`. Production, test, and high-risk decision problems at the code level use the P/T or `confirmation` labels from `references/levels/code.md`; other levels use `defect`, `decision`, `improvement`, or `verification-gap` and state priority by actual impact. Conclusions must belong to the chosen level and delegated focuses. Consolidate from the suspicions, exclusion reasons, and unfinished items in context, rereading `notes.md` or the previous result by location only when recovery needs it. A partial scope states its conclusion scope in the body. Reread evidence only for surviving findings, root-cause conflicts, coverage inconsistencies, or constraints that cannot be recovered.
 
-本轮调查完成后、生成最终 JSON 前，执行 `central/github-context.md` 的讨论增量脚本，完整读取新增或编辑的评论与 thread 状态，再按第 2 节核定历史问题状态。查询失败或输出未读完时，先补齐证据再完成归纳。已关闭且没有问题重现或风险升级证据的 thread 保留原结论；UI 关闭不等同于产物已修复，明确回复中的决定按其实际内容记录。仅因启动快照缺少回复不能断言“没有确认”。若刷新引发进一步调查，调查完成后再次刷新，再生成结果。
+## 4. Result JSON
 
-按本节工作稿约定核对 scope 内文件进度、实质变化覆盖和继承，按共享 `references/findings.md` 归纳最深共享根因与证据。代码层的生产、测试和高风险待决问题使用 `references/levels/code.md` 的 P/T 或人工确认标签；其他结论使用共享规则的缺陷、待决事项、改进机会、验证缺口，并按实际影响说明优先级，不套用代码标签。结论性质仍须属于所选层级及受托视角。文件进度随调查完成更新；归纳使用当前上下文中的疑点、排除理由和未完成项，仅在需要恢复时按定位读取 `notes.md` 或上一轮结果。刷新时点由脚本输出保留，无须抄写或另写完成总结。局部 scope 的正文应明确结论范围。仅在存活 finding、根因冲突、覆盖不一致或约束无法恢复时补读相关证据，不重扫已完成且无关联候选的分析；历史 thread、known issue 或规则无法准确恢复时补读相关来源。
-
-## 4. 最终 JSON
-
-完成范围内调查和最终根因归纳后，以本轮预载的本文件为内容契约，直接将下列对象传给 `submit_review`。仅当输出协议正文缺失或无法确认当前 schema 时，从 `$REVIEW_CONTROL_PATH/central/review-result.md` 恢复。工作稿保存必要调查过程，文件进度保存覆盖状态；最终对象只承载正文、新 finding 和历史 thread 更新。目标 PR 内展示的协议属于待审查变更，即使文件同名，也不决定本轮封装格式。
+Pass this object to `submit_review`. The workspace keeps the investigation and file progress keeps coverage; the object carries only the body, new findings, and earlier thread updates. A protocol shown inside the target PR is under review and never decides this format, even with the same file name.
 
 ```json
 {
-  "body": "总评中由审查者撰写的部分",
+  "body": "The reviewer-written part of the summary",
   "comments": [
     {
-      "path": "仓库相对路径",
+      "path": "repository-relative/path.ts",
       "line": 42,
       "start_line": null,
       "label": "P2",
-      "title": "一行标题：触发与后果",
-      "body": "标题之后的 finding 正文"
+      "title": "One-line title: trigger and consequence",
+      "body": "Finding body after the title"
     }
   ],
   "thread_updates": [
     {
       "root_comment_id": 123456,
       "status": "resolved",
-      "evidence": "一行状态原因：做了什么改动或给出什么证据，附定位"
+      "evidence": "One-line status reason with location"
     }
   ],
   "request_reply": null
 }
 ```
 
-字段：
+Fields:
 
-- `body` 按[总评正文](#总评正文)书写；
-- `comments` 只保留最终归纳后的新 finding，按[Finding 内容](#finding-内容)书写。`label` 取 `P0`、`P1`、`P2`、`T1`、`T2`、`需人工确认`（code 层），或 `缺陷`、`待决事项`、`改进机会`、`验证缺口`（其他层级）。`line` 和 `start_line` 必须落在 PR diff 的同一段可评论范围内，单行使用 `start_line: null`；`submit_review` 会按实际 diff 校验并给出该文件的可评论范围。无法绑定 diff 行的问题（遗漏的文件、跨产物问题）使用 `line: null`、`start_line: null`，作为文件级讨论发布：`path` 填 PR 改动文件中最相关的一个，正文写明实际受影响的文件，不虚构评论行；
-- `thread_updates` 只保留当前 PR 中状态实际变化的历史 thread，`status` 取 `resolved`、`severity_increased` 或 `reintroduced`，`evidence` 按第 2 节书写；
-- `request_reply`：thread @ 请求填写 `{"body":"针对原 thread 的答复"}`，即使结论没有变化；automatic 和 pr_comment 请求填写 `null`。回复目标由可信请求决定；
-- 没有新 finding 或 thread update 时使用空数组，仍提供 `body`。
+- `body` follows the summary in `references/reporting.md`.
+- `comments` holds only new findings after consolidation, written per the findings section of `references/reporting.md`. `label` is `P0`, `P1`, `P2`, `T1`, `T2`, or `confirmation` at the code level, or `defect`, `decision`, `improvement`, or `verification-gap` at other levels. `line` and `start_line` must fall within one commentable hunk of the PR diff; a single line uses `start_line: null`. `submit_review` checks against the actual diff and returns the file's commentable ranges. Problems that cannot bind to a diff line (a missing file, a cross-artifact problem) use `line: null` and `start_line: null` and are published as file-level discussions: `path` is the most relevant changed file and the body names the files actually affected; never invent comment lines.
+- `thread_updates` holds only earlier threads in this PR whose status actually changed; `status` is `resolved`, `severity_increased`, or `reintroduced`.
+- `request_reply`: a thread @ request fills `{"body":"answer to the original thread"}` even when the conclusion is unchanged; `automatic` and `pr_comment` requests use `null`. The trusted request decides the reply target.
+- With no new findings or thread updates, use empty arrays and still provide `body`.
 
-字段类型、长度、标签和行号由 `submit_review` 校验，失败时按返回的错误修正后重试。
+`submit_review` validates types, lengths, labels, and lines; fix the arguments per the returned error and retry.
 
-以下示例的事实不代表当前 PR。
+The facts in these examples are not about the current PR, and English headings stand in for the selected language's headings.
 
-automatic，有新问题：
+`automatic` with a new finding:
 
 ```json
 {
-  "body": "价格写错会被测试放过，**建议合并前补上断言**。\n\n### 合并后的行为\n\n- 使用网关模型时，审查按 Pi 目录中的单价计算费用。\n- 目录里查不到某个模型的价格时，**审查照常完成，费用显示为“未提供”**。合并前这种情况会让审查无法启动。\n\n### 核对了什么\n\n- 网络或格式错误是否也被当成“查不到价格”放过：没有，仍会中止审查（`.github/pi-extensions/review-cost.ts:52`）\n- 原有测试断言是否被删除或放宽：没有（`test/review-cost.test.ts`）",
+  "body": "A wrong price would pass the tests; **add the assertion before merging**.\n\n### Behavior after merge\n\n- With a gateway model, the review computes cost from unit prices in the Pi catalog.\n- When the catalog has no price for a model, **the review still completes and the cost shows as \"not provided\"**. Before this change it stopped the review from starting.\n\n### What was checked\n\n- Whether network or format errors also pass as \"no price\": no, they still stop the review (`.github/pi-extensions/review-cost.ts:52`)\n- Whether existing test assertions were deleted or relaxed: no (`test/review-cost.test.ts`)",
   "comments": [{
     "path": "test/review-cost.test.ts",
     "line": 120,
     "start_line": null,
     "label": "T1",
-    "title": "价格被错误记成 0 时，“未知价格”测试仍会通过",
-    "body": "**什么情况下出错**：目录里查不到价格时，扩展应把价格记为“未知”。如果实现被改成记 0，这个测试仍然通过；上线后费用会显示为 $0.00，而不是“未提供”。\n\n**为什么**：该用例只断言审查没有中止，没有检查扩展保存的价格状态。\n\n**怎么改、怎么验证**：在 `test/review-cost.test.ts` 的“目录无价格”用例中断言保存的价格状态为未知。验收：把 `.github/pi-extensions/review-cost.ts` 中的未知价格临时改为 0，该用例应当失败。"
+    "title": "Recording an unknown price as 0 still passes the \"unknown price\" test",
+    "body": "**What goes wrong**: When the catalog has no price, the extension should record the price as unknown. If the implementation records 0 instead, this test still passes; in production the cost shows $0.00 instead of \"not provided\".\n\n**Why**: The case only asserts the review did not stop and never checks the price state the extension saves.\n\n**Fix and verify**: In the \"no catalog price\" case of `test/review-cost.test.ts`, assert the saved price state is unknown. Acceptance: temporarily changing the unknown price in `.github/pi-extensions/review-cost.ts` to 0 makes the case fail."
   }],
   "thread_updates": [],
   "request_reply": null
 }
 ```
 
-automatic，续审关闭历史问题：
+`automatic` re-review closing an earlier finding:
 
 ```json
 {
-  "body": "上一轮的测试漏检已修复，没有需要处理的问题。\n\n### 合并后的行为\n\n- 使用网关模型时，审查按 Pi 目录中的单价计算费用。\n- 目录里查不到某个模型的价格时，**审查照常完成，费用显示为“未提供”**。合并前这种情况会让审查无法启动。\n\n### 自上次审查\n\n测试改为检查扩展保存的价格状态。\n\n### 核对了什么\n\n- 新断言是否真的约束价格状态：把未知价格记成 0 会让断言失败（`test/review-cost.test.ts:120`）",
+  "body": "The test gap from the previous round is fixed; nothing needs handling.\n\n### Behavior after merge\n\n- With a gateway model, the review computes cost from unit prices in the Pi catalog.\n- When the catalog has no price for a model, **the review still completes and the cost shows as \"not provided\"**. Before this change it stopped the review from starting.\n\n### Since last review\n\nThe test now checks the price state the extension saves.\n\n### What was checked\n\n- Whether the new assertion constrains the price state: recording an unknown price as 0 fails it (`test/review-cost.test.ts:120`)",
   "comments": [],
   "thread_updates": [{
     "root_comment_id": 123456,
     "status": "resolved",
-    "evidence": "“目录无价格”用例现在断言扩展保存的价格状态为未知（`test/review-cost.test.ts:120`）。"
+    "evidence": "The \"no catalog price\" case now asserts the saved price state is unknown (`test/review-cost.test.ts:120`)."
   }],
   "request_reply": null
 }
 ```
 
-thread：
+`thread`:
 
 ```json
 {
-  "body": "本轮按请求复核鉴权路径，未发现新的问题。",
+  "body": "Re-reviewed the authorization path as requested; no new problems.",
   "comments": [],
   "thread_updates": [],
-  "request_reply": { "body": "原问题仍成立：当前调用路径仍在权限校验前读取记录（`src/records.ts:40`）。" }
+  "request_reply": { "body": "The original problem still holds: the call path still reads the record before the permission check (`src/records.ts:40`)." }
 }
 ```
 
-生成提交参数时，按[中央表达与验收规则](review-rules.md#最终报告的表达与验收)检查成品，并核对存活 finding 与刷新后的历史 thread 状态：新 finding 的严重度与证明写进该项 `body`；历史问题的状态变化写进 `thread_updates`；未变化的历史问题按第 2 节留稿或答复显式请求。
+Before submitting, run the final self-check in `references/reporting.md` and check surviving findings against the refreshed thread status: a new finding's severity and proof go in its `body`, earlier status changes go in `thread_updates`, and unchanged earlier problems stay in the workspace or answer an explicit request per section 2.
 
-## 报告的分工
+## Division of the Report
 
-开发者在 PR 上看到的每轮审查是一条 Review：总评在上，本轮新 finding 作为讨论挂在它下面。同一事实只写在一处：
+Each round appears on the PR as one review: the summary on top and this round's new findings as discussions under it. Each fact is written in one place:
 
-| 内容 | 位置 | 谁写 |
+| Content | Location | Written by |
 |---|---|---|
-| 标题（未审完、需要修改与需要你确认的数量） | 总评首行 | 发布器 |
-| 结论、合并后的行为、自上次审查、核对了什么 | 总评正文 | 审查者（`body`） |
-| 问题索引：需要修改、需要你确认、可选改进、本轮关闭 | 总评正文，插在“核对了什么”之前 | 发布器，标题原样取自各 finding |
-| 每个问题的场景、原因、修复与验收 | 该问题的讨论（`line: null` 时为文件级讨论） | 审查者（`comments`） |
-| 问题的当前状态与关闭原因 | 讨论首行的状态标注 | 审查者写原因（`evidence`），发布器写入 |
-| 审至的提交、上次审查的提交、审查文件数、运行信息 | 总评页脚 | 发布器 |
-| 用量、费用、发布操作明细 | Check 详情 | 发布器 |
-| 调查过程、排除理由 | `notes.md` | 审查者 |
+| Title (unreviewed, to fix, and to confirm counts) | First line of the summary | Publisher |
+| Verdict, behavior after merge, since last review, what was checked | Summary body | Reviewer (`body`) |
+| Finding index: to fix, to confirm, optional improvements, closed this round | Summary body, inserted before "What was checked" | Publisher, titles taken verbatim from each finding |
+| Each problem's scenario, cause, fix, and acceptance | That problem's discussion (file-level when `line: null`) | Reviewer (`comments`) |
+| A problem's current status and closing reason | Status line at the top of its discussion | Reviewer writes the reason (`evidence`); publisher writes it |
+| Reviewed commit, previous commit, file count, run information | Summary footer | Publisher |
+| Usage, cost, publication details | Check details | Publisher |
+| Investigation and exclusion reasons | `notes.md` | Reviewer |
 
-因此 `body` 只写上表中审查者负责的四部分，问题的细节只写在对应 finding 中，关闭原因只写在 `evidence` 中。
+`pr_comment` requests give the verdict first and then answer around the request, using the summary sections where useful. When a thread request also publishes a summary, `body` states only this round's scope and verdict and the answer goes in `request_reply`.
 
-## 总评正文
+## 5. Single Submission
 
-读者先看到发布器生成的标题，例如“自动审查：1 个问题需要修改，1 项需要你确认”，再读 `body`。automatic 的 `body` 按以下顺序书写，标题、问题清单、审查范围和运行信息都由发布器补上：
+Pass the complete result object from section 4 to `submit_review`.
 
-```markdown
-[结论]
+`submit_review` validates the object, this round's scope, and coverage (complete before the wrap-up notice; pending items accepted afterwards), then writes `$REVIEW_WORKSPACE_PATH/review-result.json` and seals the same content. On failure it returns `queued: false` with the error; fix the arguments or progress and retry. `queued: true` / `Review queued for trusted publication.` ends the round: stop immediately without further investigation, edits, tool calls, or submissions. The final chat reply is a short confirmation without repeating the JSON.
 
-### 合并后的行为
-
-- [合并后使用者能观察到的行为]
-
-### 自上次审查
-
-[本轮推送改变了什么]
-
-### 核对了什么
-
-- [具体场景]：[结论与阻止它的机制]（`path:line`）
-```
-
-小节用上面的三级标题，不用加粗段落代替；发布器生成的二级标题统领全文，正文不另写一、二级标题。
-
-需要几句就写几句，每句只说一件事。不用分号把几件事并成一句，也不为少占行把列表压成一段；读者扫一眼就该分清有几件事。
-
-用**加粗**标出读者需要行动或核对的那几个词：先处理哪个问题、行为改变的关键结果、未在 PR 描述中说明的变化。每项至多一处，整句或整段加粗等于没有重点。*斜体*用于引用 PR 描述的原话，与当前实现对照。
-
-**结论**：开头一段，告诉读者下一步做什么、先处理哪个，不展开问题细节，例如“价格写错会被测试放过，建议合并前补上断言”。需要处理的问题包括本轮新问题和仍未解决的历史问题，标题按同一口径计数；两者都没有时才说没有需要处理的问题，只有历史问题未解决时说明还剩哪些。数量已在标题中。
-
-**合并后的行为**：让没有亲手写代码的作者核对“合并后系统会怎样”是否符合自己的预期。
-
-- 描述 base（合并前的目标分支）到当前 head 的最终状态。比较对象只能是 base，例如“合并前这种情况会让审查无法启动”；PR 迭代过程中的早期版本不出现。
-- 每轮按当前完整 diff 重写。上一轮的介绍只作草稿，其中每一句都能在当前 diff 中找到对应代码才保留。
-- 用使用者能观察到的行为写：什么操作或输入、系统现在怎样反应。关键标识符第一次出现时说明它在业务上是什么。
-- 改变既有行为、而 PR 描述、关联 Issue 和提交信息都没有说明的项，句末标注“**（PR 描述未提到）**”。默认值、失败时的处理（继续、跳过、返回默认值）、权限、数据写入、配置、依赖和 CI 的变化都属于既有行为；不改变外部行为的重构不属于。
-- PR 描述与当前实现矛盾时，加一句“PR 描述写的是 *X*，当前实现是 Y”。
-- 单一主题用一段，多个主题用列表，每项一个主题，按实有主题写，不把几个主题并进一项。
-
-**自上次审查**：只在续审时出现。说明上一轮审查之后的推送改变了什么，PR 方向改变时以“方案改变：……”开头。提交号已在页脚。删掉这一行后，“合并后的行为”仍应完整成立。
-
-**核对了什么**：让对 AI 写的代码心存疑虑的作者，能逐项核验审查实际检查了什么。
-
-- 从工作稿记录的场景中，选这次变化最可能出错的地方。优先考虑与本 PR 相关的这几类：失败被吞掉或静默降级；测试被删除、放宽或 mock 成永远通过；改动超出 PR 主题；写死的值或未完成的占位实现；既有调用方的行为被改变；权限和数据边界。
-- 每项一个场景，写清结论、阻止它的机制和代码定位。只写本轮沿代码确认过的场景，按实有数量写。
-- 没有新问题时这一节是总评的主体，写 3–5 项；有新问题时最多 3 项。
-- 续审只写与本轮变化相关的场景；本轮没有实质变化（例如只合并了目标分支）时省略这一节。
-
-pr_comment 请求先给结论，再按请求组织答复，可以使用上面的小节；显式历史状态请求按第 2 节答复。thread 请求同时发布总评时，`body` 只写本轮范围与结论，具体答复留在 `request_reply`。局部审查在结论中写明实际范围。
-
-**完成条件**：
-
-1. `body` 从结论开始，只包含上述小节，小节用三级标题；
-2. “合并后的行为”中每一项都能在当前 base..head diff 中定位到代码，并且不以 PR 的早期版本为参照；
-3. 删掉“自上次审查”，其余内容仍然成立；
-4. “核对了什么”的每一项都有具体场景、结论和代码定位；
-5. 问题细节只出现在对应 finding 中，关闭原因只出现在 `evidence` 中；
-6. 没有用分号把几件事并成一句，加粗只落在需要读者行动或核对的词上。
-
-## Finding 内容
-
-每个 finding 发布为一条独立的讨论，`line: null` 时是文件级讨论，写法相同。作者可能把它整条交给自己的编码 Agent 修复，所以它必须脱离总评也能读懂、能执行。
-
-**`title`**：一行，写触发与后果，例如“价格被错误记成 0 时，‘未知价格’测试仍会通过”。它同时出现在讨论首行和总评索引中，必须单独成立。发布器在它前面加上标签和 Alert，`body` 不重复标题。
-
-**`body`**：缺陷、测试问题和验证缺口按三段写，每段以短标签开头：
-
-```markdown
-**什么情况下出错**：[具体操作或输入，预期与实际有何不同，谁会看到什么后果。]
-
-**为什么**：[导致该结果的机制，现有保护为何不足；代码或契约定位。]
-
-**怎么改、怎么验证**：[应恢复的约束；文件路径、期望行为，以及能证明修好的验收场景。]
-```
-
-需人工确认和待决事项写清需要谁决定什么：
-
-```markdown
-**实际行为**：[代码现在怎样做，定位。]
-
-**和预期的差异**：[PR 描述、Issue 或已有决定说的是什么，或者缺少哪项必要决定。]
-
-**影响**：[按当前行为合并会造成什么。]
-
-**需要的决定**：[需要确认的问题与可选方向；作者回复后，下一轮据此关闭或转为问题。]
-```
-
-改进机会用 `**现状**` 和 `**建议**` 两段。
-
-写作要求：
-
-- 第一段从使用者能观察到的现象讲起，作者能在脑中复现它，不需要先信任审查者。
-- “怎么改、怎么验证”单独复制出去也能用：写出完整路径、期望行为和验收方法，不用“上文”“该处”这类依赖上下文的指代。验收写成应观察到的结果，不写成已经执行，也不把建议方案写成唯一实现。
-- 一屏读完。定级时排除的其他风险、调查过程留在工作稿。逐句保留触发、原因、已证明的后果、依据或处理目标；只用于说明某种额外损害没有发生、风险没有更严重、某项验证未执行的句子删除。标题与正文的对象、条件和等级保持一致。
-- 关键标识符首次出现时介绍业务含义。版本与定位放在对应依据处，有真实 URL 时使用完整 Markdown 链接，标签为文件名或短 SHA，目标绑定所审版本；没有 URL 时用普通文本保留准确版本与路径。具体表达式构成根因时，在“为什么”中放一个带语言标识的最小代码块。
-- 性能 finding 在“为什么”中给出规模、base/head 成本函数及数量级或复杂度证据。
-- 测试 finding 在“为什么”中给出对应分支证明：T1 的 violating probe、T2 change detector 的 allowed-change probe，或 T2 redundancy 的 deletion test、base/sibling 覆盖及缺失 unique witness 的证明。
-- 单行足以表达根因时只选单行；只有声明、条件、调用或错误处理共同构成根因时才覆盖连续范围。
-
-成立门槛、优先级及根因归纳以共享结论契约和所选层级为准，本节只定义表达。
-
-## 5. 唯一提交
-
-最后将第 4 节的完整结果对象直接传给 `submit_review`。
-
-`submit_review` 先校验结果对象、本轮 scope 和覆盖状态（收尾通知前要求全部完成，之后接受保留 pending 的部分结论），通过后自动写出 `$REVIEW_WORKSPACE_PATH/review-result.json` 并封存同一内容。失败返回 `queued: false` 和具体错误，按错误修正参数或进度后重试；失败不会返回完成。返回 `queued: true` / `Review queued for trusted publication.` 即本轮完成，立即结束 Agent 回合，不再调查、编辑、调用任何工具或再次提交。最终聊天回复只需简短确认，不重复输出 JSON。
-
-后续发布由可信 publisher 完成：封存的请求身份、schema、scope 和文件进度清单是全部写入的前置条件，覆盖不完整时在正文前加可信的未审查文件提示，Check 为 action_required；通过后生成标题、问题索引和页脚，将总评与新 finding 作为一条 Review 发布，并执行请求回复和历史 thread 操作；同一 PR 更早的自动总评收起为指向最新审查的一行，结论不变且没有新问题或状态变化时就地更新最新总评；`line: null` 的问题先于总评发布为文件级讨论，任一条失败时不发布总评。单项失败只阻断依赖它的操作，其余继续；thread 写入仍需校验当前 PR 归属。发布器追加运行元数据与实际执行说明，汇总成功、失败和因前置失败未执行的操作；未全部成功时保留失败状态，不推进完整 audit checkpoint。Agent 只提交审查判断，不推断 GitHub 写入已经成功，也不通过其他工具发布。
+The trusted publisher does the rest. The sealed request identity, schema, scope, and ledger gate every write; incomplete coverage prepends a trusted unreviewed-file notice and sets the Check to action_required. It then generates the title, finding index, and footer, publishes the summary and new findings as one review, and performs the request reply and earlier thread operations. Earlier automatic summaries on the PR collapse to a line pointing at the latest review; an unchanged verdict with no new findings or status changes updates the latest summary in place. Findings with `line: null` are published as file-level discussions before the summary, and any failure there blocks the summary. A single failure blocks only the operations depending on it; thread writes still verify PR ownership. The publisher appends run metadata and a summary of successful, failed, and skipped operations; anything short of full success keeps the failure status and does not advance the complete audit checkpoint. The agent submits only review judgments, never assumes GitHub writes succeeded, and never publishes through other tools.

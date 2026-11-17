@@ -1,36 +1,36 @@
-# 维护或扩展审查方法
+# Maintaining or Extending the Method
 
-需要支持新的审查对象或视角时，先确认它有真实使用场景和独有判断方法，再补相应说明。文件按实际分支建立，共同的证据、结论、状态和权限规则继续复用。
+Before supporting a new review target or focus, confirm it has real use cases and a judgment method of its own. Add files only for real branches; shared evidence, finding, state, and permission rules are reused.
 
-## 增加一个层级时，讲清它为什么不同
+## Adding a Level: Explain Why It Differs
 
-层级区分审查对象，例如需求、架构、开发计划和代码。新层级应回答：
+Levels separate review targets, such as requirements, architecture, plans, and code. A new level answers:
 
-- 审什么产物，怎样划分覆盖单元，如何从目标反查遗漏？
-- 独立依据来自哪里，当前阶段必须确定什么，哪些选择仍可留待后续？
-- 哪些方法默认使用，哪些按相关变化触发，哪些需明确委托？窄审怎样选择？
-- 哪些方法直接复用横向视角，哪些本层差异需要就地解释？
-- 哪些问题由本层编写者处理，哪些需要其他人决定？
+- Which artifact is reviewed, how coverage units are split, and how omissions are found from the goal?
+- Where independent grounds come from, what must be settled at this stage, and what may wait?
+- Which methods are default, which trigger on related changes, and which need an explicit request? How are narrow reviews chosen?
+- Which methods reuse focuses directly, and which level-specific differences need local explanation?
+- Which problems the level's author handles, and which need someone else to decide?
 
-新增内容限于层级入口、真正不同的判断方法和必要链接；停止条件和工作稿体系沿用共同规则。
+Add only the level entry, genuinely different methods, and necessary links; stopping conditions and the workspace follow the shared rules.
 
-## 增加一个视角时，讲清怎样判断好坏
+## Adding a Focus: Explain How It Judges Good and Bad
 
-视角区分从什么角度检查，例如意图对齐、可靠性和可维护性。新视角应回答：
+Focuses separate angles of inspection, such as intent alignment, reliability, and maintainability. A new focus answers:
 
-- 要评价什么，何时触发，适用于哪些层级，哪些相似请求不在范围？
-- 沿什么机制调查，哪种具体场景和证据能区分好坏？
-- 使用共同结论中的哪种成立方式，还需要什么领域证据？
-- 哪些保护、合法例外、独立用途或替代成本可以推翻疑点？
-- 在不同层级怎样取证，哪些地方需要进一步引用专有方法？
-- 怎样满足原问题的处理完成条件，并允许能够达到条件的不同实现？
+- What it evaluates, when it triggers, which levels it applies to, and which similar requests are out of scope?
+- Which mechanism to follow, and which concrete scenarios and evidence distinguish good from bad?
+- Which shared finding kind it uses, and what domain evidence it adds?
+- Which protections, legitimate exceptions, independent purposes, or alternative costs can refute a suspicion?
+- How evidence is gathered at each level, and where specialized methods should be cited?
+- How the original completion condition is met while allowing different implementations that reach it?
 
-共享方法写在视角文件，各层只补自己的例子和区别。确实需要新的结论性质时，先说明[共同结论规则](../references/findings.md#区分四种结论)中的四类为什么无法表达，再统一修改共同结论要求；所有视角使用同一报告门槛。
+Shared methods live in the focus file; levels add only their own examples and differences. If a new finding kind is genuinely needed, first explain why the four [shared kinds](../references/findings.md#the-four-kinds) cannot express it, then change the shared requirements once; all focuses use the same reporting bar.
 
-## 核对权限和回归证据
+## Permissions and Regression Evidence
 
-执行权限来自任务授权及[证据权限规则](../references/evidence-access.md)，新增视角沿用这些执行与发布边界。状态、再审和停止由[共同工作稿规则](../references/review-state.md)定义，专有方法只补充本领域怎样证明处理完成。
+Execution permission comes from the task and the [evidence access rules](../references/evidence-access.md); new focuses keep those execution and publication boundaries. State, re-review, and stopping are defined by the [shared workspace rules](../references/review-state.md); specialized methods only add how this domain proves a fix.
 
-准备输入与预期分离的案例，覆盖成立、不成立、原证据继承、前提变化后重新调查、不同修复方案和窄审范围。跨层方法至少检查一条真实的目标传递关系，不强求每层都有相同例子。
+Prepare cases with inputs separated from expectations, covering holds, does not hold, inherited evidence, reinvestigation after a premise change, alternative fixes, and narrow scope. Cross-level methods check at least one real goal relationship; identical examples per level are not required.
 
-未实际运行的验证案例标为“未运行”（`not_run`）。案例运行记录与审查覆盖状态分别保存；覆盖清单仍使用共同工作稿规则中的 `pending`、`complete`、`blocked`。模型行为须由方法要求对应的案例结果证明，文件、链接和关键词检查只验证静态接线。
+Mark verification cases not actually run as `not_run`. Keep case run records separate from review coverage; coverage still uses `pending`, `complete`, and `blocked`. Model behavior is proven by case results matching the method's requirements; file, link, and keyword checks only verify static wiring.

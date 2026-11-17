@@ -1,51 +1,51 @@
-# 部署中央 PR Review
+# Deploying Central PR Review
 
-## 主仓库与生产同步
+## Upstream and Production Sync
 
-`Yikai-Liao/agentic-review` 是公开开发主仓库，`Qiyin-Tech/agentic-review` 是独立的 internal 副本。两边分别运行中央 Review，App、Worker 和凭据独立；源码同步不改变运行配置。
+`Yikai-Liao/agentic-review` is the public development repository; `Qiyin-Tech/agentic-review` is a separate internal copy. Each runs its own central review with its own apps, Worker, and credentials; syncing source does not change runtime configuration.
 
-| 配置 | 个人部署 | 组织部署 |
+| Setting | Personal deployment | Organization deployment |
 | --- | --- | --- |
 | `CONTROL_REPOSITORY` | `Yikai-Liao/agentic-review` | `Qiyin-Tech/agentic-review` |
 | `ALLOWED_OWNER` | `Yikai-Liao` | `Qiyin-Tech` |
 | `REVIEW_LANGUAGE` | `en` | `zh-CN` |
 
-各部署在自己的中央仓库设置 `AGENTIC_REVIEW_PRODUCTION=true`，并保存自己的 Review App 私钥和模型 API key。公开中央仓库的日志和 artifacts 对外可读，个人 Review App 只安装到准备审查的个人公开仓库。个人仓库仅启用 `Agentic Review` 和 `Agentic Review Execution`，组织同步与飞书续期 workflow 保持禁用。
+Each deployment sets `AGENTIC_REVIEW_PRODUCTION=true` in its own central repository and stores its own Review App private key and model API key. Logs and artifacts of the public central repository are publicly readable, so the personal Review App is installed only on personal public repositories meant for review. The personal repository enables only `Agentic Review` and `Agentic Review Execution`; the organization sync and Lark renewal workflows stay disabled there.
 
-个人和组织的 Review App、Dispatcher App 都选择 `Only on this account`。Review App 安装到各自目标仓库，Dispatcher App 只安装到各自中央仓库。每个 Worker 使用自己那一套 webhook secret 和 Dispatcher 凭据。
+Both the personal and organization Review Apps and Dispatcher Apps use `Only on this account`. Each Review App is installed on its own target repositories and each Dispatcher App only on its own central repository. Each Worker uses its own webhook secret and Dispatcher credentials.
 
-组织仓库的 `sync-upstream.yml` 每五分钟尝试从公开主仓库快进同步 `main`，也支持 `workflow_dispatch`。GitHub 定时调度可能延迟；同步成功前生产仍运行上一次同步的版本。同步使用只绑定组织仓库的可写 deploy key，私钥存入组织仓库的 `UPSTREAM_SYNC_SSH_KEY` Secret，不进入 Review Agent。同步不创建合并提交、不强推、不删除分支，也不复制 PR、Issue、Actions 记录或 Secrets。组织分支分叉或上游改写历史会使同步明确失败。
+The organization repository's `sync-upstream.yml` tries to fast-forward `main` from the public repository every five minutes and also supports `workflow_dispatch`. GitHub schedules may lag; until a sync succeeds, production keeps running the previously synced version. Syncing uses a writable deploy key bound only to the organization repository; its private key lives in that repository's `UPSTREAM_SYNC_SSH_KEY` secret and never reaches the review agent. Syncing creates no merge commits, never force-pushes or deletes branches, and copies no PRs, issues, Actions runs, or secrets. A diverged organization branch or rewritten upstream history fails the sync explicitly.
 
-组织仓库的 `main` 使用仓库级规则：禁止强推和删除；更新仅允许 deploy key 绕过，以便保持上游 commit SHA，阻止组织侧直接提交或合并 PR 造成分叉。组织级 `Protect Default Branch` 对此仓库排除，其他仓库不变。不要新增其他可写 deploy key；GitHub 的此类规则豁免针对 deploy key 类型，不能只选择某一把 key。公开主仓库的 `main` 合并权限决定进入生产的代码。
+The organization repository's `main` has a repository ruleset: no force-push or deletion, and only deploy keys may bypass updates so upstream commit SHAs are kept and direct commits or merged PRs on the organization side cannot cause divergence. The organization-level `Protect Default Branch` excludes this repository and is otherwise unchanged. Do not add other writable deploy keys; GitHub's bypass applies to the deploy key type, not to a single key. Merge permission on the public repository's `main` decides which code reaches production.
 
-所有修改先进入公开主仓库。组织侧的旧 PR、Issue 和运行记录保留作历史查询，新开发不再在组织侧合并。
+All changes land in the public repository first. Older PRs, issues, and runs on the organization side are kept for history; new development is not merged there.
 
-需要立即同步时执行 `gh workflow run sync-upstream.yml --repo Qiyin-Tech/agentic-review`，随后查看该仓库的 `Sync Public Upstream` 运行结果，并比较两个仓库的 `main` SHA。同步失败时保留生产当前版本，按错误修复上游或组织侧分叉后再运行。
+To sync immediately, run `gh workflow run sync-upstream.yml --repo Qiyin-Tech/agentic-review`, check that repository's `Sync Public Upstream` run, and compare the `main` SHAs of both repositories. When a sync fails, production keeps its current version; fix the upstream or organization-side divergence per the error and run it again.
 
 ## 1. Dispatcher App
 
-在中央仓库所属个人账号或 organization 创建 private Dispatcher GitHub App：
+Create a private Dispatcher GitHub App under the account or organization that owns the central repository:
 
-- 关闭 webhook；
-- 仅 `Actions: read and write`；
-- 只安装到中央仓库。
+- webhook disabled;
+- only `Actions: read and write`;
+- installed only on the central repository.
 
-Worker 使用它触发中央仓库的 `agentic-review.yml`，不使用它访问目标仓库。
+The Worker uses it to trigger the central repository's `agentic-review.yml`, never to access target repositories.
 
 ## 2. Worker
 
-Worker secrets：
+Worker secrets:
 
-- `WEBHOOK_SECRET`：Review App webhook HMAC secret；
-- `DISPATCH_CLIENT_ID`：Dispatcher App Client ID；
-- `DISPATCH_PRIVATE_KEY_PKCS8`：Dispatcher App 的 PKCS#8 private key。
+- `WEBHOOK_SECRET`: the Review App webhook HMAC secret;
+- `DISPATCH_CLIENT_ID`: the Dispatcher App client ID;
+- `DISPATCH_PRIVATE_KEY_PKCS8`: the Dispatcher App's PKCS#8 private key.
 
-Deployment vars：
+Deployment vars:
 
-- `CONTROL_REPOSITORY=owner/agentic-review`；
-- `CONTROL_WORKFLOW_REF=main` 或固定 tag；
-- `ALLOWED_OWNER=目标 owner`；
-- `REVIEW_BOT_MENTION=@<actual-app-slug>`，必填，填写 Review App 的实际 slug 对应的 GitHub 提及形式。
+- `CONTROL_REPOSITORY=owner/agentic-review`;
+- `CONTROL_WORKFLOW_REF=main` or a fixed tag;
+- `ALLOWED_OWNER=<target owner>`;
+- `REVIEW_BOT_MENTION=@<actual-app-slug>`: required; the GitHub mention form of the Review App's actual slug.
 
 ```bash
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml secret put WEBHOOK_SECRET
@@ -54,189 +54,189 @@ pnpm dlx wrangler@4.123.0 --config wrangler.local.toml secret put DISPATCH_PRIVA
 pnpm dlx wrangler@4.123.0 --config wrangler.local.toml deploy
 ```
 
-## 3. Review App 与中央仓库
+## 3. Review App and Central Repository
 
-创建 Review GitHub App，开启下列 repository webhook 事件，并安装到所有目标仓库、需要查询的同 owner 关联仓库以及中央仓库：
+Create the Review GitHub App with these repository webhook events, and install it on every target repository, every same-owner linked repository that needs querying, and the central repository:
 
-- `pull_request`：保留 `opened`、`reopened`、`synchronize`、`ready_for_review`；
-- `issue_comment`：接收 PR 普通评论的 `created`；
-- `pull_request_review_comment`：接收 inline thread 评论的 `created`。
+- `pull_request`: keeps `opened`, `reopened`, `synchronize`, and `ready_for_review`;
+- `issue_comment`: receives `created` for plain PR comments;
+- `pull_request_review_comment`: receives `created` for inline thread comments.
 
-编辑评论不触发新任务；Worker 还会过滤机器人自身、引用块、代码块和 inline code 中的 mention。`REVIEW_BOT_MENTION` 必须显式填写 Review App 的实际 slug 对应的提及形式。中央 publisher 从 `actions/create-github-app-token` 的 `app-slug` 生成 `REVIEW_BOT_LOGIN=<slug>[bot]`，不要手工配置另一个 bot 登录名。评论正文会原样进入 dispatch input；所有 `workflow_dispatch` inputs 受 GitHub 的 65,535 characters 总大小限制，超限请求明确失败且不截断。不要自行按单字段或 HTTP JSON UTF-8 字节计算，详见 [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputs)。
+Edited comments start no new task; the Worker also drops mentions by the bot itself and mentions inside quotes, code blocks, and inline code. `REVIEW_BOT_MENTION` must be set explicitly to the mention form of the Review App's actual slug. The central publisher derives `REVIEW_BOT_LOGIN=<slug>[bot]` from the `app-slug` output of `actions/create-github-app-token`; do not configure a separate bot login by hand. Comment bodies enter the dispatch input verbatim; all `workflow_dispatch` inputs share GitHub's 65,535-character total limit, and oversized requests fail explicitly without truncation. Do not compute your own per-field or HTTP JSON UTF-8 byte limits; see [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputs).
 
-手动补跑同样接受已合并的历史 PR；关闭但未合并的 PR 仍拒绝。即使源分支或 fork 已删除，也使用 GitHub PR 保存的 base/head SHA 下载代码并审查，无须恢复分支。`automatic` 请求仍须提交与 PR 保存快照一致的 SHA；结果和 Check 留在原 PR 与原 head 上。
+Manual reruns also accept merged PRs; closed, unmerged PRs are still rejected. Even when the source branch or fork is gone, code is fetched and reviewed by the base/head SHAs GitHub stored on the PR, with no need to restore the branch. `automatic` requests must still submit SHAs matching the PR's stored snapshot; results and the Check stay on the original PR and original head.
 
-App repository permissions 至少为：
+App repository permissions, at least:
 
-- `Contents: read and write`（GitHub GraphQL 的 review thread resolve/unresolve 所需；write 只在 Agent 结束后签发给可信发布步骤）；
-- `Issues: read`；
-- `Pull requests: write`；
-- `Actions: read`；
-- `Checks: write`；
-- `Metadata: read`（GitHub 默认权限）。
+- `Contents: read and write` (needed by GitHub GraphQL review thread resolve/unresolve; write is minted only for the trusted publication step after the agent ends);
+- `Issues: read`;
+- `Pull requests: write`;
+- `Actions: read`;
+- `Checks: write`;
+- `Metadata: read` (GitHub default).
 
-中央仓库 Actions variables：
+Central repository Actions variables:
 
-- `AGENTIC_REVIEW_PRODUCTION`：设为 `true` 启用中央 Review；
-- `REVIEW_LANGUAGE`：报告语言，必填；支持 `zh-CN` 与 `en`。缺失或其他值在签发 Review token 前失败。此变量属于中央运行仓库，控制所有目标仓库的总评、finding、状态说明、请求答复、发布器固定文字和 Check 文案；不翻译 JSON schema 字段或枚举值；
-- `AGENTIC_REVIEW_CLIENT_ID`：Review App Client ID；
-- `REVIEW_AGENT_MODEL`：Responses API 接受的模型 ID，例如 `gpt-6-luna`、`deepseek-flash` 或网关自定义别名；workflow 会显式注册该 ID，无须出现在 Pi 模型目录中；
-- `REVIEW_THINKING_LEVEL`：推理强度，必填；例如 `xhigh`，模型调用与发布页脚共用此值，未配置时 Review 明确失败；
-- `REVIEW_FAST_MODE`：可选，`true` 主动请求 fast mode，`false` 或未配置时沿用 API 默认服务层；其他值在签发 Review token 前报错。请求参数和回退规则见下文；
-- `REVIEW_AGENT_BASE_URL`：支持 `/responses` 的 API 基础地址；
-- `AGENTIC_REVIEW_LARK_APP_ID`：飞书企业自建应用 App ID；
-- `AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID`：Lark Secret Rotator GitHub App Client ID。
+- `AGENTIC_REVIEW_PRODUCTION`: set to `true` to enable central review;
+- `REVIEW_LANGUAGE`: required report language, `zh-CN` or `en`. Missing or other values fail before the Review token is minted. This variable belongs to the central runtime repository and controls, for every target repository, the summary, findings, status reasons, request replies, fixed publisher text, and Check messages; JSON schema fields and enum values are never translated;
+- `AGENTIC_REVIEW_CLIENT_ID`: the Review App client ID;
+- `REVIEW_AGENT_MODEL`: a model ID accepted by the Responses API, such as `gpt-6-luna`, `deepseek-flash`, or a gateway alias; the workflow registers the ID explicitly, so it need not appear in Pi's model catalog;
+- `REVIEW_THINKING_LEVEL`: required reasoning level such as `xhigh`, shared by model calls and the publication footer; the review fails explicitly when unset;
+- `REVIEW_FAST_MODE`: optional; `true` requests fast mode, `false` or unset keeps the API's default service tier, and other values fail before the Review token is minted. Request parameters and fallback rules are below;
+- `REVIEW_AGENT_BASE_URL`: base URL of an API supporting `/responses`;
+- `AGENTIC_REVIEW_LARK_APP_ID`: the Lark custom app ID;
+- `AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID`: client ID of the Lark Secret Rotator GitHub App.
 
-中央仓库 Actions secrets：
+Central repository Actions secrets:
 
-- `AGENTIC_REVIEW_APP_PRIVATE_KEY`：Review App private key；
-- `REVIEW_AGENT_API_KEY`：模型 API key。
+- `AGENTIC_REVIEW_APP_PRIVATE_KEY`: the Review App private key;
+- `REVIEW_AGENT_API_KEY`: the model API key.
 
-不要把上述 secrets 配到目标仓库。目标仓库不需要 `.github/workflows/review.yml`。
+Never put these secrets in target repositories. Target repositories need no `.github/workflows/review.yml`.
 
-## 4. 飞书用户 OAuth 与自动续期
+## 4. Lark User OAuth and Automatic Renewal
 
-当前中央 Review 暂停飞书取证与判断：Review job 不安装 Lark CLI、不读取 `lark-review` Environment、不注入飞书凭据，也不等待 token 验证。授权、每小时 token 续期和以下接入说明保留，便于以后恢复；下游飞书链接当前只作来源标识，不触发查询或因未读取而新增告警。
+Central review has paused Lark evidence and judgment: the review job does not install the Lark CLI, read the `lark-review` environment, inject Lark credentials, or wait for token verification. Authorization, hourly token renewal, and the setup below are kept for a future restore; downstream Lark links currently only identify sources and trigger no queries or warnings for unread material.
 
-首次接入、不清楚 `.env` 后如何关联个人文档，或需要更换 App/用户时，先按[飞书 App 与授权用户操作手册](lark-operations.md)执行。本文集中说明生产配置和续期机制。
+For first-time setup, linking personal documents after `.env`, or switching apps or users, follow the [Lark app and authorizing user guide](lark-operations.md) first. This section covers production configuration and renewal.
 
-### 登录状态保存在哪里
+### Where the Login Lives
 
-Actions runner 每轮都是新机器。持久化的是 OAuth token；恢复读取后，CLI 每轮通过环境变量使用 UAT；不缓存 CLI 登录目录，不在 Review 中执行 `auth login`。一个授权企业用户身份对应一条续期链路：
+Each Actions runner is a fresh machine. What persists is the OAuth token; after a restore, the CLI uses the UAT through environment variables each round. The CLI login directory is never cached and `auth login` never runs during review. One authorized enterprise user identity maps to one renewal chain:
 
 ```text
-你在浏览器授权飞书应用（所需只读 scope + offline_access）
-  → 可信续期 job 得到 UAT 和 refresh token
-  → lark-rotation Environment 保存 refresh token
-  → lark-review Environment 保存 UAT
-  → 当前保留并续期 UAT；中央 Review 暂不消费
-  → 恢复读取后：Review job 注入 UAT，官方 lark-cli --as user 读取资料
+You authorize the Lark app in a browser (required read-only scopes + offline_access)
+  → the trusted renewal job receives a UAT and a refresh token
+  → the lark-rotation environment stores the refresh token
+  → the lark-review environment stores the UAT
+  → the UAT is kept and renewed; central review does not consume it for now
+  → after a restore: the review job injects the UAT and the official lark-cli --as user reads material
 ```
 
-定时任务独占 refresh token 并先保存下一代 refresh token，再发布 UAT。App Secret 和写 Environment Secret 的 GitHub token 只在续期 job 中使用，Review 的 `GH_TOKEN` 仍然只读。
+The scheduled job owns the refresh token exclusively and saves the next refresh token before publishing the UAT. The App Secret and the GitHub token that writes environment secrets are used only in the renewal job; the review `GH_TOKEN` stays read-only.
 
-### 创建飞书应用
+### Create the Lark App
 
-1. 打开[飞书开放平台开发者后台](https://open.feishu.cn/app)，创建企业自建应用，例如 `Agentic Review`。当前方案不使用机器人能力，也不需要 OAuth 回调或 persistent runner。
-2. 为**用户身份**申请 `offline_access` 和以下只读 scope：
-   - `search:docs:read`：搜索用户可见的文档/Wiki；
-   - `docx:document:readonly`：读取文档正文；
-   - `wiki:node:retrieve`：解析 Wiki 节点和 space ID；
-   - `drive:drive.metadata:readonly`：读取文档元数据；
-   - `base:app:read`、`base:table:read`、`base:field:read`、`base:view:read`、`base:record:read`：读取多维表格结构、视图配置与 Issue 记录。
-3. 发布应用版本并完成管理员审核。应用可用范围必须包含执行 OAuth 授权的维护者账号。
-4. 使用专用 Review 应用，只开通这组只读 API 权限，不复用已被授予文档写权限的应用；`--as user` 和 `STRICT_MODE=user` 只固定身份，真正的读写限制由 OAuth scope 决定。`offline_access` 用于取得 refresh token，不是文档读取权限。将 App ID 写入中央仓库 variable `AGENTIC_REVIEW_LARK_APP_ID`。
+1. In the [Lark developer console](https://open.feishu.cn/app), create a custom app such as `Agentic Review`. This setup uses no bot capability and needs no OAuth callback or persistent runner.
+2. Request `offline_access` and these read-only scopes for the **user identity**:
+   - `search:docs:read`: search docs and wikis visible to the user;
+   - `docx:document:readonly`: read document bodies;
+   - `wiki:node:retrieve`: resolve wiki nodes and space IDs;
+   - `drive:drive.metadata:readonly`: read document metadata;
+   - `base:app:read`, `base:table:read`, `base:field:read`, `base:view:read`, `base:record:read`: read base structure, view configuration, and issue records.
+3. Publish an app version and pass admin review. The app's availability must include the maintainer account that performs OAuth.
+4. Use a dedicated review app with only this read-only set; do not reuse an app that has document write permissions. `--as user` and `STRICT_MODE=user` only pin the identity; the real read/write limit comes from the OAuth scopes. `offline_access` yields a refresh token and grants no document access. Store the App ID in the central repository variable `AGENTIC_REVIEW_LARK_APP_ID`.
 
-### 配置 token 轮换权限
+### Token Rotation Permissions
 
-在中央仓库 Settings → Environments 创建 `lark-rotation` 和 `lark-review`，允许默认分支 `main`，不设置人工审批或等待计时器。私有仓库需要支持 Environment Secrets 的 GitHub 套餐。
+In the central repository under Settings → Environments, create `lark-rotation` and `lark-review`, allow the default branch `main`, and set no required reviewers or wait timers. Private repositories need a GitHub plan that supports environment secrets.
 
-另建一个 `Lark Secret Rotator` GitHub App：关闭 webhook，只授予 `Environments: read and write`，只安装到中央仓库。Environment Secret 写入实际要求该权限，不是 Repository Secret 的 `Secrets: write`。它只供 `.github/workflows/lark-token-refresh.yml` 使用，不复用或扩大 Review App 的权限。
+Create a separate `Lark Secret Rotator` GitHub App: webhook disabled, only `Environments: read and write`, installed only on the central repository. Writing environment secrets actually requires that permission, not the repository secret permission `Secrets: write`. Only `.github/workflows/lark-token-refresh.yml` uses it; it neither reuses nor widens the Review App's permissions.
 
-配置下列初始值；`gh secret set` 不带 `--body` 会交互读取密钥，密钥不要放到命令行参数、聊天或日志中：
+Set these initial values. Without `--body`, `gh secret set` reads the secret interactively; never put secrets in command-line arguments, chat, or logs:
 
 ```bash
-gh variable set AGENTIC_REVIEW_LARK_APP_ID --repo Qiyin-Tech/agentic-review --body '<飞书 App ID>'
+gh variable set AGENTIC_REVIEW_LARK_APP_ID --repo Qiyin-Tech/agentic-review --body '<Lark App ID>'
 gh variable set AGENTIC_REVIEW_LARK_ROTATOR_CLIENT_ID --repo Qiyin-Tech/agentic-review --body '<GitHub Rotator Client ID>'
 gh secret set AGENTIC_REVIEW_LARK_APP_SECRET --repo Qiyin-Tech/agentic-review --env lark-rotation
 gh secret set AGENTIC_REVIEW_LARK_ROTATOR_PRIVATE_KEY --repo Qiyin-Tech/agentic-review --env lark-rotation < /absolute/path/to/rotator-private-key.pem
 ```
 
-两项自动轮换的 token 不手工初始化：
+The two automatically rotated tokens are not initialized by hand:
 
-| Environment | Secret | 使用者 |
+| Environment | Secret | Used by |
 |---|---|---|
-| `lark-rotation` | `AGENTIC_REVIEW_LARK_REFRESH_TOKEN` | 串行续期 job |
-| `lark-review` | `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN` | 保留供恢复读取后的 Review job 使用 |
+| `lark-rotation` | `AGENTIC_REVIEW_LARK_REFRESH_TOKEN` | the serialized renewal job |
+| `lark-review` | `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN` | kept for the review job after a restore |
 
-[GitHub 在 workflow 排队时读取 Repository Secret，在 job 启动时读取 Environment Secret](https://docs.github.com/en/actions/reference/security/secrets#when-github-actions-reads-secrets)。因此动态 token 必须使用上述 Environment Secret，续期锁设在 job 层，避免排队任务拿到已消费的旧 refresh token，也避免排队的 Review 固定旧 UAT。不要另存同名 Repository Secret。
+[GitHub reads repository secrets when a workflow is queued and environment secrets when a job starts](https://docs.github.com/en/actions/reference/security/secrets#when-github-actions-reads-secrets). Dynamic tokens therefore must be the environment secrets above, with the renewal lock at the job level, so a queued job never gets an already consumed refresh token and a queued review never pins a stale UAT. Do not store repository secrets with the same names.
 
-### 首次授权或新增用户权限
+### First Authorization or New User Scopes
 
-新增用户权限时，先在飞书应用后台开通并发布，再更新授权脚本中的 `larkScopes` 并合并到默认分支，最后按以下流程重新授权。普通 `refresh-lark-user` 续期不会扩展原有授权范围。
+To add user scopes, enable and publish them in the Lark app console first, then update `larkScopes` in the authorization script and merge to the default branch, then authorize again with the flow below. Ordinary `refresh-lark-user` renewal never widens the original grant.
 
-PR 合并后，使用有权操作中央仓库的维护者 GitHub 账号执行：
+After the PR merges, run this with a maintainer GitHub account that can act on the central repository:
 
 ```bash
 gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
   -f event_type=authorize-lark-user
 ```
 
-`repository_dispatch` 只加载默认分支上的可信 workflow，避免误选 PR branch 执行持有中央凭证的代码。立即打开 **Refresh Lark User Token** 运行日志中的飞书验证 URL，使用维护者本人账号确认授权。workflow 通过飞书 device flow 取得 UAT 与单次 refresh token，并直接创建：
+`repository_dispatch` loads only the trusted workflow on the default branch, so code holding central credentials is never picked from a PR branch. Immediately open the Lark verification URL in the **Refresh Lark User Token** run log and confirm with the maintainer's own account. The workflow obtains a UAT and a single-use refresh token through Lark device flow and creates:
 
-- `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN`；
-- `AGENTIC_REVIEW_LARK_REFRESH_TOKEN`。
+- `AGENTIC_REVIEW_LARK_USER_ACCESS_TOKEN`;
+- `AGENTIC_REVIEW_LARK_REFRESH_TOKEN`.
 
-授权时选择需要用于读取的企业身份；成功后确认 workflow 为成功状态、两个 Environment 中都已创建 token secret。当前 Review 不消费飞书凭据，首次授权前也可正常审查；恢复读取时须重新验证身份与工具准备。
+Pick the enterprise identity that should read material during authorization; afterwards confirm the workflow succeeded and both environments hold the token secrets. Review does not consume Lark credentials now and works before the first authorization; a restore must verify the identity and tool preparation again.
 
-之后 workflow 每小时串行刷新一次。OAuth 请求只消费一次 refresh token；Secret 写入才对同一值最多重试五次，不重新兑换 token。定时调度不保证准点执行，token 的有效期以 OAuth 响应和运行日志为准；这是一条自动续期链路，不是永不过期的登录。
+The workflow then renews hourly in series. Each OAuth request consumes the refresh token once; only secret writes retry the same value, up to five times, without exchanging the token again. Schedules are not punctual; token lifetimes follow the OAuth response and run log. This is an automatic renewal chain, not a login that never expires.
 
-UAT 过期但 refresh token 仍有效、或新 refresh token 已保存而 UAT 写入失败时，发送一个**新**的刷新事件：
+When the UAT expired but the refresh token is still valid, or the new refresh token was saved but the UAT write failed, send a **new** refresh event:
 
 ```bash
 gh api --method POST repos/Qiyin-Tech/agentic-review/dispatches \
   -f event_type=refresh-lark-user
 ```
 
-授权撤销、refresh token 失效、或新 refresh token 在保存成功前因写入失败/runner 终止而丢失时，重新发送 `authorize-lark-user` 并确认授权。Secret 重试不能保证跨飞书和 GitHub 的事务原子性；新 refresh token 丢失后无法由旧值恢复。不要复制旧 token 或把失败改成成功，也不要并行在本地消费这条续期链路。
+When authorization is revoked, the refresh token is invalid, or a new refresh token was lost before being saved because a write failed or the runner died, send `authorize-lark-user` again and confirm. Secret retries cannot make Lark and GitHub writes one atomic transaction; a lost new refresh token cannot be recovered from the old one. Do not copy old tokens or turn failures into success, and never consume this renewal chain locally in parallel.
 
-### 恢复读取时验证主企业与三个子企业
+### Verifying the Main Tenant and Three Sub-Tenants on Restore
 
-可读范围是**应用已开通的用户 scope ∩ 用户已同意的 scope ∩ 当前企业用户身份的文档/表格权限**。用户 OAuth 不要求逐篇“添加文档应用”；文档所有者需要把资料共享给授权的那个用户身份。
+Readable material is **the app's enabled user scopes ∩ the scopes the user granted ∩ the document and table permissions of the current enterprise user identity**. User OAuth does not require adding the app to each document; owners must share material with the authorizing identity.
 
-同一手机号切换企业不代表同一个 OAuth 身份，不能保证一个 UAT 覆盖主企业和三个子企业。分别选择代表性 Docx、Wiki 和 Base，先在授权时选择的企业身份下确认共享，再实际通过 API 读取；跨租户共享策略和接口支持仍可能限制访问。需要切换身份才能看到的资料，须先解决共享或另行设计多身份接入，本 PR 不承诺跨企业自动通读。
+Switching tenants with the same phone number is not the same OAuth identity, so one UAT is not guaranteed to cover the main tenant and the three sub-tenants. Pick a representative Docx, wiki, and base for each, confirm sharing under the identity chosen during authorization, then actually read them through the API; cross-tenant sharing policies and API support may still limit access. Material visible only after switching identities needs sharing fixed first or a separate multi-identity design; cross-tenant reading is not promised.
 
-恢复读取时，需要在 Agent 启动前准备并校验固定版本的官方 Lark CLI，再通过 `lark-cli api GET /open-apis/authen/v1/user_info --as user` 验证当前 UAT，并校验成功响应。它只证明登录有效，不证明文档权限；外部 token 模式下 CLI 禁用 `auth` 管理命令，不能用 `auth check` 或 `auth status` 验收。
+A restore must prepare and verify a pinned official Lark CLI before the agent starts, then verify the current UAT with `lark-cli api GET /open-apis/authen/v1/user_info --as user` and check the success response. That proves only a valid login, not document permissions; in external token mode the CLI disables `auth` management commands, so `auth check` and `auth status` cannot serve as acceptance.
 
-用需要读取测试链接的 PR 验收：工作稿应包含 `docs +fetch` 的相关正文、Wiki 解析后的读取结果，以及 Base 的表、字段和目标记录原值。登录检查成功或 Review 总体成功都不能替代这些实际读取证据。权限错误按层处理：缺 scope 时在应用后台开通、发布并重新用户授权；文档 ACL 不足时向授权身份共享；Base 记录缺失时检查该用户角色的行列权限。
+Accept with a PR that needs the test links: the workspace should contain the relevant body from `docs +fetch`, the read result after wiki resolution, and the base's tables, fields, and raw values of the target records. A successful login check or an overall successful review never replaces these actual reads. Handle permission errors by layer: a missing scope needs enabling and publishing in the app console and a fresh user authorization; insufficient document ACL needs sharing with the authorizing identity; missing base records need the user role's row and column permissions checked.
 
-高级权限 Base 同样遵守该用户所属角色的表、字段和记录范围。Lark CLI 不会越过用户 ACL；Figma 等第三方 iframe 仍只能取得飞书返回的链接或占位元数据。
+Bases with advanced permissions also follow the user role's table, field, and record scope. The Lark CLI never bypasses user ACLs; third-party iframes such as Figma still yield only the link or placeholder metadata Lark returns.
 
-### 下游规则
+### Downstream Rules
 
-以下规则供恢复读取后使用，当前中央入口的暂停范围优先。飞书读取遵循 `central/lark-context.md`，无需预先合并来源白名单。下游可在 `.agentic-review.md` 补充长期适用的链接、业务触发条件和表格状态语义，例如：
+These rules apply after a restore; the current central entry's pause takes precedence. Lark reading follows `central/lark-context.md` with no pre-merged source allowlist. Downstream repositories may add long-lived links, business triggers, and table status semantics in `.agentic-review.md`, for example:
 
 ```markdown
-## 飞书 Known issues
+## Lark Known Issues
 
-- 修改订单、支付或退款状态时，按需查询退款 PRD
-  `https://example.feishu.cn/wiki/wikcnRefundPRD`、验收记录
-  `https://example.feishu.cn/docx/doxcnRefundQA` 和 Issue 表
-  `https://example.feishu.cn/base/bascnIssues?table=tblIssues`；其他变更不读取。
-- Issue 表的“已排期”只表示计划中；“已验收”或正文中的验收结论才表示已修复。
+- When order, payment, or refund status changes, query the refund PRD
+  `https://example.feishu.cn/wiki/wikcnRefundPRD`, the acceptance record
+  `https://example.feishu.cn/docx/doxcnRefundQA`, and the issue table
+  `https://example.feishu.cn/base/bascnIssues?table=tblIssues` as needed; skip them for other changes.
+- "Scheduled" in the issue table means planned only; only "Accepted" or an acceptance conclusion in the body means fixed.
 ```
 
-Agent 可按审查需要读取明确提及的链接，继续读取相关且有权限的引用文档，不主动搜索文档；Base 表内记录定位使用筛选和最小字段投影。
+The agent may read explicitly mentioned links as the review needs, follow related referenced documents it has access to, and never search documents on its own; records inside a base are located with filters and minimal field projection.
 
-## 5. Review 发布权限验证
+## 5. Verifying Review Publication Permissions
 
-每次中央 workflow 会 mint 三个 installation token：
+Each central workflow run mints three installation tokens:
 
-| Token | 仓库范围 | 用途 | 权限 |
+| Token | Repository scope | Use | Permissions |
 |---|---|---|---|
-| read token | 目标 owner 中安装了 Review App 的仓库 | checkout、shaftoe action、`GH_TOKEN`、Pi bash 的 `gh` | `contents: read`、`issues: read`、`pull_requests: read`、`actions: read`、`checks: read` |
-| check token | 仅当前目标仓库 | Agent 启动前创建关联当前 Action Run 的 Check | `checks: write` |
-| publication token | 仅当前目标仓库 | Agent 结束后的可信发布步骤 | `contents: write`、`pull_requests: write`、`checks: write` |
+| read token | target owner's repositories with the Review App installed | checkout, the shaftoe action, `GH_TOKEN`, `gh` in Pi bash | `contents: read`, `issues: read`, `pull_requests: read`, `actions: read`, `checks: read` |
+| check token | current target repository only | creates the Check linked to the current Actions run before the agent starts | `checks: write` |
+| publication token | current target repository only | the trusted publication step after the agent ends | `contents: write`, `pull_requests: write`, `checks: write` |
 
-可信 workflow 在 Agent 启动前将 read token 的可读集合固定为目标 owner 中安装了 Review App 的仓库；目标 PR 不能增加仓库或权限。在这个固定集合内，workflow 自动关联索引，或 `.agentic-review.md` 等审查输入中的明确稳定 Issue/PR 引用，可以选择尚未在 merge base 声明的私有记录供 Agent 按需读取；这是既定产品边界，不需要 merge-base 预授权。关联只建立查询入口，不证明候选相关性或业务授权。Agent 按 PR head 理解预期合并后的项目状态语义，只在当前 finding 确有需要时查询。单个 installation token 不能跨 GitHub owner，其他 owner 的私有仓库需要单独的 installation/token 设计。
+Before the agent starts, the trusted workflow fixes the read token's readable set to the target owner's repositories with the Review App installed; the target PR cannot add repositories or permissions. Within that fixed set, the workflow's automatic association index or explicit stable issue/PR references in review input such as `.agentic-review.md` may select private records not declared at the merge base for on-demand reading; this is the intended product boundary and needs no merge-base pre-authorization. A link only creates a query entry and proves neither candidate relevance nor business authorization. The agent reads project status semantics by the PR head and queries only when a current finding needs it. One installation token cannot cross GitHub owners; private repositories of other owners need a separate installation and token design.
 
-`check token` 在 Pi 启动前创建 Check；publisher 使用封存并核对过的请求身份，重新校验结果 schema、scope、覆盖与 root comment 在当前 PR 中的归属，成功发布 Review、回复历史 thread 和执行 resolve/reopen 后，completion 才能标记成功。GraphQL 的 `resolveReviewThread`/`unresolveReviewThread` 除 `pull_requests: write` 外实际还要求 `contents: write`；该高权限 token 在 Agent 结束后才签发，只交给发布与 Check completion 步骤，不进入 Agent shell 或 Action input。审查与发布共用同一 job 和 runner；`prepare-review-context.ts` 收回代码、历史和输入的完整准备，`publish-review-run.ts` 收回可信校验、组装和发布。发布器的固定控制面代码在 Agent 启动前打包为准备步骤输出，Agent 结束后从 Runner 保存的输出恢复到全新临时目录执行，省去第二次 checkout；本地脚本改写不参与发布。请求上下文仍按准备步骤输出的 SHA-256 摘要校验，摘要缺失或上下文变化均阻断发布。请求摘要已固定但后续输入准备失败时，仍可保存该范围；Agent 未成功完成则不发布 Review。成功组装后记录 `workspace_ready`，成功与失败工作区按结果归档一次，保存范围及已有发布报告。自动 resolve/reopen 根据审查结论，不限制 thread 创建者。自定义 `submit_review` 扩展本身不读取 token，只校验并持久化 Agent 提交的结果对象；失败不能推进完整 audit checkpoint。
+The `check token` creates the Check before Pi starts. The publisher uses the sealed and verified request identity, rechecks result schema, scope, coverage, and that root comments belong to the current PR, and only after it publishes the review, replies to threads, and resolves or reopens them can completion mark success. GraphQL `resolveReviewThread`/`unresolveReviewThread` actually require `contents: write` besides `pull_requests: write`; that higher-privilege token is minted only after the agent ends and goes only to the publication and Check completion steps, never into the agent shell or action input. Review and publication share one job and runner; `prepare-review-context.ts` handles the full preparation of code, history, and input, and `publish-review-run.ts` handles trusted validation, assembly, and publication. The publisher's pinned control code is packed into a preparation step output before the agent starts and restored from the Runner's saved output into a fresh temporary directory after the agent ends, avoiding a second checkout; rewritten local scripts never take part in publication. The request context is still checked against the preparation step's SHA-256 digest, and a missing digest or changed context blocks publication. When the request digest is fixed but later input preparation fails, the scope can still be saved; no review is published unless the agent finished successfully. After successful assembly `workspace_ready` is recorded, and successful and failed workspaces are archived once by outcome, keeping the scope and any publication report. Automatic resolve/reopen follows the review conclusion regardless of who opened the thread. The custom `submit_review` extension reads no token; it only validates and persists the agent's result object, and failures never advance the complete audit checkpoint.
 
-Review job 在 Agent 启动前检查 `rg`（ripgrep）是否可用；缺失时通过 Ubuntu 系统包管理器安装，已有时直接复用，并执行 `rg --version` 验证。安装或验证失败会停止本轮，避免 Agent 在调查中因缺少搜索命令重试。
+Before the agent starts, the review job checks that `rg` (ripgrep) is available; if missing it installs it through the Ubuntu package manager, otherwise reuses it, and runs `rg --version` to verify. Installation or verification failure stops the round so the agent never retries during investigation for a missing search command.
 
-Review job 使用 Pi 原生重试：`retry.baseDelayMs: 15000`，连续重试等待 15、30、60 秒，其余沿用当前 Action 内置 Pi 1.3.0 默认设置。中央模型窗口为 `272000`，输入与输出共用，单次输出上限为 `25000`。启动材料预载按同一窗口计算预算。
+The review job uses Pi's native retry: `retry.baseDelayMs: 15000`, waiting 15, 30, and 60 seconds between consecutive retries, with everything else at the defaults of Pi 1.3.0 bundled in the current action. The central model window is `272000`, shared by input and output, with a per-call output limit of `25000`. Startup material preloading uses the same window for its budget.
 
-上下文由 [`pi-fold`](https://github.com/shaneconner/fold) 管理，版本固定在 workflow 的 `PI_FOLD_VERSION`，在 Agent 启动前安装并按版本缓存。窗口达到 80% 时，它把最早完成的工具批次折叠成由代码生成的简短摘要，原文仍保存在会话 JSONL 中；整轮审查是同一个未结束的 user 回合，pi-fold 把该回合的首条 user 消息（启动 Prompt 与预载规则）视为不可折叠；集成测试用约 100KB 的 Prompt 连续提交多次折叠，最后一次请求仍包含完整 Prompt。预载审查材料是否可被折叠没有单独验证。折叠不调用模型，因此不会出现原生压缩那样耗时的摘要请求：PR #129 的自审曾在 256K 触发原生压缩，摘要请求运行 58 秒后失败，整轮作废。pi-fold 会把超过 16KB 的 `read` 结果截成前 16KB，完整内容写入会话目录下的 `pi-fold-evidence/`，模型可按路径继续读取；bash 输出只在 Pi 自身已截断时才另存。这一截断不可关闭；历史 134 个 session 中，超过 16KB 的 `read` 只有 18 次，Review 主要通过 bash 读取代码。
+Context is managed by [`pi-fold`](https://github.com/shaneconner/fold), pinned by the workflow's `PI_FOLD_VERSION` and installed and cached by version before the agent starts. At 80% of the window it folds the earliest completed tool batches into short code-generated summaries while the original stays in the session JSONL. The whole review is one unfinished user turn, and pi-fold treats that turn's first user message (the startup prompt and preloaded rules) as unfoldable; an integration test submits several consecutive folds with a ~100KB prompt and the last request still contains the full prompt. Whether preloaded review material can be folded is not separately verified. Folding calls no model, so there is no slow summary request like native compaction: PR #129's self-review once triggered native compaction at 256K, the summary request ran 58 seconds and failed, and the whole round was lost. pi-fold truncates `read` results over 16KB to the first 16KB and writes the full content to `pi-fold-evidence/` in the session directory, readable by path; bash output is saved separately only when Pi itself truncated it. This truncation cannot be disabled; across 134 historical sessions only 18 `read` calls exceeded 16KB, since reviews read code mainly through bash.
 
-Pi settings 的 `compaction.enabled` 与 Action 的 `auto_compaction` 仍为 `true`：pi-fold 会先于阈值压缩折叠，原生压缩只在折叠后仍溢出时兜底。`review-runtime` 在原生压缩失败时先输出失败原因，再中止本轮。
+Pi settings `compaction.enabled` and the action's `auto_compaction` stay `true`: pi-fold folds before the compaction threshold, and native compaction only catches overflow left after folding. When native compaction fails, `review-runtime` prints the failure reason first and then aborts the round.
 
-中央 workflow 不提供模型自行调用的压缩、解压或上下文搜索工具；pi-fold 自带的 `pi_fold_context` 也不加入 `loaded_tools`。此前的 `billion-context-pi` 让模型自行调度压缩，前端 PR #483 的 3 文件变化曾产生 74 个回合、21 次手动压缩和反复规则恢复，形成明显耗时回退。可信规则仍直接预载；只有当前步骤所需的正文确已丢失时才补读，调查完成后直接刷新讨论并提交。
+The central workflow offers no model-invoked compaction, decompression, or context search tools; pi-fold's own `pi_fold_context` is not added to `loaded_tools` either. The earlier `billion-context-pi` let the model schedule compaction itself; a 3-file change in frontend PR #483 produced 74 turns, 21 manual compactions, and repeated rule recovery, a clear latency regression. Trusted rules are still preloaded directly; a body is reread only when the current step needs it and it has really been lost, and after investigation the agent refreshes the discussion and submits.
 
-原生行为也有明确限制：Pi 1.3.0 按完整错误文本匹配 `billing`，因此包含 `/account/billing` 帮助链接的 TPM 错误也会被判为不可重试，当前项目不再自行改写或重新分类；隔离验收保留了这个实际失败。普通回合的原生指数等待不解析正文中的 `Please try again in …s`。provider 层的服务端等待上限默认 60 秒，超过上限的错误仍可能被原生会话或摘要预算再次尝试；不能将默认逻辑描述为一定等满正文提示。原始错误和失败结果均保留，耗尽或不可重试时不发布成功 Review。
+Native behavior has known limits: Pi 1.3.0 matches `billing` against the full error text, so a TPM error containing a `/account/billing` help link is classified as non-retryable; this project no longer rewrites or reclassifies it, and isolated acceptance kept that real failure. Ordinary-turn native exponential backoff does not parse `Please try again in …s` in the body. The provider layer's server wait cap defaults to 60 seconds, and errors over the cap may still be retried by the native session or summary budget; do not describe the default as always waiting the full hinted time. Raw errors and failed results are kept, and exhausted or non-retryable errors never publish a successful review.
 
-Agent 的时间预算为 9 分钟（`REVIEW_TIME_BUDGET_SECONDS=540`），`Run Pi review` 步骤最多运行 15 分钟，review job 最多运行 30 分钟，为预算之外的模型调用收尾、审查前的准备和审查后的发布、结果上传留出时间。重试耗尽后仍会失败并由 publisher 保留工作稿。若固定 TPM 下仍频繁限流，应减少单次输入或并发请求；增加重试次数不能提高吞吐额度。Pi 的配置与扩展接口见 [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) 和 [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md)。
+The agent's time budget is 9 minutes (`REVIEW_TIME_BUDGET_SECONDS=540`); the `Run Pi review` step runs at most 15 minutes and the review job at most 30, leaving time for model calls finishing past the budget, preparation before review, and publication and uploads afterwards. Exhausted retries still fail, and the publisher keeps the workspace. If rate limits stay frequent under a fixed TPM, reduce per-call input or concurrent requests; more retries cannot raise throughput quota. Pi configuration and extension interfaces are in the [Settings Reference](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/settings.md#network-and-retries) and [Extensions](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/docs/extensions.md).
 
-修改请求恢复或摘要边界后，除普通测试外，使用与 Action 对应的 SDK 做隔离验收。下面的测试只连接本机模拟 HTTP/SSE 服务，覆盖真实自动压缩、流内恢复和会话落盘，不调用模型 API，也不增加生产依赖：
+After changing request recovery or summary boundaries, run isolated acceptance with the SDK matching the action besides the regular tests. The test below connects only to a local mock HTTP/SSE server and covers real auto-compaction, in-stream recovery, and session persistence without calling a model API or adding production dependencies:
 
 ```bash
 pi_sdk_check_dir="$(mktemp -d)"
@@ -245,7 +245,7 @@ PI_SDK_DIRECTORY="$pi_sdk_check_dir/node_modules/@earendil-works/pi-coding-agent
 rm -rf "$pi_sdk_check_dir"
 ```
 
-修改 pi-fold 版本、扩展加载顺序或窗口配置后，用 Action 发布产物验证真实加载、折叠和会话落盘。测试让模拟模型连续读取证据把窗口推过阈值，确认连续发生多次折叠、没有摘要请求、完整启动 Prompt 仍在窗口中：
+After changing the pi-fold version, extension load order, or window configuration, verify real loading, folding, and session persistence with the action's release artifact. The test has a mock model read evidence repeatedly to push the window past the threshold and confirms several consecutive folds, no summary request, and the full startup prompt still in the window:
 
 ```bash
 pi_fold_check_dir="$(mktemp -d)"
@@ -255,84 +255,84 @@ PI_ACTION_DIRECTORY="$pi_fold_check_dir/action" PI_FOLD_DIRECTORY="$pi_fold_chec
 rm -rf "$pi_fold_check_dir"
 ```
 
-Action 开启 `export_session_jsonl` 后使用原生落盘会话。每次运行将 `~/.pi/agent/sessions/` 下的原始 JSONL（含折叠与原生 compaction 记录）及 `pi-fold-evidence/` 归档为 `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 7 天。上传在 Agent 成功、失败或取消后执行，不依赖 Action 成功完成导出，因此导出前异常或超时也可保留已写盘部分；runner 丢失或尚未落盘的内容无法补回。日志包含系统消息、工具定义、输入、回复、工具结果和原生压缩记录，用于重建调查过程。归档不包含上层 `auth.json` 或运行时配置。首轮另记录 `[review-cache-prefix]` 的固定前缀、工具、系统消息与规则哈希，不输出正文，用于快速定位跨运行差异。当前规则与工具配置相同时，增补材料位于固定规则之后，不能改变固定断点之前的前缀。
+With `export_session_jsonl` enabled, the action uses natively persisted sessions. Each run archives the raw JSONL under `~/.pi/agent/sessions/` (including fold and native compaction records) and `pi-fold-evidence/` as `review-session-<repository-id>-<pull>-<source>-<run>-<attempt>`, kept for 7 days. The upload runs after the agent succeeds, fails, or is cancelled, independent of the action finishing its export, so content already on disk survives exceptions or timeouts before export; content lost with the runner or never written cannot be recovered. Logs contain system messages, tool definitions, input, replies, tool results, and native compaction records for reconstructing the investigation. The archive excludes the parent `auth.json` and runtime configuration. The first turn also logs `[review-cache-prefix]` hashes of the fixed prefix, tools, system messages, and rules, without bodies, to locate cross-run differences quickly. With unchanged rules and tool configuration, extra material sits after the fixed rules and cannot change the prefix before the fixed breakpoint.
 
-`REVIEW_FAST_MODE=true` 时，`Configure Pi runtime` 在 Agent 启动前向配置的模型网关发送一次短 Responses 请求，探测 `service_tier: "priority"`（[OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)）。响应确认 `priority`/`fast` 后，将该参数写入 Pi 的模型配置；网关或模型明确拒绝（HTTP 400/422），或响应未确认优先服务层时，本轮沿用 API 默认模式。正式 Review 直接使用 Pi 原生请求链路，不包装 fetch 或重复探测。探测的鉴权、配额、限流、网络及无关参数错误会使准备步骤失败；关闭开关时不探测，也不覆盖 API 项目自身的默认服务层设置。Fast mode 可能采用更高单价，额外的启动探测不计入 Review 主会话的 token 和费用统计。
+With `REVIEW_FAST_MODE=true`, `Configure Pi runtime` sends one short Responses request to the configured gateway before the agent starts to probe `service_tier: "priority"` ([OpenAI fast mode](https://developers.openai.com/api/docs/guides/fast-mode)). When the response confirms `priority`/`fast`, the parameter is written into Pi's model configuration; when the gateway or model explicitly rejects it (HTTP 400/422) or the response does not confirm the priority tier, the round keeps the API default. The review itself uses Pi's native request path without wrapping fetch or probing again. Authentication, quota, rate limit, network, and unrelated parameter errors during the probe fail the preparation step; with the switch off there is no probe and the API project's own default tier is not overridden. Fast mode may cost more per token, and the extra startup probe is not counted in the review session's token and cost statistics.
 
-发布统一采用 fail soft：公共输入校验失败停止全部写入；校验通过后，正文、每条 finding、请求回复、每个 thread 的状态同步和证据回复各自执行，异常只阻断依赖该操作的后续步骤。查询失败不能当作空列表继续写入。正文与 finding 分开请求，避免一条无效行号使全部结果无法发布；失效的历史 thread 也不影响其他结果。工作稿上传与发布按实际前置依赖编排，上传失败不阻断已经准备好的 GitHub 写入。
+Publication fails soft: a failed shared input check stops all writes; after it passes, the body, each finding, the request reply, each thread's status sync, and evidence replies run separately, and an error blocks only the steps depending on that operation. A failed query is never treated as an empty list for further writes. The body and findings are separate requests so one invalid line cannot block every result; stale earlier threads do not affect other results either. Workspace upload and publication are ordered by actual dependencies, and an upload failure does not block GitHub writes already prepared.
 
-发布前上传 `review-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>`，保留 `notes.md`、文件进度、结果及可信范围；Agent 或发布失败时，下一轮仍可恢复其中未完成的范围。发布成功后，`publication-report.json` 随 `review-completed-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>` 一起归档，不再单独上传成功报告。发布失败时，报告单独存入 `review-publication-<run>-<attempt>`；草稿组装或归档失败时另存原始诊断稿，不将其当作可恢复范围。原有工作区命名和历史查找协议保持一致。
+Before publication `review-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>` is uploaded with `notes.md`, file progress, the result, and the trusted scope; when the agent or publication fails, the next round can still recover its unfinished scope. After successful publication, `publication-report.json` is archived with `review-completed-workspace-<repository-id>-<pull>-<source>-<run>-<attempt>` and no separate success report is uploaded. On publication failure the report is stored alone in `review-publication-<run>-<attempt>`; when draft assembly or archiving fails, the raw diagnostic draft is stored separately and never used as recoverable scope. Workspace naming and history lookup stay consistent.
 
-`publication-report.json` 在摘要与 coverage 写入后保存，记录发布操作及依赖、结果和错误，也包含这两个出口的结果。Actions 摘要记录此前的 GitHub 操作；Check 详情最后写入，列出此前全部操作，包括报告自身的存储结果和存储失败后的 coverage 回写结果；Check 详情写入失败同样回写 coverage，其结果只在进程日志中。进程日志最后汇总全部操作。任一操作失败或被前置失败阻断，publisher 在完成其余操作后以非零状态结束，coverage 保持 `draft`，完整 audit checkpoint 不推进。报告存储失败或完成工作区上传失败同样不能让 Check 成功。全部操作成功时，正文和回复不附加执行说明；正文或请求回复发布前已有操作失败或被阻断时，开头提示失败数量。正文中的历史状态是审查判断，实际执行结果以运行报告为准。
+`publication-report.json` is saved after the summary and coverage are written and records publication operations with their dependencies, results, and errors, including the results of those two outputs. The Actions summary records earlier GitHub operations; Check details are written last and list every earlier operation, including the report's own storage result and the coverage write-back after a storage failure; a failed Check details write also writes back coverage, with its result only in the process log. The process log summarizes every operation last. When any operation fails or is blocked by a failed prerequisite, the publisher finishes the rest and exits non-zero, coverage stays `draft`, and the complete audit checkpoint does not advance. A failed report store or completed workspace upload likewise cannot make the Check succeed. When everything succeeds, the body and replies carry no execution notes; when operations failed or were blocked before the body or request reply was published, they open with the failure count. Earlier statuses in the body are review judgments; actual execution results follow the run report.
 
-同一运行重跑时，publisher 完整分页读取本 bot 发布的标记，复用已发布的正文、finding 和回复；正文中的执行说明按本次结果更新，resolve/reopen 重新核对远端状态。标记绑定运行、目标 PR、head、操作及内容。写请求报错可能意味着远端已生效，本轮不盲目重试；下次先核对标记。GitHub 写入与网络响应并非原子事务，远端尚不可见时无法保证恰好一次发布。
+On a rerun of the same run, the publisher reads every page of this bot's publication markers and reuses published bodies, findings, and replies; execution notes in the body are updated to this run's results, and resolve/reopen rechecks the remote state. Markers bind the run, target PR, head, operation, and content. A failed write request may still have taken effect remotely, so the round does not retry blindly; the next run checks markers first. GitHub writes and network responses are not atomic, so exactly-once publication cannot be guaranteed while the remote state is not yet visible.
 
-### 每轮一条 Review 与旧总评收起
+### One Review per Round and Collapsing Old Summaries
 
-本轮新 finding 作为 `comments[]` 随总评一次 `POST /pulls/{n}/reviews` 发布，页面上只新增一条时间线记录。整条 Review 会因任一行号不在 diff 中被 GitHub 拒绝，因此 `submit_review` 在提交时按 `git diff -M --unified=3` 的右侧 hunk 核对每条 finding，越界时返回该文件的可评论范围让模型修正，发布阶段不再逐条重试。无法绑定 diff 行的 finding（`line: null`）挂在 PR 改动文件上：创建 Review 的 `comments[]` 不支持文件级评论，publisher 在总评之前用 `POST /pulls/{n}/comments` 加 `subject_type: file` 逐条发布，每条单独占一条时间线记录；任一条失败时不发布总评，留待重跑补齐。这样总评一旦存在，它列出的讨论都已存在，后续审查读取 PR 时不会漏掉其中的问题。它与 inline finding 一样有 thread 状态，计入标题和索引，下一轮可标注和关闭。`submit_review` 校验 `path` 属于 PR 改动的文件。
+This round's new findings are published as `comments[]` with the summary in one `POST /pulls/{n}/reviews`, adding a single timeline entry. GitHub rejects the whole review when any line is outside the diff, so `submit_review` checks each finding against the right-side hunks of `git diff -M --unified=3` and, when out of range, returns that file's commentable ranges for the model to fix; publication does not retry finding by finding. Findings that cannot bind to a diff line (`line: null`) attach to a changed file of the PR: the review creation `comments[]` does not support file-level comments, so the publisher posts each one with `POST /pulls/{n}/comments` and `subject_type: file` before the summary, each adding its own timeline entry; if any fails, the summary is not published and a rerun completes it. Once the summary exists, every discussion it lists exists too, so later reviews reading the PR never miss them. Like inline findings these have thread state, count toward the title and index, and can be marked and closed in the next round. `submit_review` checks that `path` is a file changed by the PR.
 
-总评首行带发布标记与 `agentic-review:automatic-summary` 标记，第二行是 publisher 生成的标题。新的 automatic 总评发布后，publisher 用 `PUT /pulls/{n}/reviews/{id}` 把同一 PR 中本 bot 更早、尚未收起的 automatic 总评改为一行“已被某次审查取代”的指向（带 `agentic-review:superseded` 标记），原文放进 `<details>`，可展开查看，下一轮输入也仍能读取。按 Review ID 判断先后，同一运行重跑只收起比自身更早的总评，并补做上次失败的收起；已收起的总评不会被重跑恢复。新旧按运行先后判断，不按发布先后：自动审查的每项写入（总评、inline 与文件级讨论、状态标注、回复）都在发布标记中带运行号（`automatic-run:<run_id>`），thread 的 resolve/unresolve 不留文字，因此在同一 thread 的标注和回复写入后才执行。同一 PR 的自动审查由并发组串行执行，重跑沿用原运行号，PR 上出现运行号更大的写入就说明本运行是旧运行的重跑。此时前置操作“确认没有更新的审查”失败，讨论、总评、状态和收起全部不执行，Check 记为失败，后续审查的结论保持不变。该校验需要读到 Review 与评论列表，读取失败时同样不写。评论请求的答复可能只覆盖局部范围，既不收起其他总评，也不被收起。收起只改总评正文，其下的 inline 讨论不受影响。
+The summary's first line carries the publication marker and the `agentic-review:automatic-summary` marker; the second line is the publisher's title. After a new automatic summary is published, the publisher uses `PUT /pulls/{n}/reviews/{id}` to rewrite this bot's earlier, not yet collapsed automatic summaries on the same PR to a single line pointing at the superseding review (with the `agentic-review:superseded` marker), keeping the original in an expandable `<details>` that the next round's input can still read. Order is by review ID; a rerun of the same run collapses only summaries older than its own and completes collapses that failed last time; reruns never restore collapsed summaries. New versus old follows run order, not publication order: every automatic write (summary, inline and file-level discussions, status marks, replies) carries the run number in its publication marker (`automatic-run:<run_id>`), and thread resolve/unresolve leaves no text, so it runs after that thread's marks and replies are written. Automatic reviews of one PR run serially through the concurrency group, and reruns keep the original run number, so a write on the PR with a larger run number means this run is a rerun of an older run. The prerequisite "confirm there is no newer review" then fails, discussions, summary, statuses, and collapsing are all skipped, the Check fails, and the later review's conclusions stay. The check must read the review and comment lists; a failed read also writes nothing. Replies to comment requests may cover only part of the scope, so they neither collapse other summaries nor get collapsed. Collapsing changes only the summary body; inline discussions under it are unaffected.
 
-没有新 finding、没有 thread 状态变化且标题与最新 automatic 总评相同时，publisher 就地更新该总评，不新建 Review。就地更新把新发布标记追加在首行已有标记之后，新标记带本运行号，旧运行重跑据此停止写入。关闭历史问题时，publisher 在本 bot 创建的 root 首行写入带 `agentic-review:status` 标记的状态标注，再 resolve，不另发回复；重现、风险升级，或 root 不是本 bot 创建时才回复。每次收起、标注和回复都是独立的发布操作，失败时计入运行报告和 Check 结论，不影响已发布的新总评。
+With no new findings, no thread status changes, and a title matching the latest automatic summary, the publisher updates that summary in place instead of creating a review. The in-place update appends the new publication marker after the existing markers on the first line; the new marker carries this run's number, which stops writes from reruns of older runs. When closing an earlier problem, the publisher writes a status mark with the `agentic-review:status` marker at the top of a root this bot created, then resolves it without a reply; it replies only on reintroduction, severity increase, or when the root was not created by this bot. Each collapse, mark, and reply is a separate publication operation; failures count in the run report and Check conclusion and do not affect the new summary already published.
 
-### 评论请求、范围与历史
+### Comment Requests, Scope, and History
 
-评论进入中央 workflow 时只携带评论正文和身份，不携带固定 base/head；workflow 在实际开始时读取当前 PR 快照并固定本轮比较起点。评论任务不会拿不存在的旧 SHA 做快照校验；自动 `pull_request` 事件才会在排队后校验原始 base/head，过时就显式失败。runner 在普通失败路径上尽可能上传已有工作稿；硬中断不承诺保存。评论事件正文保存完整原文。
+A comment enters the central workflow with only its body and identity, without pinned base/head; the workflow reads the current PR snapshot when it actually starts and pins this round's comparison start. Comment tasks never check snapshots against stale SHAs; only automatic `pull_request` events verify the original base/head after queuing and fail explicitly when stale. On ordinary failure paths the runner uploads whatever workspace exists; hard interrupts promise nothing. Comment event bodies keep the full original text.
 
-中央任务把原文交给 Agent 判断范围，优先级是“显式自然语言范围 > thread 隐含范围 > PR 默认规则”。普通 PR 评论重新调查最近一次 PR 级请求的实际范围：即使没有代码变化也重新给出当前证据；有变化则审查新增变化和直接影响，并补齐上次失败或未完成的覆盖。thread 默认调查当前问题及直接影响，只有原文明确要求全 PR 才扩大，且不继承 PR 级范围历史。默认 scope 与可复用 workspace 由可信准备代码初始化；Agent 仅在范围变化时调用 `set_review_scope`，并更新 `review-progress.json` 中的文件进度。可信代码负责请求身份、batch 汇总和最终 `review-coverage.json` 历史记录。最终结果自动使用本轮 scope，无须复制 ID。
+The central task hands the original text to the agent to judge scope, with priority "explicit natural-language scope > implied thread scope > PR default". A plain PR comment re-investigates the actual scope of the latest PR-level request: without code changes it still gives current evidence; with changes it reviews new changes and their direct impact and fills coverage that failed or was unfinished last time. A thread by default investigates the current problem and its direct impact, widens only when the text explicitly asks for the whole PR, and does not inherit PR-level scope history. Trusted preparation code initializes the default scope and reusable workspace; the agent calls `set_review_scope` only when the scope changes and updates file progress in `review-progress.json`. Trusted code owns request identity and the final `review-coverage.json` history record. The final result uses this round's scope automatically without copying IDs.
 
-同一 PR 的最近 PR 级请求工作稿按控制仓库 Actions artifact 的 repository ID、PR、source、run 和 attempt 查找，不依赖 ancestor/base 关系；失败、跳过发布和草稿都可作为范围历史，排除 thread 工作稿和当前运行。查找不到、artifact 过期或 GitHub 接口错误分别记录，不能把错误当成“无历史”而改变范围。历史工作稿只读。成功的完整 `audit` checkpoint 仍需独立的成功 Check、提交关系和 base/head 校验；局部成功不能推进它。
+The latest PR-level request workspace for a PR is found through control repository Actions artifacts by repository ID, PR, source, run, and attempt, independent of ancestor/base relationships; failed runs, skipped publication, and drafts all count as scope history, excluding thread workspaces and the current run. Not found, expired artifacts, and GitHub API errors are recorded separately; an error is never taken as "no history" to change scope. Earlier workspaces are read-only. A successful complete `audit` checkpoint still needs its own successful Check, commit relationship, and base/head verification; partial success never advances it.
 
-### 同 PR 并发队列
+### Per-PR Concurrency Queue
 
-中央 workflow 在 workflow 级使用 `repository_id` 与 `pull_number` 组成 concurrency group，Review 与 publish 共享同一槽位；不同 PR 可以并行。配置为 `queue: max` 和 `cancel-in-progress: false`：同一 PR 最多一个运行中的任务，最多 100 个 pending 任务，队列满后 GitHub 会取消新增任务。FIFO 依据任务开始等待的时间，不保证 webhook 发出时间的绝对顺序。详见 [GitHub Actions concurrency 文档](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
+The execution workflow uses a workflow-level concurrency group of `repository_id` and `pull_number`, shared by review and publication; different PRs can run in parallel. It is configured with `queue: max` and `cancel-in-progress: false`: at most one running task and at most 100 pending tasks per PR, and GitHub cancels new tasks beyond that. FIFO follows when tasks started waiting, not the absolute order webhooks were sent. See [GitHub Actions concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 
-Review footer 分两行，标签均为中文：第一行先放“运行记录”和“审查工作稿”两个链接，再给出审查位置（本轮 head 与上次完整审查的 head）和已审文件数（含由来源 PR 审过的数量）；第二行是模型、推理档位、耗时、Token 数、Pi SDK 返回的美元费用估算和规则版本。GitHub 评论把单个换行渲染为换行，两行之间不留空行。thread 状态更新回复只链接运行，运行信息以同轮总评为准。费用保留四位小数，小于 $0.0001 时显示 `<$0.0001`，没有费用统计时明确显示“未提供”。显式注册的模型不在 Pi 目录中，SDK 会把它的费用算成 0。`review-cost` 扩展在首次请求前从 Pi 模型目录取价（含分档价格）：优先精确模型 ID；目录没有时，取同系列、同档位名中版本最高的型号，例如 `gpt-6.1-terra` 取 `gpt-5.6-terra`。后一种是估价，不是该模型的真实价格；同名模型在不同 provider 的价格可能不同，优先取 `openai`。目录中找不到可用价格的网关别名仍可正常审查，但用量统计标记价格未知（`priceKnown: false`），Review footer 与 Check 详情中的所有费用均显示“未提供”，不显示 $0.0000。费用不代表网关实际账单。Action 版本通过运行链接查看，审查的具体范围以工作稿为准。
+The review footer has two lines, with labels in the report language. The first line holds the "workflow run" and "review workspace" links, then the review position (this round's head and the head of the last complete review) and reviewed file counts (including those reviewed by their source PR); the second line holds the model, reasoning level, duration, token count, the dollar cost estimate returned by the Pi SDK, and the rules version. GitHub comments render single newlines as line breaks, so there is no blank line between them. Thread status replies link only the run; run information follows the same round's summary. Costs keep four decimals, show `<$0.0001` below $0.0001, and show "unavailable" explicitly when there are no cost statistics. Explicitly registered models are not in Pi's catalog, so the SDK computes their cost as 0. Before the first request the `review-cost` extension takes prices (including tiered prices) from Pi's model catalog: the exact model ID first; otherwise the highest version of the same family and tier name, for example `gpt-6.1-terra` takes `gpt-5.6-terra`. The latter is an estimate, not the model's real price; the same model may be priced differently across providers, and `openai` is preferred. Gateway aliases without a usable catalog price still review normally, but usage statistics mark the price unknown (`priceKnown: false`), and every cost in the review footer and Check details shows "unavailable" instead of $0.0000. Costs do not represent the gateway's actual bill. The action version is visible through the run link, and the exact review scope follows the workspace.
 
-中央 OpenAI Responses 请求使用稳定的 `prompt_cache_key: "agentic-review"`。仓库 Actions Variable `REVIEW_EXPLICIT_PROMPT_CACHE` 控制显式缓存：未设置或 `false` 时关闭，普通自动缓存由 Pi 和中转站处理；仅在确认当前网关和模型支持后设为 `true`。变量通过 workflow 环境映射到 Pi 的 `compat.supportsExplicitPromptCacheMode`，覆盖模型目录对官方服务的能力声明；非法布尔配置会使准备步骤失败。`supportsLongCacheRetention` 控制长期保留参数，不能替代此开关关闭显式断点。
+Central OpenAI Responses requests use a stable `prompt_cache_key: "agentic-review"`. The repository Actions variable `REVIEW_EXPLICIT_PROMPT_CACHE` controls explicit caching: unset or `false` disables it and Pi and the gateway handle ordinary automatic caching; set it to `true` only after confirming the gateway and model support it. The variable maps through the workflow environment to Pi's `compat.supportsExplicitPromptCacheMode`, overriding the catalog's capability declaration for the official service; invalid boolean values fail the preparation step. `supportsLongCacheRetention` controls the long retention parameter and cannot replace this switch for disabling explicit breakpoints.
 
-开启后，在固定规则 user 消息末尾增加 `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }`，并使用 `prompt_cache_options: { mode: "implicit", ttl: "30m" }` 给动态材料缓存。关闭时不加入这两类请求参数。缓存扩展保留完整消息正文、角色和顺序，会话标头仍由 Pi 独立生成。开启时若首个请求无法定位固定规则则中止，长审查压缩已移除原规则消息后沿用当前上下文，不重新插入旧消息。实际命中仍取决于前缀、有效期和服务端缓存。固定规则直接从可信控制面预载，不再安装到 Pi 的自动发现目录，避免系统再次要求读取同一 Skill。
+When enabled, `prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" }` is added at the end of the fixed-rules user message, and `prompt_cache_options: { mode: "implicit", ttl: "30m" }` caches dynamic material. When disabled, neither parameter is sent. The cache extension keeps full message bodies, roles, and order; session headers are still generated by Pi. When enabled, the first request aborts if the fixed rules cannot be located; after long-review compaction has removed the original rules message, the current context is kept and the old message is not reinserted. Actual hits still depend on prefix, lifetime, and server caching. Fixed rules are preloaded directly from the trusted control checkout and no longer installed into Pi's auto-discovery directory, so the system never asks to read the same skill again.
 
-显式断点属于请求元数据，不增加 Prompt 正文 token 或模型调用。固定前缀的 12h 与动态材料的 30m 用于请求上游缓存策略，不决定中转站的收费规则。当前中转站统一计算缓存写入，不区分 TTL；费用估算直接采用 SDK 已配置的缓存写入价格，不因为请求了 12h 而再加价。12 小时从写入计时，不能将每次命中理解为重新获得 12 小时，缓存语义见 [OpenAI 缓存生命周期说明](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)。冷启动、规则变化或长期缓存失效仍需写入，是否节省取决于后续复用次数和间隔。
+Explicit breakpoints are request metadata and add no prompt tokens or model calls. The 12h fixed prefix and 30m dynamic material request an upstream caching policy and do not decide the gateway's billing. The current gateway bills cache writes uniformly regardless of TTL; cost estimates use the SDK's configured cache write price and add nothing for requesting 12h. The 12 hours count from the write; a hit does not restart them. Cache semantics are in [OpenAI cache lifetime](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime). Cold starts, rule changes, or expired long-term caches still need writes; whether it saves money depends on later reuse count and spacing.
 
-每个模型回合的普通输入、缓存读取、缓存写入、输出、推理 Token 和各项费用估算记录在会话 JSONL 对应 assistant 消息的 `usage` 中，运行日志不再逐回合输出。`reasoning` 已包含在 `output` 中，不能重复相加；普通输入不含缓存两项。费用直接沿用 Pi SDK 返回的统计，不改写消息用量或费用，也不要求中转站返回 TTL 写入明细。扩展通过 `message_end` 校验标准 Token 和费用数值；统计本身缺失或损坏时仍中止并移除旧费用文件，发布不能使用先前回合的统计掩盖失败。Check 详情展示总缓存写入量及 SDK 估算，不展示网关未承诺的生命周期拆分。统计不保存 Prompt、源码、评论或模型正文，也不额外发起模型请求。失败回合保留 SDK 已报告的用量；完整会话费用继续以 Action 汇总为准。比较上线前后时分别统计初审和复审，并核对第一轮固定前缀的缓存写入是否转为读取；缓存 key 改动本身不保证实际节省金额。
+Each model turn's plain input, cache reads, cache writes, output, reasoning tokens, and cost estimates are recorded in the `usage` of the matching assistant message in the session JSONL; run logs no longer print them per turn. `reasoning` is already included in `output` and must not be added twice; plain input excludes both cache items. Costs come straight from the Pi SDK statistics, without rewriting message usage or cost and without requiring the gateway to return TTL write breakdowns. The extension validates standard token and cost values through `message_end`; when the statistics themselves are missing or corrupt it still aborts and removes the old cost file, so publication cannot mask the failure with earlier turns' statistics. Check details show total cache writes and the SDK estimate, not lifetime splits the gateway never promised. Statistics store no prompts, source, comments, or model text and make no extra model requests. Failed turns keep the usage the SDK reported; full session cost still follows the action summary. When comparing before and after a rollout, count first reviews and re-reviews separately and check whether the first turn's fixed-prefix cache writes turned into reads; changing the cache key alone does not guarantee savings.
 
-相同回合统计累计保存为工作区的 `review-usage.json`，随现有 artifact 归档。可信发布器校验数值后，在 Check 详情的用量部分展示回合数、首轮缓存命中率、首轮普通输入/缓存读取/缓存写入，以及累计 token 和费用分项；命中率分母是首轮普通输入、缓存读取、缓存写入之和，零输入单独说明。缺失的推理分项显示未提供，不当作零。分项只统计审查回合，总费用仍采用 Action 汇总；规则版本同时显示为控制面 SHA，便于比较。统计缺失或损坏时发布失败，不填造零值；该文件不保存会话正文，也不参与覆盖完成或请求身份判断。
+The same per-turn statistics accumulate in the workspace's `review-usage.json` and are archived with the existing artifact. After validating the values, the trusted publisher shows in the Check details' usage section the turn count, first-turn cache hit rate, first-turn plain input, cache reads, and cache writes, plus cumulative token and cost breakdowns; the hit-rate denominator is the sum of first-turn plain input, cache reads, and cache writes, and zero input is noted separately. Missing reasoning breakdowns show as unavailable, never zero. Breakdowns count only review turns; total cost still follows the action summary; the rules version is also shown as the control SHA for comparison. Missing or corrupt statistics fail publication rather than inventing zeros; the file stores no session text and plays no part in coverage completion or request identity.
 
-footer 以固定元数据标记包围。准备输入、读取关联 PR 和刷新讨论时，只剔除当前 Review App 自己生成的此区域，避免运行信息增加下轮输入费用；完整统计保存在 Check 详情和 artifact 中。审查结论、发布幂等标记、人工回复与其他机器人正文保持不变，统计之外的判断编辑仍正常进入增量讨论。
+The footer is wrapped in fixed metadata markers. When preparing input, reading related PRs, and refreshing discussion, only this region generated by the current Review App is stripped, so run information does not add to the next round's input cost; full statistics stay in Check details and artifacts. Review conclusions, publication idempotency markers, human replies, and other bots' text stay unchanged, and judgment edits outside the statistics still enter the incremental discussion.
 
-页脚链接当前 Actions 运行的 artifacts 区域，其中包含可恢复草稿、完成工作区或失败诊断报告；保留期以 workflow 的 `retention-days` 为准，访问者必须登录且拥有中央仓库权限。Check Run 的 `details_url` 指向中央仓库当前 `${GITHUB_RUN_ID}`。GitHub known issue 查询使用中央 Skill 和只读 `gh`。
+The footer links the current Actions run's artifacts, which include the recoverable draft, the completed workspace, or failure diagnostics; retention follows the workflow's `retention-days`, and viewers must be signed in with central repository access. The Check Run's `details_url` points to the central repository's current `${GITHUB_RUN_ID}`. GitHub known-issue queries use the central skill and read-only `gh`.
 
-### 复盘数据
+### Retrospective Data
 
-PR 页面只面向读者：最新总评完整展示，旧 automatic 总评收起为一行指向，footer 只占一行。复盘按下表读取，不从 PR 正文解析统计。
+The PR page serves readers only: the latest summary in full, older automatic summaries collapsed to a one-line pointer, and a short footer. Retrospectives read the table below and never parse statistics from PR text.
 
-| 数据 | 位置 | 保留 |
+| Data | Location | Retention |
 | --- | --- | --- |
-| 运行信息、审查结果计数、覆盖、用量与费用分项、未成功的发布操作 | 每次运行的 Check（`Agentic Review / audit` 或 `/ requested`）的 `output.text` | 随目标仓库的提交保留 |
-| 每轮总评原文（旧总评在折叠区内）；finding、状态标注、状态更新与人工回复 | PR Review、inline thread | 随 PR 保留 |
-| 发布操作的错误原文 | Actions 摘要、`publication-report.json` | 运行日志保留期；artifact 7 天 |
-| `notes.md`、会话 JSONL、`pi-fold-evidence/` | workspace 与 session artifact | 7 天 |
+| Run info, result counts, coverage, usage and cost breakdowns, failed publication operations | `output.text` of each run's Check (`Agentic Review / audit` or `/ requested`) | Kept with the target repository's commits |
+| Each round's summary text (older ones inside the collapsed block); findings, status marks, status updates, and human replies | PR reviews, inline threads | Kept with the PR |
+| Raw errors of publication operations | Actions summary, `publication-report.json` | Run log retention; artifacts 7 days |
+| `notes.md`, session JSONL, `pi-fold-evidence/` | workspace and session artifacts | 7 days |
 
-Check 详情由发布器生成，经发布步骤输出交给 Check completion，Agent 不能写入该输出；发布器未运行到写出时，Check 只有结论和摘要。详情只列操作 ID 与状态，不含错误原文。读取示例：
+Check details are generated by the publisher and handed to Check completion through a publication step output, which the agent cannot write; when the publisher never got that far, the Check has only a conclusion and summary. Details list only operation IDs and states, without raw errors. Example query:
 
 ```sh
 gh api graphql -f query='query($owner:String!,$name:String!,$pull:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pull){commits(last:100){nodes{commit{oid checkSuites(first:20){nodes{checkRuns(first:20,filterBy:{checkName:"Agentic Review / audit"}){nodes{databaseId conclusion text}}}}}}}}}}' \
   -f owner=<owner> -f name=<repo> -F pull=<number>
 ```
 
-旧总评是否已收起，看正文第二行是否带 `agentic-review:superseded` 标记。会话 JSONL、`pi-fold-evidence/` 与 `notes.md` 含目标仓库源码或引用片段，保留期维持 7 天；需要深入分析调查过程时，在过期前导出到 Git 忽略的 `evals/experiments/` 并在报告中注明。
+Whether an older summary is collapsed shows in the `agentic-review:superseded` marker on its second line. Session JSONL, `pi-fold-evidence/`, and `notes.md` contain target repository source or quotations, so retention stays 7 days; to analyze an investigation in depth, export them before expiry to a Git-ignored local directory and note it in the report.
 
-如果 Review 发布失败，先检查：
+If publishing the review fails, check:
 
-1. Review App 是否安装到目标仓库和需要读取的关联仓库；
-2. App 是否包含 `Issues: read`、`Pull requests: write` 和 `Contents: read and write`，且安装已接受最新权限；
-3. Actions secret 中的 private key 是否属于该 App；
-4. Agent 的 `github_token` 与 `GH_TOKEN` 是否仍绑定只读 token，且 publication token 只在 Agent 结束后签发并传给可信发布步骤；
-5. publisher 使用的 `repository`、`pull_number` 和 base/head SHA 是否来自 webhook dispatch input。
-6. Worker 的 `REVIEW_BOT_MENTION` 是否对应 Review App 的实际 slug；中央 workflow 发布环境中的 `REVIEW_BOT_LOGIN` 是否为同一 slug 加 `[bot]`。
+1. the Review App is installed on the target repository and the linked repositories to read;
+2. the app has `Issues: read`, `Pull requests: write`, and `Contents: read and write`, and the installation accepted the latest permissions;
+3. the private key in the Actions secret belongs to that app;
+4. the agent's `github_token` and `GH_TOKEN` are still bound to the read token, and the publication token is minted only after the agent ends and passed to the trusted publication step;
+5. the publisher's `repository`, `pull_number`, and base/head SHAs come from the webhook dispatch input;
+6. the Worker's `REVIEW_BOT_MENTION` matches the Review App's actual slug, and `REVIEW_BOT_LOGIN` in the central workflow's publication environment is that slug plus `[bot]`.
 
-## 6. 验证
+## 6. Verification
 
 ```bash
 pnpm install --frozen-lockfile
@@ -341,4 +341,4 @@ pnpm test
 pnpm dlx wrangler@4.123.0 deploy --dry-run
 ```
 
-用一个测试 PR 确认中央 workflow 日志中：Agent 的 `gh` 使用 read token，最后创建了一个 GitHub Pull Request Review，而不是普通 issue comment。
+On a test PR, confirm in the central workflow log that the agent's `gh` uses the read token and that one GitHub pull request review was created rather than a plain issue comment.

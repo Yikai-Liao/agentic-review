@@ -5,7 +5,7 @@ import { reviewLanguageInstruction, type ReviewLanguage } from './review-languag
 export async function loadReviewPrompt(control: string, language: ReviewLanguage = 'zh-CN') {
   const files = [
     'skills/agentic-review/SKILL.md',
-    ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `skills/agentic-review/references/${name}.md`),
+    ...['protocol', 'findings', 'review-state', 'evidence-access', 'reporting'].map(name => `skills/agentic-review/references/${name}.md`),
     'central/github-context.md', 'central/review-result.md',
     'skills/agentic-review/references/levels/code.md',
     ...['alignment', 'security', 'reliability', 'performance'].map(name => `skills/agentic-review/references/focuses/${name}.md`),

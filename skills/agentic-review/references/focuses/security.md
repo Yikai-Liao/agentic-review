@@ -1,52 +1,52 @@
-# 安全：谁有权对什么资源做什么
+# Security: Who May Do What to Which Resource
 
-安全审查从实际权限和信任边界出发，检查身份、数据或操作是否越过约定边界。危险函数名只用于定位需要追踪的路径。
+Security review starts from real permissions and trust boundaries and checks whether identities, data, or operations cross agreed boundaries. Dangerous function names only locate paths to trace.
 
-本方法用于架构或代码中明确的安全审查，也用于完整审查中新增、放宽或依赖安全边界的相关变化。需求层按自己的场景、范围和一致性方法检查安全承诺；实现安全须沿实际设计或代码机制另行证明。
+Use it for explicit security reviews of architecture or code, and in full reviews for changes that add, relax, or rely on security boundaries. Requirements-level security promises are checked with that level's scenario, scope, and consistency methods; implementation security is proven along real design or code mechanisms.
 
-## 先画清实际权限关系
+## Map the Real Permission Relationships
 
-查清操作主体、身份从哪里取得、资源或租户归谁所有、允许做什么、信任边界在哪里，以及涉及哪些敏感数据。依据来自真实使用方、权限约定和有效决定，不虚构攻击者能力，也不要求所有系统采用同一套安全方案。
+Establish the acting principal, where its identity comes from, who owns the resource or tenant, what is allowed, where trust boundaries lie, and which sensitive data is involved. Grounds come from real consumers, permission contracts, and valid decisions; do not invent attacker capabilities or require one security design everywhere.
 
-信任边界是不同可信程度的参与方之间传递信息或执行操作的位置。检查重点是接收方凭什么相信这些信息；名为“校验”的函数只提供调查入口。
+A trust boundary is where information passes or operations execute between parties of different trust. The key question is why the receiver believes the information; a function named "validate" is only an entry point.
 
-## 沿身份和数据追到实际结果
+## Follow Identity and Data to the Real Outcome
 
-架构层检查：各方都遵守已给规则时，是否仍会直接采纳低信任方提供的身份或权限，或让敏感结果跨越无人负责的边界。
+At architecture level, check whether — with every party following the given rules — the design still adopts identities or permissions from a low-trust party directly, or lets sensitive results cross a boundary nobody owns.
 
-代码层沿真实入口追踪：
+At code level, follow real entry points:
 
 ```text
-取得身份和输入 → 转换 → 授权、过滤或执行 → 实际返回或副作用
+obtain identity and input → convert → authorize, filter, or execute → actual return or side effect
 ```
 
-说明在现实允许的攻击能力下，未授权主体怎样取得数据或执行操作，满足[代码行为证明](../levels/code/behavior.md)。只追与选定边界有因果关系的路径。
+Show how, under realistic attacker capability, an unauthorized principal obtains data or performs an operation, meeting the [code behavior proof](../levels/code/behavior.md). Trace only paths causally linked to the chosen boundary.
 
-例如，租户 ID 来自用户可修改的请求字段，读取资源时未与已认证身份绑定，真实返回路径又把其他租户的数据交给调用者，就可能证明越界。若该字段只作查询提示，最终服务仍用可信身份校验资源归属，就不能仅凭出现 `tenant_id` 报跨租户。
+Example: a tenant ID comes from a user-editable request field, resource reads are not bound to the authenticated identity, and the real return path hands another tenant's data to the caller — this can prove a boundary breach. If the field is only a query hint and the service still checks ownership with the trusted identity, the presence of `tenant_id` alone does not prove cross-tenant access.
 
-## 用相关路径检验边界
+## Test the Boundary Along Relevant Paths
 
-从本轮涉及的资源或操作出发，按实际机制选择以下检查；同一路径共用证据。
+Starting from the resources or operations involved, choose checks by actual mechanism; one path shares its evidence.
 
-| 相关机制 | 调查动作 |
+| Mechanism | Investigation |
 |---|---|
-| 多个入口产生同一效果 | 比较直接访问、批量、导入和后台任务的授权对象与条件，沿较弱路径追到结果 |
-| 数据存在副本或其他出口 | 跟踪缓存、搜索、导出、备份、日志和错误响应中的敏感内容，核对谁能读取，以及权限或删除约定怎样生效 |
-| 值经过转换后用于决策 | 比较校验方与使用方实际采用的身份、资源标识和范围，检查解析、归一化或字段覆盖是否改变含义 |
-| 权限或状态发生变化 | 在撤权、凭据刷新、迁移或恢复后，检查旧凭据、排队任务和恢复数据是否仍允许已撤销的访问 |
+| Several entry points produce the same effect | Compare authorization objects and conditions across direct, bulk, import, and background paths; follow the weaker one to its outcome |
+| Data has copies or other exits | Follow sensitive content into caches, search, exports, backups, logs, and error responses; check who can read it and how permission or deletion contracts take effect |
+| Converted values drive decisions | Compare the identity, resource identifier, and scope the validator and the consumer actually use; check whether parsing, normalization, or field overriding changes meaning |
+| Permissions or state change | After revocation, credential refresh, migration, or recovery, check whether old credentials, queued jobs, and recovered data still allow revoked access |
 
-例如，原约定要求撤权后停止访问，而搜索仍按入库时的 ACL 返回正文，可用“入库 → 撤权 → 搜索”检查旧成员是否仍能读到内容。若返回前按当前 ACL 重新鉴权，则该路径已受保护。
+Example: the contract stops access after revocation, but search still returns content by the ACL captured at indexing. "Index → revoke → search" checks whether a former member can still read it. If results are re-authorized against the current ACL before returning, the path is protected.
 
-这里判断访问权限；涉及中断后的交付保证时，复用[可靠性方法](reliability.md)。
+This judges access; delivery guarantees after interruption reuse [Reliability](reliability.md).
 
-## 检查能够阻止越界的机制
+## Mechanisms That Block the Breach
 
-核对上游认证、下游资源授权、数据转换、部署限制、脱敏和实际使用路径。缺陷（defect）需要有依据的安全要求、现实可达能力、越界机制和影响；已证明越界不能降格成“建议确认”。
+Check upstream authentication, downstream resource authorization, data conversion, deployment limits, redaction, and real consumer paths. A `defect` needs a grounded security requirement, realistically reachable capability, breach mechanism, and impact; a proven breach is never downgraded to "please confirm".
 
-如果变更确实改变安全保证，却缺少当前必要的授权或决定，按待决事项（decision）说明最小需要决定的问题。业务决定、运行或发布权限及更高优先级的安全约束分别按各自来源生效。
+When a change genuinely alters a security guarantee but lacks a necessary authorization or decision now, raise a `decision` with the smallest question. Business decisions, run or release permissions, and higher-priority security constraints each take effect from their own sources.
 
-验证覆盖按受托范围进入[验证方法](verification.md)；泄漏结论仍须有现实可达的越界机制和影响。
+Verification coverage enters [Verification](verification.md) per the delegated scope; leak conclusions still need a reachable breach mechanism and impact.
 
-## 交付和复核
+## Delivery and Re-review
 
-处理完成应恢复相关边界，使原越界场景失败而合法访问仍成功，不强制采用某个中间件。相同根因已由其他视角报告时合并；必要权限材料不可得时说明限制，不伪造安全认证。
+A fix restores the boundary so the original breach scenario fails while legitimate access succeeds, without mandating particular middleware. Merge with the same root cause reported by other focuses; when necessary permission material is unavailable, state the limit and never fake a security sign-off.

@@ -271,7 +271,7 @@ async function dispatchReview(
     };
   } else {
     const commentPayload = payload as CommentPayload;
-    // 评论事件不固定 SHA；排队后由 workflow 解析打开或已合并 PR 的当前快照。
+    // Comment events pin no SHA; after queuing, the workflow resolves the current snapshot of the open or merged PR.
     inputs = commentDispatchInput(commentPayload, event, '', '');
   }
   await githubFetch(`/repos/${config.controlFullName}/actions/workflows/agentic-review.yml/dispatches`, {

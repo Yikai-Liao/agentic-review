@@ -1,9 +1,9 @@
-# 测试过约束：测试拒绝了合法变化
+# Test Overconstraint: Tests That Reject Legitimate Changes
 
-按 [测试审查](test-contracts.md) 完成共同的范围核对、行为调查、反证与记录；本文件只补充受托的 T2 过约束证明。
+Complete the shared scope check, behavior investigation, counter-evidence check, and records per [test review](test-contracts.md); this file only adds the delegated T2 overconstraint proof.
 
-## 证明 T2 过约束：测试拒绝了合法变化
+## Proving T2 Overconstraint
 
-构造一种保持目标契约的现实变化，例如可扩展集合增加合法成员、无序结果改变遍历顺序、对象增加无关字段、内部 helper 等价重构，或逐项调用改为等价批处理。
+Construct a realistic change that keeps the target contract: a legitimate new member of an extensible set, a different iteration order for unordered results, an unrelated added field, an equivalent internal helper refactor, or equivalent batching of per-item calls.
 
-沿生产结果与测试判定路径，证明测试会失败，并核对没有独立约定要求它固定的属性，才能作为 T2 过约束问题。报告时说明更窄、但仍完整验证行为的判定边界。
+Following the production result and the test's verdict path, show the test fails, and confirm no independent contract requires the property it pins. Report a narrower verdict boundary that still fully verifies the behavior.

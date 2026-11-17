@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { main, readDiscussion } from '../scripts/refresh-review-discussion.ts';
 import { reviewMetadataStart, reviewMetadataEnd } from '../scripts/review-usage.ts';
 
-const comment = (id: number, body = '原始评论') => ({ id, body, user: { login: 'author' }, updated_at: '2026-09-07T10:00:00Z' });
+const comment = (id: number, body = 'Original comment') => ({ id, body, user: { login: 'author' }, updated_at: '2026-09-07T10:00:00Z' });
 const thread = (id: number, isResolved = false) => ({ id: `thread-${id}`, isResolved, isOutdated: false,
   resolvedBy: isResolved ? { login: 'maintainer' } : null, comments: { nodes: [{ databaseId: id }] } });
 const threadPage = (nodes: unknown[], hasNextPage = false) => ({ data: { repository: { pullRequest: {
@@ -34,10 +34,10 @@ test('startup snapshot and fixed-baseline delta include all comment kinds and th
   const unchanged = await readDiscussion('owner/repo', '61', fixture().run, initial.baseline);
   assert.deepEqual(unchanged.discussion, { issue_comments: [], inline_comments: [], reviews: [], threads: [] });
   const changed = fixture({
-    issue: [[comment(1, '编辑后的明确决定')], [comment(4, '新增决定')]],
-    inline: [[comment(2)], [{ ...comment(5, '新增回复'), in_reply_to_id: 2,
+    issue: [[comment(1, 'Edited explicit decision')], [comment(4, 'New decision')]],
+    inline: [[comment(2)], [{ ...comment(5, 'New reply'), in_reply_to_id: 2,
       diff_hunk: '@@ -1 +1 @@', original_line: 1, commit_id: 'b'.repeat(40) }]],
-    reviews: [[comment(3, '编辑后的 Review')], [comment(6, '新增 Review')]],
+    reviews: [[comment(3, 'Edited review')], [comment(6, 'New review')]],
     threads: [threadPage([thread(2, true)], true), threadPage([thread(7)])],
   });
   const before = JSON.stringify(initial.baseline);
@@ -57,7 +57,7 @@ test('startup snapshot and fixed-baseline delta include all comment kinds and th
   assert.deepEqual((await readDiscussion('owner/repo', '61', changed.run, initial.baseline)).discussion, delta);
 });
 
-test('独立讨论查询并发开始，全部完成后才返回快照', async () => {
+test('Independent discussion queries start concurrently and the snapshot returns only after all finish', async () => {
   const source = fixture();
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -81,29 +81,29 @@ test('独立讨论查询并发开始，全部完成后才返回快照', async ()
   assert.deepEqual(discussion.threads.map(record => record.root_comment_id), [2]);
 });
 
-test('自己的统计 footer 不回流到模型；判断、发布标记及人工引用保持原文', async t => {
+test('Our own stats footer never flows back to the model; judgments, publication markers, and human quotes stay verbatim', async t => {
   const original = process.env.REVIEW_APP_SLUG;
   process.env.REVIEW_APP_SLUG = 'review-app';
   t.after(() => {
     if (original === undefined) delete process.env.REVIEW_APP_SLUG;
     else process.env.REVIEW_APP_SLUG = original;
   });
-  const body = `已确认权限修复满足原关闭条件。\n\n${reviewMetadataStart}\n费用分析：缓存写入 30K token。\n${reviewMetadataEnd}\n<!-- publication-id -->`;
+  const body = `Confirmed the permission fix meets the original closing condition.\n\n${reviewMetadataStart}\nCost analysis: 30K cache write tokens.\n${reviewMetadataEnd}\n<!-- publication-id -->`;
   const own = { ...comment(11, body), user: { login: 'review-app[bot]' } };
   const human = comment(12, body);
   const other = { ...comment(13, body), user: { login: 'other-app[bot]' } };
   const source = fixture({ issue: [[own, human, other]], inline: [[own]], reviews: [[own]] });
   const snapshot = await readDiscussion('owner/repo', '61', source.run);
   for (const records of [snapshot.discussion.issue_comments, snapshot.discussion.inline_comments, snapshot.discussion.reviews]) {
-    assert.equal(records[0].body, '已确认权限修复满足原关闭条件。\n\n\n<!-- publication-id -->');
+    assert.equal(records[0].body, 'Confirmed the permission fix meets the original closing condition.\n\n\n<!-- publication-id -->');
   }
   assert.equal(snapshot.discussion.issue_comments[1].body, body);
   assert.equal(snapshot.discussion.issue_comments[2].body, body);
   assert.equal(own.body, body);
   const statsOnly = fixture({ issue: [[{ ...own, body: body.replace('30K', '40K') }, human, other]], inline: [[own]], reviews: [[own]] });
   assert.deepEqual((await readDiscussion('owner/repo', '61', statsOnly.run, snapshot.baseline)).discussion.issue_comments, []);
-  const decision = fixture({ issue: [[{ ...own, body: body.replace('满足', '不满足') }, human, other]], inline: [[own]], reviews: [[own]] });
-  assert.match(String((await readDiscussion('owner/repo', '61', decision.run, snapshot.baseline)).discussion.issue_comments[0].body), /不满足原关闭条件/);
+  const decision = fixture({ issue: [[{ ...own, body: body.replace('meets', 'does not meet') }, human, other]], inline: [[own]], reviews: [[own]] });
+  assert.match(String((await readDiscussion('owner/repo', '61', decision.run, snapshot.baseline)).discussion.issue_comments[0].body), /does not meet the original closing condition/);
 });
 
 test('timestamp boundary overlaps and newly visible records are not filtered by creation time', async () => {
@@ -117,9 +117,9 @@ test('timestamp boundary overlaps and newly visible records are not filtered by 
   assert.deepEqual(discussion.inline_comments.map(x => x.id), [10]);
 });
 
-test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬运字段', async () => {
+test('Discussion input keeps text, versions, line numbers, and reply relations while dropping API transport fields', async () => {
   const evidence = {
-    id: 21, body: '已确认保留此范围。\n\n```ts\nconst enabled = false;\n```',
+    id: 21, body: 'Confirmed keeping this scope.\n\n```ts\nconst enabled = false;\n```',
     html_url: 'https://github.test/owner/repo/pull/61#discussion_r21',
     created_at: '2026-10-28T01:00:00Z', updated_at: '2026-10-28T02:00:00Z',
     author_association: 'MEMBER', commit_id: 'b'.repeat(40), original_commit_id: 'a'.repeat(40),
@@ -136,9 +136,9 @@ test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬
     ...evidence, url: 'https://api.github.test/comments/21', node_id: 'opaque-comment-id',
     pull_request_url: 'https://api.github.test/pulls/61', _links: { self: { href: 'api-url' } },
     user: { ...evidence.user, avatar_url: 'avatar-url', followers_url: 'followers-url', node_id: 'opaque-user-id' },
-    performed_via_github_app: { ...evidence.performed_via_github_app, description: '应用介绍', owner: { avatar_url: 'avatar-url' } },
+    performed_via_github_app: { ...evidence.performed_via_github_app, description: 'App description', owner: { avatar_url: 'avatar-url' } },
   };
-  const review = { id: 8, body: '当前方案已确认，未运行测试。', state: 'COMMENTED',
+  const review = { id: 8, body: 'Current approach confirmed; tests not run.', state: 'COMMENTED',
     submitted_at: '2026-10-28T02:00:00Z', commit_id: 'b'.repeat(40), user: null };
   const initial = await readDiscussion('owner/repo', '61', fixture({
     inline: [[raw]], reviews: [[{ ...review, _links: { html: 'review-url' } }]],
@@ -153,8 +153,8 @@ test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬
   assert.deepEqual(metadataOnly.discussion.inline_comments, []);
   assert.deepEqual(metadataOnly.discussion.reviews, []);
 
-  // 正文编辑、定位变更与 Review 状态变化仍能从固定启动基线检出。
-  for (const change of [{ body: '撤回之前的确认。' }, { line: 12 }, { commit_id: 'c'.repeat(40) }]) {
+  // Body edits, position changes, and review state changes are still detected from the pinned startup baseline.
+  for (const change of [{ body: 'Withdrawing the earlier confirmation.' }, { line: 12 }, { commit_id: 'c'.repeat(40) }]) {
     const changed = await readDiscussion('owner/repo', '61', fixture({ inline: [[{ ...raw, ...change }]] }).run, initial.baseline);
     assert.deepEqual(changed.discussion.inline_comments, [{ ...evidence, ...change }]);
   }
@@ -164,7 +164,7 @@ test('讨论输入保留原文、版本、行号和回复关系，去除 API 搬
   assert.equal(dismissed.discussion.reviews[0].state, 'DISMISSED');
 });
 
-test('删除全部历史 thread 时仍输出删除变化，固定基线支持重复刷新', async () => {
+test('Deleting every earlier thread still reports deletions, and the pinned baseline supports repeated refreshes', async () => {
   const initial = await readDiscussion('owner/repo', '587', fixture({
     inline: [[comment(3975642831), comment(3975642841)]],
     threads: [threadPage([thread(3975642831), thread(3975642841)])],
@@ -181,7 +181,7 @@ test('删除全部历史 thread 时仍输出删除变化，固定基线支持重
   assert.equal(deleted.calls.length, 8);
 });
 
-test('完整分页后区分删除、未变化、新增和状态变化的 thread', async () => {
+test('After full pagination, deleted, unchanged, new, and state-changed threads are distinguished', async () => {
   const initial = await readDiscussion('owner/repo', '61', fixture({
     threads: [threadPage([thread(1), thread(2), thread(3)])],
   }).run);
@@ -223,8 +223,8 @@ test('refresh CLI leaves its baseline unchanged on both success and failure', as
     assert.deepEqual(JSON.parse(await main(fixture().run)).removed_threads, []);
     assert.deepEqual(JSON.parse(await main(fixture({ threads: [threadPage([])] }).run)).removed_threads,
       [{ id: 'thread-2', root_comment_id: 2 }]);
-    const edited = { ...comment(2, '修改后的根评论'), path: 'src/auth.ts' };
-    const reply = { ...comment(4, '维护者确认'), in_reply_to_id: 2 };
+    const edited = { ...comment(2, 'Edited root comment'), path: 'src/auth.ts' };
+    const reply = { ...comment(4, 'Maintainer confirmation'), in_reply_to_id: 2 };
     const changed = fixture({ inline: [[edited, reply]], threads: [threadPage([thread(2, true)])] });
     for (let attempt = 0; attempt < 2; attempt++) {
       const refresh = JSON.parse(await main(changed.run));
@@ -233,7 +233,7 @@ test('refresh CLI leaves its baseline unchanged on both success and failure', as
       assert.equal(refresh.threads[0].state.isResolved, true);
       assert.deepEqual(refresh.threads[0].comments, [edited, reply]);
     }
-    // since 查询只返回新回复时，脚本补齐启动快照中的根评论。
+    // When a since query returns only new replies, the script fills in the root comment from the startup snapshot.
     const replyOnly = JSON.parse(await main(fixture({ inline: [[reply]] }).run));
     assert.deepEqual(replyOnly.threads[0].comments, [comment(2), reply]);
     const stateOnly = JSON.parse(await main(fixture({ inline: [[]], threads: [threadPage([thread(2, true)])] }).run));

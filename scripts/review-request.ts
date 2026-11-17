@@ -48,7 +48,7 @@ export type ReviewCoverage = {
   updated_at: string;
 };
 
-// Agent 只提交判断和进度；请求身份与默认计划由准备阶段单独封存。
+// The agent submits only judgments and progress; request identity and the default plan are sealed separately by preparation.
 export type ReviewContext = Pick<ReviewCoverage, 'request' | 'default_plan'> & { source_reviewed: string[] };
 export type ReviewProgress = { scope?: ReviewScopeDecision; ledger: CoverageEntry[] };
 
@@ -146,7 +146,7 @@ export function prepareDefaultReviewPlan(
     inherited_from_run: null, reason: 'no_history', previous_status: null,
   };
   if (request.source === 'automatic') return full;
-  // 未记录实际范围就失败时，默认计划本身仍是尚未完成的义务。
+  // When a run failed before recording its actual scope, the default plan itself remains an unfinished obligation.
   const scope = previous?.scope ?? previous?.default_plan;
   if (!previous || !scope || scope.kind !== 'pr' || previous.request.repository !== request.repository
     || previous.request.pull_number !== request.pull_number) return full;
@@ -158,7 +158,7 @@ export function prepareDefaultReviewPlan(
     kind: 'pr', mode: scope.mode, ranges: structuredClone(scope.ranges), inherited_from_run: inherited,
     reason: 'reopen_unchanged_scope', previous_status: previous.status,
   };
-  // 部分发布的旧范围仍有未审文件，与失败一样保留为本轮义务。
+  // A partially published earlier scope still has unreviewed files, kept as this round's obligation like a failure.
   const failed = previous.status !== 'published' || previous.ledger.some((entry) => entry.status === 'pending');
   const incremental = previous.request.base_sha === request.base_sha && usable(previous.request.head_sha, request.head_sha);
   const current = incremental
@@ -183,7 +183,7 @@ export function validateReviewRanges(ranges: ReviewRange[]): void {
 }
 
 export function reviewInventory(targetPath: string, request: ReviewRequest, plan: DefaultReviewPlan): string[] {
-  // 完整 PR 保留显式扩大范围的入口；所有历史区间独立枚举，撤销不能抵消待审文件。
+  // The whole PR keeps the entry for explicit widening; every history range is enumerated separately so reverts cannot cancel pending files.
   const files = new Set<string>();
   const intervals = new Set([request.comparison_start + '..' + request.head_sha,
     ...plan.ranges.map((item) => item.comparison_start + '..' + item.comparison_end)]);
@@ -234,7 +234,7 @@ export async function main() {
         || previous.request.source !== process.env.REVIEW_PREVIOUS_SOURCE) throw new Error('Previous coverage does not match selected artifact');
       if (process.env.REVIEW_PREVIOUS_PUBLISHED === 'true') {
         if (previous.status !== 'published') throw new Error('Completion artifact is not published');
-        // 已发布工作稿可能是时间预算内的部分结论；这里只核对其结构，未审文件由默认计划继续承接。
+        // A published workspace may hold partial conclusions within the time budget; only its structure is checked here, and the default plan carries unreviewed files.
         pendingCoverage(previous, inventoryDigest(previous.ledger.map((entry) => entry.path)));
       } else {
         previous = { ...previous, status: previous.scope ? 'draft' : 'requested', complete_audit: false };
@@ -245,7 +245,7 @@ export async function main() {
   }
   const coverage = initialReviewCoverage(request);
   coverage.default_plan = prepareDefaultReviewPlan(request, previous, (start, end) => comparisonUsable(process.env.REVIEW_TARGET_PATH!, start, end));
-  // 来源 PR 已审且合入内容与其 head 一致的文件，直接记为来源已审；其余文件待审。
+  // Files whose source PR was reviewed and whose merged content matches its head are recorded as source-reviewed; the rest are pending.
   const attribution = JSON.parse(await readFile(process.env.REVIEW_ATTRIBUTION_PATH!, 'utf8')) as SourceAttribution;
   const sourceReviewed = new Set(attribution.reviewed);
   coverage.ledger = reviewInventory(process.env.REVIEW_TARGET_PATH!, request, coverage.default_plan)
@@ -259,9 +259,9 @@ export async function main() {
   await writeFile(contextPath, contextText, { encoding: 'utf8', mode: 0o400, flag: 'wx' });
   await persistReviewProgress(progressPath, { ledger: coverage.ledger, scope: {
     mode: coverage.default_plan.mode, ranges: coverage.default_plan.ranges,
-    rationale: '采用默认审查计划；显式请求改变范围时由 Agent 调整。', explicit_text: '',
+    rationale: 'Default review plan; the agent adjusts it when an explicit request changes the scope.', explicit_text: '',
   } });
-  // Runner 在本步骤结束时保存摘要；后续 Agent 对本地文件的修改不能改写该步骤输出。
+  // The Runner saves the digest when this step ends; later agent changes to local files cannot rewrite that step output.
   await appendFile(process.env.GITHUB_OUTPUT!, `inventory_digest=${inventoryDigest(coverage.ledger.map((entry) => entry.path))}\ncomparison_start=${request.comparison_start}\ncontext_digest=${createHash('sha256').update(contextText).digest('hex')}\n`);
 }
 

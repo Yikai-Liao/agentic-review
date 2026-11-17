@@ -11,7 +11,7 @@ export type ModelUsage = {
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 };
 
-// priceKnown 为 false 表示模型没有目录单价，cost 字段全为 0 但不代表免费。
+// priceKnown false means the model has no catalog price; cost fields are 0 but that does not mean free.
 export type ReviewUsage = { turns: number; priceKnown: boolean; first: ModelUsage; total: ModelUsage };
 
 export function parseReviewUsage(value: unknown): ReviewUsage {

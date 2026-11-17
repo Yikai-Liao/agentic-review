@@ -1,7 +1,7 @@
-// 中央 Review 的时间预算：可信扩展计时，模型只接收阶段通知，不能自行判定预算已用尽。
+// Central review time budget: the trusted extension keeps time, and the model only receives phase notices and can never declare the budget exhausted.
 export type ReviewPhase = 'investigate' | 'wrap_up' | 'submit_only';
 
-// 收尾阶段预留给讨论刷新、根因归纳和提交；到截止点后只允许提交。
+// The wrap-up phase is reserved for refreshing discussion, consolidating root causes, and submitting; after the deadline only submission is allowed.
 export const wrapUpReserveSeconds = 180;
 
 export function reviewBudgetSeconds(value: string | undefined): number {
@@ -20,7 +20,7 @@ export function reviewPhase(startedAt: number | undefined, now: number, budgetSe
 }
 
 export const budgetMessages = {
-  continue: '本轮尚未调用 `submit_review`。`review-progress.json` 已全部 complete 时立即调用 `submit_review`；仍有 pending 文件且未收到收尾通知时，不能以范围大、时间不足或未完成为由结束，继续按风险顺序调查，完成一组即登记 complete。',
-  wrapUp: `时间预算已进入收尾阶段，约 ${wrapUpReserveSeconds / 60} 分钟后只允许调用 \`submit_review\`。停止开启新调查：先运行讨论刷新脚本，再按已取得的证据归纳已审部分的结论；未完成文件保持 pending，然后调用 \`submit_review\`。发布器会根据文件进度列出未审查文件，正文不必复述覆盖统计。`,
-  submitNow: '时间预算已用尽，除 `submit_review` 外的工具都会被拒绝。立即按已取得的证据调用 `submit_review`；未完成文件保持 pending。',
+  continue: '`submit_review` has not been called yet. When every entry in `review-progress.json` is complete, call `submit_review` now; while files are pending and no wrap-up notice has arrived, do not stop because the scope is large, time is short, or work is unfinished. Keep investigating in risk order and mark each finished group complete.',
+  wrapUp: `The time budget has entered wrap-up; in about ${wrapUpReserveSeconds / 60} minutes only \`submit_review\` is allowed. Start no new investigation: run the discussion refresh script, consolidate conclusions for the reviewed part from the evidence you have, keep unfinished files pending, then call \`submit_review\`. The publisher lists unreviewed files from file progress, so the body need not restate coverage.`,
+  submitNow: 'The time budget is exhausted and every tool except `submit_review` is rejected. Call `submit_review` now with the evidence you have; keep unfinished files pending.',
 } as const;

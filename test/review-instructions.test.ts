@@ -34,7 +34,7 @@ function headingAnchors(source: string): Set<string> {
     .toLowerCase().replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '').replace(/\s/g, '-')));
 }
 
-test('共同规则预载与 compaction 恢复一致，默认 code 方法直接预载，缺规则时加载失败', async t => {
+test('preload matches compaction recovery, default code methods are preloaded, and missing rules fail loading', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'review-instructions-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   for (const relative of ['central', 'skills/agentic-review']) {
@@ -43,12 +43,12 @@ test('共同规则预载与 compaction 恢复一致，默认 code 方法直接�
   const assembled = await loadReviewPrompt(path.join(directory, 'control'));
   const loaded = [...assembled.matchAll(/^## control\/(.+)$/gm)].map(match => match[1]);
   const prompt = await read('central/review-rules.md');
-  const recovery = prompt.split('\n').find(line => line.startsWith('本入口已预载'))!;
+  const recovery = prompt.split('\n').find(line => line.startsWith('This entry preloads'))!;
   const restored = [...recovery.matchAll(/`((?:skills\/|references\/|central\/)[^`]+\.md)`/g)]
     .flatMap(match => expandBraces(match[1].startsWith('references/') ? skill + match[1] : match[1]));
   assert.deepEqual(loaded.slice(0, restored.length), restored);
   assert.deepEqual(restored, [
-    `${skill}SKILL.md`, ...['protocol', 'findings', 'review-state', 'evidence-access'].map(name => `${skill}references/${name}.md`),
+    `${skill}SKILL.md`, ...['protocol', 'findings', 'review-state', 'evidence-access', 'reporting'].map(name => `${skill}references/${name}.md`),
     'central/github-context.md', 'central/review-result.md',
   ]);
   assert.ok(assembled.includes(await read('central/review-result.md')));
@@ -57,54 +57,49 @@ test('共同规则预载与 compaction 恢复一致，默认 code 方法直接�
     ...['alignment', 'security', 'reliability', 'performance'].map(name => `${skill}references/focuses/${name}.md`),
     ...['behavior', 'test-contracts'].map(name => `${skill}references/levels/code/${name}.md`),
   ]);
-  assert.ok(!loaded.some(file => /references\/levels\/(requirements|architecture|plan)\.md|evals/.test(file)));
+  assert.ok(!loaded.some(file => /references\/levels\/(requirements|architecture|plan)\.md|report-examples/.test(file)));
   for (const level of ['requirements', 'architecture', 'plan', 'code']) await read(`${skill}references/levels/${level}.md`);
   for (const match of prompt.matchAll(/\breferences\/[\w/-]+\.md/g)) await read(skill + match[0]);
   await rm(path.join(directory, 'control', skill, 'references/protocol.md'));
   await assert.rejects(loadReviewPrompt(path.join(directory, 'control')), /ENOENT/);
 });
 
-test('关联记录规则由可信中央入口按需加载，分类不替代 finding 关闭条件', async () => {
+test('central adapters load the known-issue rules, whose classes do not replace finding closing conditions', async () => {
   const relative = `${skill}references/known-issues.md`;
   const rules = await read(relative);
-  const entry = await read(`${skill}SKILL.md`);
-  const protocol = await read(`${skill}references/protocol.md`);
-  assert.ok(entry.includes('(references/known-issues.md)'));
-  assert.ok(protocol.includes('(known-issues.md)'));
+  assert.ok((await read(`${skill}SKILL.md`)).includes('(references/known-issues.md)'));
+  assert.ok((await read(`${skill}references/protocol.md`)).includes('(known-issues.md)'));
   for (const adapter of ['central/github-context.md', 'central/lark-context.md']) {
-    const source = await read(adapter);
-    assert.ok(source.includes(`完整读取 \`$REVIEW_CONTROL_PATH/${relative}\``), adapter);
+    assert.ok((await read(adapter)).includes(`read \`$REVIEW_CONTROL_PATH/${relative}\` in full`), adapter);
   }
-  const categories = [...rules.matchAll(/^\| ([^|]+) \|/gm)].map(match => match[1].trim());
-  assert.deepEqual(categories, ['分类', '计划中', '已确认 / 已接受', '已修复', '未解决', '状态不明']);
-  assert.ok(rules.includes('(review-state.md#状态变更需要什么证据)'));
-  assert.ok(rules.includes('(findings.md#输出)'));
-  assert.ok(rules.includes('记录中的触发条件或状态，怎样连接到当前修改，再怎样影响数据、接口、使用方或验收结果'));
-  assert.ok(rules.includes('当前变化扩大影响、使原保护或接受前提失效，或重新引入问题'));
-  // 只防止加载/职责契约再次丢失；语义正反例在 C09/C10，不声称模型已通过。
+  const classes = [...rules.matchAll(/^\| ([^|]+) \|/gm)].map(match => match[1].trim());
+  assert.deepEqual(classes, ['Class', 'Planned', 'Confirmed / accepted', 'Fixed', 'Unresolved', 'Unknown']);
+  assert.ok(rules.includes('(review-state.md#evidence-for-status-changes)'));
+  assert.ok(rules.includes('(findings.md#output)'));
+  // Guards only the loading and responsibility contract, not model behavior.
 });
 
-test('中央保留默认职责清单和层级入口', async () => {
+test('the code level keeps the default duties and central keeps the level entry and test branches', async () => {
   const prompt = await read('central/review-rules.md');
-  assert.match(prompt, /level = code/);
-  const focuses = [...prompt.matchAll(/^\d\. ([^：]+)：/gm)].map(match => match[1]);
-  assert.deepEqual(focuses, ['行为与意图对齐', '安全边界', '可靠性与恢复', '性能与资源成本', '测试有效性']);
+  const code = await read(`${skill}references/levels/code.md`);
+  const duties = [...code.matchAll(/^\| ([^|-][^|]*) \| .+ \| .+ \|$/gm)].map(match => match[1].trim());
+  assert.deepEqual(duties.slice(0, 6), ['Duty', 'Behavior and intent', 'Security boundaries',
+    'Reliability and recovery', 'Performance and resource cost', 'Test validity']);
+  assert.ok(code.includes('Choosing code does not start an independent requirements, architecture, or plan review'));
+  assert.match(prompt, /The default level is code/);
   const testReview = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)]
     .map(match => JSON.parse(match[1])).find(config => config.test_review)?.test_review;
   assert.deepEqual(testReview, { default: ['T1'], explicit_request_only: ['T2'], excluded: ['test_economics'] });
-  assert.ok(prompt.includes('仅执行本入口选定的分支'));
-  assert.ok(prompt.includes('不自动启动独立的需求、架构或计划审查'));
-  assert.ok(prompt.includes('不默认追加可维护性/风格/架构偏好专项或验证充分性审计'));
+  assert.ok(prompt.includes('run only the branches selected here'));
   assert.ok(prompt.includes('Head `.agentic-review.md`'));
   assert.ok(prompt.includes('Head `AGENTS.md`'));
   assert.ok(prompt.includes('references/levels/<level>.md'));
-  assert.ok(!/沿用原有默认|旧有默认侧重点/.test(prompt));
-  // 仅校验调用契约文字，不把字符串出现当作模型行为已通过。
 });
 
-test('安装包及当前维护文档的本地链接闭合，运行包不依赖仓库外规则', async () => {
+test('local links in the skill package and maintained docs resolve, and the package stays self-contained', async () => {
   const runtime = await markdownFiles('skills/agentic-review');
-  const documents = ['README.md', 'AGENTS.md', ...runtime, ...await markdownFiles('central'), ...await markdownFiles('docs'), 'evals/README.md', 'evals/generalized-review/README.md'];
+  const documents = ['README.md', 'AGENTS.md', '.agentic-review.md', 'worker/README.md', ...runtime,
+    ...await markdownFiles('central'), ...await markdownFiles('docs')];
   assert.deepEqual(runtime.filter(file => file.endsWith('/SKILL.md')), [`${skill}SKILL.md`]);
   for (const file of documents) {
     const source = await read(file);
@@ -114,43 +109,26 @@ test('安装包及当前维护文档的本地链接闭合，运行包不依赖�
       const [target, anchor] = url.split('#');
       const resolved = target ? path.posix.normalize(path.posix.join(path.posix.dirname(file), decodeURIComponent(target))) : file;
       assert.ok(!resolved.startsWith('../') && !path.isAbsolute(resolved), `${file}: ${url}`);
-      if (file.startsWith(skill)) assert.ok(resolved.startsWith(skill), `运行包越界: ${file}: ${url}`);
+      if (file.startsWith(skill)) assert.ok(resolved.startsWith(skill), `link leaves the package: ${file}: ${url}`);
       await stat(path.join(root, resolved));
-      if (anchor && resolved.endsWith('.md')) assert.ok(headingAnchors(await read(resolved)).has(decodeURIComponent(anchor)), `失效 anchor: ${file}: ${url}`);
+      if (anchor && resolved.endsWith('.md')) assert.ok(headingAnchors(await read(resolved)).has(decodeURIComponent(anchor)), `broken anchor: ${file}: ${url}`);
     }
   }
 });
 
-test('中央 JSON 示例仍通过生产 schema，表达模板只由中央适配器定义', async () => {
+test('central JSON examples pass the production schema and report wording lives in the skill', async () => {
   const result = await read('central/review-result.md');
-  const examples = [...result.matchAll(/```json\n([\s\S]*?)\n```/g)];
-  const parsed = examples.map(example => parseReviewResult(example[1]));
-  assert.ok(parsed.some(example => example.request_reply !== null), '包含 thread 请求答复示例');
-  assert.ok(parsed.some(example => example.request_reply === null && example.comments.length === 0), '包含仅正文示例');
-  assert.ok(parsed.some(example => example.thread_updates.length > 0), '包含历史 thread 更新示例');
-  // 标题和问题索引由发布器生成，示例正文从结论开始。
-  assert.ok(parsed.every(example => !example.body.startsWith('#')));
+  const parsed = [...result.matchAll(/```json\n([\s\S]*?)\n```/g)].map(example => parseReviewResult(example[1]));
+  assert.ok(parsed.some(example => example.request_reply !== null), 'has a thread reply example');
+  assert.ok(parsed.some(example => example.request_reply === null && example.comments.length === 0), 'has a body-only example');
+  assert.ok(parsed.some(example => example.thread_updates.length > 0), 'has a thread update example');
   assert.ok(parsed.some(example => example.comments.length > 0));
-  assert.ok(result.includes('## 总评正文'));
-  assert.ok(result.includes('## Finding 内容'));
-  assert.ok(result.includes('收到收尾通知前，`submit_review` 要求全部 scope 内覆盖完成'));
-  assert.ok(result.includes('不另建 `review.md` 索引'));
-  const findings = await read(`${skill}references/findings.md`);
-  assert.ok(!findings.includes('## Finding 内容'));
-  assert.ok(!findings.includes('恰好三段'));
-});
-
-test('通用化案例的输入和预期分离且完整，不进入中央预载', async () => {
-  const index = JSON.parse(await read('evals/generalized-review/cases.json'));
-  const gold = JSON.parse(await read('evals/generalized-review/expectations.json'));
-  const ids = index.cases.map((item: { id: string }) => item.id).sort();
-  assert.equal(ids.length, new Set(ids).size);
-  assert.deepEqual(ids, gold.expectations.map((item: { id: string }) => item.id).sort());
-  assert.equal(gold.kind, 'evaluation_criteria_not_results');
-  for (const item of index.cases) {
-    assert.ok(item.input.startsWith('evals/generalized-review/inputs/'));
-    const input = await read(item.input);
-    assert.ok(input.length > 200);
-    assert.ok(!input.includes('expectations.json'));
+  // The publisher generates the title and index, so example bodies start with the verdict.
+  assert.ok(parsed.every(example => !example.body.startsWith('#')));
+  assert.ok(result.includes('Before the wrap-up notice, `submit_review` requires all in-scope coverage to be complete'));
+  assert.ok(result.includes('Do not create a separate `review.md` index'));
+  const reporting = await read(`${skill}references/reporting.md`);
+  for (const heading of ['## Summary', '## Findings', '## Status Reasons for Earlier Findings', '## Final Self-Check']) {
+    assert.ok(reporting.includes(heading), heading);
   }
 });

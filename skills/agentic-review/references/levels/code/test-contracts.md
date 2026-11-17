@@ -1,79 +1,79 @@
-# 测试审查：判得准，并保留有价值的检测
+# Test Review: Accurate Verdicts and Valuable Detection
 
-测试审查检查判定是否符合独立契约，以及能否发现其余测试遗漏的真实错误（**独立检测能力**）。测试数量和表面相似只用于定位调查。
+Test review checks whether verdicts follow independent contracts and whether tests catch real errors the other tests miss (**independent detection power**). Test count and surface similarity only help locate the investigation.
 
-## 选择本次范围和问题类型
+## Scope and Problem Types
 
-增量审查（delta）包含本次修改的测试用例、参数行、断言、测试数据（fixture）、快照（snapshot）、模拟对象（mock）和测试辅助函数（helper）；也包含生产变化使原有错误测试判定重新可达的情况。整体审计（audit）针对明确委托的当前测试集合，报告时注明问题已有，不伪造新增归因。
+A delta review covers changed test cases, parameter rows, assertions, fixtures, snapshots, mocks, and test helpers, plus production changes that make an existing wrong test verdict reachable again. An audit covers the explicitly delegated current test set and notes that problems are pre-existing without inventing new attribution.
 
-单纯缺测试、覆盖率或用例保持为调查线索。测试审查报告三种有完整证明的问题：
+Missing tests, coverage, or cases alone stay as leads. Test review reports three fully proven problems:
 
-| 类型 | 要证明什么 |
+| Type | What to prove |
 |---|---|
-| **T1：测试失真（false confidence）** | 测试放过了它本来应发现的错误 |
-| **T2：测试过约束（change detector）** | 测试拒绝了契约允许的合法变化 |
-| **T2：冗余测试信号（zero-marginal）** | 测试可能判得正确，但相对其余测试没有新增错误检测能力，只增加重复失败信号或维护点 |
+| **T1: false confidence** | The test lets through an error it should catch |
+| **T2: change detector** | The test rejects a legitimate change the contract allows |
+| **T2: zero-marginal signal** | The test may judge correctly but adds no error detection over the rest, only duplicate failure signals or maintenance points |
 
-前两种属于测试有效性，第三种属于测试经济性。完整代码审查按下文变化表选择分支；明确窄审只执行受托分支及其必需证据，其他部分标为范围外。
+The first two are test validity; the third is test economics. A full code review picks branches by the change table below; an explicitly narrow review runs only the delegated branch and its necessary evidence and marks the rest out of scope.
 
-## 按行为约定调查测试变化
+## Investigate Test Changes by Behavior Contract
 
-增量审查从 base/head diff 核对全部受托变化，包括同一测试中各条改变的断言，以及共享 fixture、mock 或 helper 影响的测试。整体审计核对当前受托集合。按共同的行为约定与生产边界合并读取和调查，成员之间只补查影响判断的差异。
+A delta review checks every delegated change from the base/head diff, including each changed assertion in a test and tests affected by shared fixtures, mocks, or helpers. An audit checks the delegated current set. Read and investigate together by shared behavior contract and production boundary; members only add the differences that affect the judgment.
 
-对当前变化查清：
+For the current change, establish:
 
-- 测试负责什么保证，独立契约在哪里，责任止于哪一层；
-- 输入怎样经过生产决策和副作用，形成被观察的实际结果；
-- 测试如何准备数据、取得预期、执行匹配并决定通过或失败；
-- 本次变化怎样影响上述路径，以及相关测试还能否拒绝违反契约的行为。
+- which guarantee the test owns, where the independent contract is, and at which layer its responsibility stops;
+- how input passes through production decisions and side effects into the observed actual result;
+- how the test prepares data, obtains the expectation, matches, and decides pass or fail;
+- how this change affects that path, and whether related tests can still reject contract violations.
 
-**oracle** 是测试判断正确结果的依据，**verdict** 是最终通过或失败的判定。分别追踪实际结果和预期结果，可以发现两者共享错误来源、却仍然相等的情况。
+The **oracle** is the test's basis for the correct result; the **verdict** is the final pass or fail. Tracing actual and expected results separately reveals cases where both share a wrong source yet still match.
 
-输入类别与边界来自实际生产条件和独立契约。权限、身份、状态、平台、边界值或实际路径不同的成员分别判断；普通名称或数值变化本身不证明语义不同。共享准备影响多个行为时，沿真实调用核对各受影响行为，不能用一个测试的结论覆盖其余不同路径。
+Input categories and boundaries come from real production conditions and independent contracts. Judge members separately when permissions, identity, state, platform, boundary values, or real paths differ; ordinary name or value changes do not prove different semantics. When shared setup affects several behaviors, follow real calls for each; one test's conclusion does not cover different paths.
 
-这些是调查要求，工作稿只保存恢复判断所需的证据与缺口，使用文件、测试名和符号定位。无需为每条断言另建编号、语义组或关联台账。比较测试替代关系与选择保留代表，仅在受托的测试经济性分支执行。
+These are investigation requirements. The workspace keeps only the evidence and gaps needed to restore the judgment, located by file, test name, and symbol; no IDs, semantic groups, or ledgers per assertion. Comparing substitutability and choosing representatives happens only in the delegated test-economics branch.
 
-## 根据变化选择要证明的分支
+## Choose Branches by Change
 
-下表说明完整代码审查的必查分支。整体审计按当前受托判定的相应机制选择；窄审只取受托分支。形状触发调查，问题成立仍须相应证明；作用不明的变化先查清机制。
+The table lists the branches a full code review must check. An audit picks by the mechanisms of the delegated verdicts; a narrow review takes only the delegated branch. Shapes trigger investigation; problems still need their proof, and changes of unclear purpose are understood first.
 
-| 变化 | 必查分支 |
+| Change | Branches |
 |---|---|
-| 新增或修改用例、参数行、断言或快照 | 冗余信号；改变实际结果或预期路径时，同时检查失真和过约束 |
-| fixture、mock 或 helper 改变真实调用、输入或预期来源 | 测试失真；固定额外判定属性时检查过约束；增加重复判定信号时检查冗余 |
-| 预期与生产常量、schema、formatter 或转换共用来源 | 测试失真 |
-| 断言固定顺序、完整对象、私有字段、精确诊断或调用形状 | 测试过约束 |
-| 生产变化使既有测试的错误判定重新可达 | 测试失真 |
+| Added or changed cases, parameter rows, assertions, or snapshots | Redundant signal; also distortion and overconstraint when the actual or expected path changes |
+| Fixtures, mocks, or helpers change real calls, inputs, or expectation sources | Distortion; overconstraint when an extra verdict property is pinned; redundancy when duplicate verdict signals are added |
+| Expectation shares a source with production constants, schemas, formatters, or conversions | Distortion |
+| Assertions pin order, whole objects, private fields, exact diagnostics, or call shape | Overconstraint |
+| A production change makes an existing wrong verdict reachable again | Distortion |
 
-分支范围由调用方确定。T1 的证明见下节；调查 T2 过约束时完整读取[合法变化证明](test-overconstraint.md)，调查测试经济性时完整读取[独立检测能力与删除证明](test-economics.md)。仅加载本轮受托且触发的分支。
+The caller sets branch scope. T1's proof is below; for T2 overconstraint read [legitimate-change proof](test-overconstraint.md) in full, and for test economics read [independent detection and deletion proof](test-economics.md) in full. Load only branches that are delegated and triggered.
 
-同一行为的共同证据直接复用，成员只分析自身差异。仅调查所选且触发的分支，范围外部分不计已审。
+Reuse shared evidence for the same behavior and analyze only each member's differences. Out-of-scope parts do not count as reviewed.
 
-## 证明 T1：测试放过了应发现的错误
+## Proving T1: The Test Lets Through an Error
 
-构造一个有独立契约依据、测试本来应拒绝的最小错误，分别追踪：
+Construct the smallest error the test should reject on independent contract grounds and trace both:
 
 ```text
-错误输入或实现 → 生产路径 → 实际结果
-错误输入或实现 → 测试准备和预期来源 → 匹配 → 最终判定
+wrong input or implementation → production path → actual result
+wrong input or implementation → test setup and expectation source → match → verdict
 ```
 
-预期与生产代码共用错误常量、辅助函数或转换，可能使两边同时出错却仍相等；mock 绕过真实权限、事务、持久化或外部副作用，也可能放过错误。须证明当前受托判定使相关测试集合误判，并核实本次变化或审计的归因。
+An expectation sharing a wrong constant, helper, or conversion with production can let both sides be wrong yet equal; a mock bypassing real permissions, transactions, persistence, or external side effects can also let errors through. Prove that the delegated verdict makes the related test set misjudge and confirm attribution to this change or the audit.
 
-也要检查测试究竟负责哪一层。mock 或 stub 用预设结果替代下层实现，来检查调用方如何传播、映射或展示结果时，测试责任通常止于最近的未替换调用方；下层生产者需要自己的验证依据。
+Also check which layer the test owns. When a mock or stub replaces a lower layer with preset results to check how the caller propagates, maps, or displays them, the test's responsibility usually stops at the nearest unreplaced caller; the lower producer needs its own verification.
 
-按绕过下层边界调查 T1，须有独立于待审测试的有效约定要求执行真实下层，或者本次变化确实使测试集合失去了独立的真实路径检查。测试名字、预制错误文本或 mock 只用于定位测试责任。
+T1 for bypassing a lower boundary requires a valid contract independent of the reviewed test that demands the real lower layer run, or proof that this change actually removed the set's independent real-path check. Test names, canned error text, or mocks only locate the test's responsibility.
 
-## 核对变化关系，并按根因归并
+## Change Relation and Root-Cause Merging
 
-对每个疑点检查最有力的合理解释：差异是否实际改变了校验、路径、结果、判定、独立要求或测试层级。值、actor 或测试名的差异须连接到这些语义变化，才能证明独立价值。
+For each suspicion check the strongest reasonable explanation: does the difference actually change validation, path, result, verdict, independent requirement, or test layer? Differences in values, actors, or test names must connect to such semantic changes to prove independent value.
 
-增量审查核对旧版是否已有相同误判或冗余，当前怎样引入、扩大或重新触发；整体审计说明当前已有判定与保留集合。都要检查生产 finding 是否已覆盖同一根因。生产问题成立、测试只是同步背书时只报生产问题；测试有独立错误原因时保留 T finding。
+A delta review checks whether the old version already had the same misjudgment or redundancy and how the change introduced, widened, or re-triggered it; an audit describes the current verdicts and retained set. Both check whether a production finding already covers the root cause. If the production problem holds and the test merely endorses it, report only the production problem; keep a T finding when the test has its own error cause.
 
-T1 和 T2 过约束属于缺陷，T2 冗余属于改进机会；输出注明具体类型。
+T1 and T2 overconstraint are defects; T2 redundancy is an improvement. State the specific type in the output.
 
-## 保存判断并核对覆盖
+## Record and Check Coverage
 
-从 diff 或受托集合回查全部变化及共享准备的影响，确认所选分支的必要调查已完成，每个疑点已成立、排除或有明确证据缺口。测试通过只是一项运行结果，不能替代契约与判定证明。
+Work back from the diff or delegated set over every change and shared-setup effect, confirm the chosen branches' necessary investigation is done, and that each suspicion is proven, excluded, or has an explicit evidence gap. Passing tests are one runtime result and do not replace contract and verdict proof.
 
-沿用已有覆盖记录，按[共同状态规则](../../review-state.md)保存调查中已取得、公开结果未包含的关键路径、判定依据和排除证据；没有 finding 也保留必要依据。成立的 finding 保存对应分支的完整证明，同根因只保留一份；未完成调查记录缺口与下一处读取位置，保持 `pending` 或 `blocked`。工作稿格式和结束条件遵循共同状态规则及任务指定的运行协议。
+Reuse existing coverage records and save, per the [shared state rules](../../review-state.md), the key paths, verdict grounds, and exclusion evidence obtained during investigation but absent from public results; keep necessary grounds even without findings. Established findings keep the full proof for their branch, once per root cause; unfinished investigation records the gap and next read location and stays `pending` or `blocked`.
