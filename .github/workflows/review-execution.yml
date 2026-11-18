@@ -324,6 +324,7 @@ jobs:
           REVIEW_BASE_PATH: ${{ github.workspace }}/review-base
           REVIEW_ASSOCIATIONS_PATH: ${{ runner.temp }}/review-associations.json
           REVIEW_INPUT_PATH: ${{ runner.temp }}/review-input.json
+          REVIEW_PROMPT_PATH: ${{ steps.review-context.outputs.prompt_path }}
           # The agent reads diffs by path within the pinned SHA range; no aggregate diff file is generated.
           REVIEW_CHECKPOINT_HEAD: ${{ steps.review-context.outputs.checkpoint_head }}
           REVIEW_CONTEXT_PATH: ${{ runner.temp }}/review-context/review-context.json
@@ -378,8 +379,8 @@ jobs:
             set_review_scope
             submit_review
             codemode
-          # The entry preloads the pinned trusted rules; after compaction they are recovered from the control plane through the entry.
-          prompt: ${{ steps.review-context.outputs.prompt }}
+          # The review-input extension replaces this short input with the prepared rules before the first model request.
+          prompt: Review the prepared pull request.
 
       # The agent has ended; the write token goes only to the following trusted publication steps, never to the agent.
       - name: Mint trusted publication token

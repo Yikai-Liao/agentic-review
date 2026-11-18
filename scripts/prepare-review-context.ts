@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { appendFile, readFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -133,10 +133,11 @@ export async function main() {
   if (currentDiscussion.status === 'rejected') throw currentDiscussion.reason;
   await prepareReviewInput(snapshot, currentDiscussion.value);
   const prompt = await loadReviewPrompt(control, parseReviewLanguage(process.env.REVIEW_LANGUAGE));
-  const delimiter = `REVIEW_PROMPT_${crypto.randomUUID()}`;
+  const promptPath = path.join(temporary, 'review-prompt.md');
+  await writeFile(promptPath, prompt, { mode: 0o600 });
   await appendFile(required('GITHUB_OUTPUT'), [
     `previous_workspace=${checkpoint ? previousAudit : ''}`, `previous_request_workspace=${previous ? previousRequest : ''}`,
-    `checkpoint_head=${checkpoint?.headSha ?? ''}`, `prompt<<${delimiter}`, prompt, delimiter, '',
+    `checkpoint_head=${checkpoint?.headSha ?? ''}`, `prompt_path=${promptPath}`, '',
   ].join('\n'));
 }
 
