@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -88,24 +88,40 @@ test('When the index itself exceeds the budget, small patches are still delivere
   assert.ok(countTokens(context) + countTokens(JSON.stringify(fixed)) <= model.contextWindow / 2);
 });
 
-test('The runtime injects only material context, adding no read tool or cursor; input failure aborts explicitly', t => {
+test('The runtime loads trusted rules into the first user message and aborts when initial input is unavailable', t => {
   const { file } = fixture(t, [patch]);
-  const original = process.env.REVIEW_INPUT_PATH;
-  t.after(() => { if (original === undefined) delete process.env.REVIEW_INPUT_PATH; else process.env.REVIEW_INPUT_PATH = original; });
+  const promptPath = path.join(path.dirname(file), 'review-prompt.md');
+  const prompt = 'Trusted review rules.';
+  writeFileSync(promptPath, prompt);
+  for (const key of ['REVIEW_INPUT_PATH', 'REVIEW_PROMPT_PATH']) {
+    const original = process.env[key];
+    t.after(() => { if (original === undefined) delete process.env[key]; else process.env[key] = original; });
+  }
   process.env.REVIEW_INPUT_PATH = file;
-  let handler: any;
+  process.env.REVIEW_PROMPT_PATH = path.join(path.dirname(file), 'missing.md');
+  const handlers = new Map<string, (...args: any[]) => any>();
   inputExtension({
-    on: (_event, fn) => { handler = fn; }, getActiveTools: () => ['read'],
+    on: (event, fn) => { handlers.set(event, fn); }, getActiveTools: () => ['read'],
     getAllTools: () => [{ name: 'read', description: 'Read source', parameters: { type: 'object' } }],
   });
   let aborted = false;
   const ctx = { model, abort: () => { aborted = true; } };
-  const result = handler({ systemPrompt: 'Control plane rules', prompt: 'Review the current PR' }, ctx);
+  const input = handlers.get('input')!;
+  const beforeStart = handlers.get('before_agent_start')!;
+  assert.throws(input, /ENOENT/);
+  assert.throws(() => beforeStart({ systemPrompt: fixed.system, prompt: 'Review the prepared pull request.' }, ctx),
+    /Prepared review prompt was not loaded/);
+  assert.equal(aborted, true);
+  aborted = false;
+  process.env.REVIEW_PROMPT_PATH = promptPath;
+  assert.deepEqual(input(), { action: 'transform', text: prompt });
+  assert.equal(input(), undefined);
+  const result = beforeStart({ systemPrompt: fixed.system, prompt }, ctx);
   assert.equal(result.message.customType, 'review-input');
   assert.ok(result.message.content.includes('SMALL_PATCH'));
   assert.equal(aborted, false);
   process.env.REVIEW_INPUT_PATH = path.join(path.dirname(file), 'missing.json');
-  assert.throws(() => handler({ systemPrompt: 'Control plane rules', prompt: 'Review the current PR' }, ctx), /ENOENT/);
+  assert.throws(() => beforeStart({ systemPrompt: fixed.system, prompt }, ctx), /ENOENT/);
   assert.equal(aborted, true);
 });
 

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { test, type TestContext } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { loadReviewPrompt } from '../scripts/load-review-prompt.ts';
 import { buildReviewRequest, initialReviewCoverage } from '../scripts/review-request.ts';
 
 const exec = promisify(execFile);
@@ -162,7 +164,11 @@ for (const source of ['automatic', 'pr_comment', 'thread'] as const) test(`Full 
     assert.deepEqual(await readFile(path.join(restored, filename)), await readFile(new URL(`../${filename}`, import.meta.url)));
   }
   assert.match(output, /context_digest=[0-9a-f]{64}/);
-  assert.match(output, /prompt<<REVIEW_PROMPT_/);
+  const promptPath = output.match(/^prompt_path=(.+)$/m)?.[1];
+  assert.equal(promptPath, path.join(f.temporary, 'review-prompt.md'));
+  const prompt = await loadReviewPrompt(fileURLToPath(new URL('..', import.meta.url)), 'zh-CN');
+  assert.equal(await readFile(promptPath!, 'utf8'), prompt);
+  assert.ok(!output.includes(prompt));
   const config = await readFile(path.join(f.workspace, 'review-target/.git/config'), 'utf8');
   assert.doesNotMatch(config, /target-readonly|extraheader|credential/);
 });
@@ -191,7 +197,7 @@ test('A failed discussion read still pins this request and scope first; preparat
   const output = await readFile(f.outputs, 'utf8');
   assert.match(output, /context_digest=[0-9a-f]{64}/);
   assert.match(output, /^publisher_archive=.+$/m);
-  assert.doesNotMatch(output, /prompt<</);
+  assert.doesNotMatch(output, /^prompt_path=/m);
   const progress = JSON.parse(await readFile(path.join(f.workspace, 'review-workspace/review-progress.json'), 'utf8'));
   assert.deepEqual(progress.ledger.map((entry: { status: string }) => entry.status), ['pending', 'pending']);
 });
