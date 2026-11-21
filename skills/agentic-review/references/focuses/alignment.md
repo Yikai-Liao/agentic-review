@@ -23,10 +23,6 @@ Check approved phase scope, explicit non-goals, existing mechanisms, assigned re
 
 A specific unauthorized violation is proven as a `defect`. When the next step depends on an unsettled scope choice, raise a `decision` stating what must be decided; missing evidence is never written up as a settled goal reduction.
 
-## Keep One Line of Grounds Across Levels
+## Across Levels and on Re-review
 
-Read the levels and evidence along the goal's actual path, within the delegated scope.
-
-Locate each problem at the first requirement or mechanism that needs fixing and merge one root cause into one finding. Independent errors in the delegated relationship are reported under their own root causes.
-
-When upstream has a new valid decision, update the affected expectations. On re-review, check whether the original requirement is restored or an explicit scoped decision exists, and recheck the related relationship. Status follows the shared rules; wording and implementation may differ as long as the completion condition is met.
+Read the levels along the goal's actual path within the delegated scope, and locate each problem at the first requirement or mechanism that needs fixing. When upstream has a new valid decision, update the affected expectations. A re-review closes when the original requirement is restored or an explicit scoped decision exists.

@@ -83,7 +83,9 @@ A downstream repository may add `.agentic-review.md` at its root to state, in na
 
 Good content:
 
-- review levels and the artifacts they apply to, such as requirements documents as requirements, design documents as architecture, development plans as plan; code is the default;
+- review levels and what they apply to, one or several per path, file type, or kind of change, such as requirements documents as requirements, design documents as architecture, development plans as plan, or core modules at both architecture and code; code is the default;
+- extra focuses, such as simplicity, structure, or verification sufficiency, and the changes they apply to;
+- review criteria on any aspect the project cares about, each marked required or preferred;
 - project-specific review emphasis and triggers, such as tracing tenant ownership when authentication changes or consumer compatibility when events change;
 - business invariants and high-risk boundaries: state transitions, tenant ownership, money, business dates, idempotency, compatibility;
 - call relationships, consumers, generated files, and non-executable areas the code does not reveal;
@@ -94,9 +96,9 @@ Good content:
 
 State facts and conditions directly: when to check what, where the grounds are, and what counts as done. Use stable paths, fields, issue labels, record IDs, or repository addresses so the agent can find the grounds.
 
-Bind emphasis to concrete paths, file types, business objects, or change signals to order the investigation; it never excludes other diffs from review. Leave out role-play, generic "review carefully", personal style preferences, and full copies of current known issues.
+Bind emphasis to concrete paths, file types, business objects, or change signals to order the investigation; it never excludes other diffs from review. Leave out role-play, generic "review carefully", and full copies of current known issues. Any project preference, including style, naming, dependencies, or API shape, is a review criterion: say whether it is required or preferred and which changes it covers; breaking a required one is reported as a defect, departing from a preferred one as an improvement.
 
-Level selection takes an explicit choice in this round's request first, then Head `.agentic-review.md`, then Head `AGENTS.md`, and code otherwise. Project rules may assign levels by path or file type; a level change never narrows the PR file scope or changes execution or publication permissions.
+Level selection takes an explicit choice in this round's request first, then Head `.agentic-review.md`, then Head `AGENTS.md`, and code otherwise. Project rules may choose one or several levels for the whole PR or by path, file type, or kind of change, including an architecture review of code changes; paths no rule covers stay at code. A level choice never narrows the PR file scope or changes execution or publication permissions.
 
 Central review does not enumerate the target repository's skills; it reads only paths `.agentic-review.md` names explicitly for the current change. Execution permissions, the shared evidence bar, and the trusted publication protocol stay defined by the control checkout.
 
@@ -108,6 +110,16 @@ A natural-language example; titles and structure may follow the project:
 ## Levels
 
 - Requirements documents under `docs/requirements/` use the requirements level; design documents under `docs/architecture/` use architecture; everything else defaults to code.
+- Changes under `src/core/` are also reviewed at the architecture level: responsibilities, interfaces, and state ownership of the modules they touch.
+
+## Focuses
+
+- For every code change, also review simplicity: duplicated mechanisms, needless abstraction layers, and special cases a shared path could absorb.
+
+## Criteria
+
+- Required: new runtime dependencies need a stated reason in the PR description.
+- Preferred: user-facing error messages name the object and the next action.
 
 ## Emphasis
 

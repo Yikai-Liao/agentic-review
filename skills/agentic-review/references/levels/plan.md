@@ -75,8 +75,6 @@ The plan author can fix local dependencies or missing tasks. If a feasible path 
 
 When the architecture contradicts itself, keep the original sources and the minimal contradiction; do not ask the plan author to add tasks that implement the impossible.
 
-## Delivery and Re-review
+## Closing
 
-The delivery path for delegated goals, related dependencies, intermediate states, and acceptance ownership each have a conclusion or a concrete limit. Suspicions pass the counter-evidence check; established problems name a handler and completion condition and are delivered per the [shared finding requirements](../findings.md).
-
-A finished investigation means the delegated plan has conclusions, which may include missing wiring or wrong order. These are static conclusions; actual execution and progress must be proven by execution records.
+The delivery path for delegated goals, related dependencies, intermediate states, and acceptance ownership each have a conclusion or a concrete limit. These are static conclusions; actual execution and progress are proven by execution records.

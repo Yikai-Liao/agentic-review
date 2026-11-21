@@ -47,6 +47,4 @@ When a change genuinely alters a security guarantee but lacks a necessary author
 
 Verification coverage enters [Verification](verification.md) per the delegated scope; leak conclusions still need a reachable breach mechanism and impact.
 
-## Delivery and Re-review
-
-A fix restores the boundary so the original breach scenario fails while legitimate access succeeds, without mandating particular middleware. Merge with the same root cause reported by other focuses; when necessary permission material is unavailable, state the limit and never fake a security sign-off.
+A fix restores the boundary so the original breach scenario fails while legitimate access succeeds, by any mechanism. When necessary permission material is unavailable, state the limit; there is no security sign-off without it.

@@ -85,7 +85,7 @@ test('the code level keeps the default duties and central keeps the level entry 
   const duties = [...code.matchAll(/^\| ([^|-][^|]*) \| .+ \| .+ \|$/gm)].map(match => match[1].trim());
   assert.deepEqual(duties.slice(0, 6), ['Duty', 'Behavior and intent', 'Security boundaries',
     'Reliability and recovery', 'Performance and resource cost', 'Test validity']);
-  assert.ok(code.includes('Choosing code does not start an independent requirements, architecture, or plan review'));
+  assert.ok(code.includes('Choosing code alone does not start an independent requirements, architecture, or plan review'));
   assert.match(prompt, /The default level is code/);
   const testReview = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)]
     .map(match => JSON.parse(match[1])).find(config => config.test_review)?.test_review;

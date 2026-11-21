@@ -107,8 +107,6 @@ Before reporting, check:
 
 Any one that refutes "significant and avoidable" excludes the suspicion. For explicitly accepted costs, check that the accepted scope and its preconditions still hold.
 
-## Delivery and Re-review
+## Severity and Re-review
 
-Code performance problems use the [code P0/P1/P2 labels](../levels/code.md#labels-for-proven-impact). Complexity notation does not set severity; realistic scale, frequency, per-step cost, concurrency, and real impact do. Other levels use the shared kinds, not code labels.
-
-Each delegated performance unit has current and baseline cost models, scale grounds, an alternative, and a counter-evidence conclusion, or a reason it does not apply at this stage. Re-review confirms with evidence that the original cost difference is resolved and behavior kept; when a needed measurement is still missing, mark it unverified.
+Code performance problems use the [code P0/P1/P2 labels](../levels/code.md#labels-for-proven-impact); realistic scale, frequency, per-step cost, concurrency, and real impact set severity, not complexity notation. Each delegated unit has current and baseline cost models, scale grounds, an alternative, and a counter-evidence conclusion, or a reason it does not apply at this stage. A fix closes when the original cost difference is resolved and behavior kept; a still-missing required measurement leaves it unverified.

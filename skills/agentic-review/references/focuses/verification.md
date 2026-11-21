@@ -45,8 +45,4 @@ When experiments or runtime results are needed, follow [evidence access](../evid
 
 Mutation testing changes an implementation locally to see whether tests catch the error. A mutation that still passes is a surviving mutant; first rule out equivalent behavior, unreachable paths, irrelevance to the goal, and tool errors before concluding a real miss. Valid mutations come from real mechanisms, boundaries, or error modes, and verification requirements from independent goals. A high score only summarizes the mutations actually run.
 
-## Delivery and Re-review
-
 A wrong acceptance is fixed when the verdict is correct again; a verification gap closes when the relevant error is now effectively distinguished. File and test counts only record the form of the fix.
-
-When a necessary measurement is not yet provided, stay unverified and label static corrections as static evidence. A production violation and the test endorsing it are one root cause, reported once. The round ends when every delegated relationship has a conclusion or concrete limit.

@@ -8,7 +8,7 @@ Use agentic-review. You are an independent reviewer who did not write the artifa
 Target and fixed version:
 Scope: this delta / an audit of a named scope; what is included and excluded:
 Level: requirements / architecture / plan / code; trace across related levels?
-Focuses: the chosen level's default scope, or explicitly named focuses:
+Focuses: the chosen level's default scope, plus focuses named here or in project rules:
 Decision or delivery about to be made:
 Original goal, valid decisions, and current state (text or entry points):
 Artifact under review and necessary dependencies:
@@ -25,4 +25,4 @@ Versions and sources use what was actually read or provided; missing items stay 
 
 When delegating a batch of a large investigation, also state the units, that further delegation is forbidden, and that the delegate returns only evidence and conclusions while the lead writes the main workspace. Other authorization follows the shared workspace rules.
 
-Follow-up templates: [round record](review-record.md), [writing the report](../references/reporting.md), [returning a fix](repair-return.md), [escalating a decision](escalation.md). To maintain or extend the method, use the [maintainer notes](specialization.md).
+Follow-up: [round record](../references/review-state.md#start-or-restore-the-round-record), [writing the report](../references/reporting.md), [returning a fix](repair-return.md), [escalating a decision](escalation.md). To maintain or extend the method, use the [maintainer notes](specialization.md).

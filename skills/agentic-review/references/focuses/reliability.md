@@ -34,8 +34,4 @@ Look for upstream input limits, persistent recovery, idempotency or transaction 
 
 Whether verification can catch the error is a separate question; use [Verification](verification.md) only when delegated or due now. Gather implementation behavior and verification status separately: the former along the mechanism, the latter from actual tests or analysis.
 
-## Delivery and Re-review
-
-A fix restores the guarantee in the original failure scenario and keeps directly related normal behavior. The handler may choose any mechanism that meets the condition; accepted recovery times remain valid within their scope.
-
-The round ends when every delegated guarantee has a conclusion or concrete limit. Conclusions are limited to the chosen failure scenarios and actual evidence.
+A fix restores the guarantee in the original failure scenario and keeps directly related normal behavior; accepted recovery times remain valid within their scope.
