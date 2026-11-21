@@ -26,7 +26,7 @@ Pick methods and scenarios by the conditions below; a narrow review checks only 
 
 Read the relevant original requirements, current boundaries, valid decisions, this proposal, and actual dependencies, and separate current implementation, approved goals, and historical rationale. Understanding a local change does not require rebuilding the whole project.
 
-A new design without code or an old version can still be reviewed against goals and mechanisms. Existing code shows the current state; user needs come from the original request and valid decisions; "approved" status is proven by a source the task recognizes.
+When the artifact is code, the proposal is the design the change actually builds: recover it from the code, its docs, and the description, and judge it with this level's checks; line-level behavior defects belong to the code level. A new design without code or an old version can still be reviewed against goals and mechanisms. Existing code shows the current state; user needs come from the original request and valid decisions; "approved" status is proven by a source the task recognizes.
 
 List the affected capabilities, key decisions, responsibilities, state, external contracts, and the necessary connections between them. Understand system boundaries before entering the services or modules involved; do not treat business goals, deployment units, and internal functions as items at one level. If prose explains it, do not ask the author to redraw diagrams.
 
@@ -89,8 +89,6 @@ For choices affecting boundaries, cost, or follow-on investment, check whether t
 
 Report only when a wrong premise or missing evidence would change the current choice. A wrong technical choice is proven by a premise or evidence problem affecting this decision; value trade-offs the user has not made return as decisions, and accepted costs within scope keep the original decision.
 
-## Delivery and Re-review
+## Closing
 
-Record each problem's original requirement, owner, scenario or composition, design path and basis, first point of failure, explanations checked, handler, and completion condition. When a higher-level goal or trade-off must change, return only the part this level cannot decide; do not hand the whole investigation log to the user.
-
-The delegated scope is complete when every affected requirement, necessary connection, and important decision has a conclusion and legitimate omissions are identified. Output follows the [finding requirements](../findings.md), naming decisions to handle and key remaining risks; a no-problem conclusion is limited to the checked scope and evidence.
+Each problem records the scenario or composition, the design path and first point of failure. When a higher-level goal or trade-off must change, return only the part this level cannot decide. The delegated scope is complete when every affected requirement, necessary connection, and important decision has a conclusion and legitimate omissions are identified.

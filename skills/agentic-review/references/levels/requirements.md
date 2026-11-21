@@ -71,8 +71,6 @@ Example: only a standard file export is needed, but a dedicated editor is requir
 
 Give the feasible alternative with migration and communication costs and name the goal basis the constraint lacks. Requirement cost is measured by real delivery responsibility; the simplification must keep legitimate scenarios. Removing conflicting requirements still needs a decision from someone with authority.
 
-## Delivery and Re-review
+## Closing
 
-Per [finding requirements](../findings.md), each problem keeps its source, clause or omission location, concrete scenario, the reasonable explanations checked, owner, and completion condition. Unknowns stay unknown; do not choose preferences for the user.
-
-Handling is complete when the goal is restored, acceptance gains the needed distinction, an explicit scoped decision is obtained, or evidence refutes the suspicion. Requirement length and precision follow what the goal needs. Conclusions cover the delegated requirements review; design, implementation, and product value are verified at their own stages.
+A problem closes when the goal is restored, acceptance gains the needed distinction, an explicit scoped decision is obtained, or evidence refutes the suspicion. Requirement length and precision follow what the goal needs; design, implementation, and product value are verified at their own stages.

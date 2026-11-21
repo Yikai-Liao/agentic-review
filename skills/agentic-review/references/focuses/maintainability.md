@@ -1,6 +1,6 @@
 # Maintainability: Judging Complexity by Real Tasks
 
-Maintainability review covers the cost of use, change, and collaboration, for explicitly requested cost or simplification audits of architecture, plans, and code.
+Maintainability review covers the cost of use, change, and collaboration — simplicity, structure, responsibilities, and interfaces — for explicitly requested cost or simplification audits of architecture, plans, and code, including requests from project rules.
 
 Unnecessary solution constraints in requirements use the [requirements method](../levels/requirements.md); code maintenance metrics do not apply to requirements.
 
@@ -63,8 +63,4 @@ When complexity moves from a service to its callers, from code to operations, or
 | Plan | The same capability is prepared and integrated twice; can reordering cut waits without losing acceptance? | Two different deployment environments truly need separate acceptance |
 | Code | One business rule is hand-implemented in three places; would a shared implementation cut syncing and keep behavior? | Similar expressions belong to different business rules, or copies are generated |
 
-## Delivery and Re-review
-
-Report improvements by the four bars above. On re-review, check whether task cost fell and necessary guarantees held; accept any design meeting the condition, and report broken guarantees as specific violations.
-
-The round ends when the delegated complexity has been walked through related tasks, checked for independent purpose, and counter-checked.
+A re-review closes when task cost fell and necessary guarantees held, whatever design achieves it; broken guarantees are reported as specific violations.
