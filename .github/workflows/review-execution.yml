@@ -137,8 +137,42 @@ jobs:
             const { main } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/resolve-review-snapshot.ts`);
             await main();
 
+      - name: Check for an already published automatic review
+        id: duplicate-review
+        uses: actions/github-script@v9.0.0
+        env:
+          TARGET_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ inputs.repository }}
+          REPOSITORY_ID: ${{ inputs.repository_id }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+          BASE_SHA: ${{ steps.snapshot.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.snapshot.outputs.head_sha }}
+          TRIGGER_SOURCE: ${{ inputs.trigger_source }}
+          REVIEW_APP_SLUG: ${{ steps.read-token.outputs.app-slug }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { findPublishedAutomaticReview } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-checkpoint.ts`);
+            const previous = await findPublishedAutomaticReview({
+              source: process.env.TRIGGER_SOURCE,
+              repository: process.env.REPOSITORY,
+              repositoryId: process.env.REPOSITORY_ID,
+              pullNumber: process.env.PULL_NUMBER,
+              baseSha: process.env.BASE_SHA,
+              headSha: process.env.HEAD_SHA,
+              appSlug: process.env.REVIEW_APP_SLUG,
+              token: process.env.TARGET_TOKEN,
+              controlRepository: process.env.GITHUB_REPOSITORY,
+              controlSha: process.env.GITHUB_SHA,
+              controlToken: core.getInput('github-token', { required: true }),
+              api: process.env.GITHUB_API_URL,
+            });
+            if (previous) core.notice(`Automatic review already published by run ${previous.id} (attempt ${previous.attempt}).`);
+            core.setOutput('should_review', String(!previous));
+
       - name: Mint check token
         id: check-token
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: ${{ vars.AGENTIC_REVIEW_CLIENT_ID }}
@@ -150,6 +184,7 @@ jobs:
       # workflow_dispatch does not attach to the target PR; create the linked Check explicitly before the agent starts.
       - name: Start Agentic Review check
         id: review-check
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         uses: actions/github-script@v9.0.0
         env:
           REPOSITORY: ${{ inputs.repository }}
@@ -184,20 +219,21 @@ jobs:
 
       - name: Restore trusted tokenizer dependencies
         id: tokenizer-dependencies
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         uses: actions/cache/restore@v6.1.0
         with:
           path: control/node_modules
           key: review-tokenizer-node24-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('control/package.json', 'control/pnpm-lock.yaml') }}
 
       - name: Install trusted tokenizer dependencies
-        if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' && steps.tokenizer-dependencies.outputs.cache-hit != 'true' }}
         # Corepack picks packageManager by the current directory; pnpm's --dir does not affect it.
         working-directory: control
         run: corepack pnpm install --prod --frozen-lockfile --ignore-scripts
 
       # Only trusted preparation saves caches; mutable directories are never written back after the agent runs.
       - name: Save trusted tokenizer dependencies
-        if: steps.tokenizer-dependencies.outputs.cache-hit != 'true'
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' && steps.tokenizer-dependencies.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6.1.0
         with:
           path: control/node_modules
@@ -205,6 +241,7 @@ jobs:
 
       - name: Prepare review context
         id: review-context
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           CONTROL_TOKEN: ${{ github.token }}
@@ -220,6 +257,7 @@ jobs:
         run: node control/scripts/prepare-review-context.ts
 
       - name: Ensure ripgrep is available
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         run: |
           if ! command -v rg >/dev/null 2>&1; then
             # Installation progress stays out of the run log; apt errors still go to stderr and fail the step.
@@ -230,13 +268,14 @@ jobs:
 
       - name: Restore trusted Pi fold extension
         id: pi-fold
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         uses: actions/cache/restore@v6.1.0
         with:
           path: ${{ runner.temp }}/review-pi-extensions
           key: review-pi-extensions-node24-${{ runner.os }}-${{ runner.arch }}-pi-fold-${{ env.PI_FOLD_VERSION }}
 
       - name: Install trusted Pi fold extension
-        if: steps.pi-fold.outputs.cache-hit != 'true'
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' && steps.pi-fold.outputs.cache-hit != 'true' }}
         # The published package has no runtime dependencies; the third-party action provides the Pi host, so no peer SDK is installed.
         run: >-
           npm install --prefix "$RUNNER_TEMP/review-pi-extensions"
@@ -245,7 +284,7 @@ jobs:
 
       # Like the tokenizer cache, saved before the agent starts; state produced during the run is never written back.
       - name: Save trusted Pi fold extension
-        if: steps.pi-fold.outputs.cache-hit != 'true'
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' && steps.pi-fold.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6.1.0
         with:
           path: ${{ runner.temp }}/review-pi-extensions
@@ -253,6 +292,7 @@ jobs:
 
       # Central rules are preloaded from the trusted control checkout; model overrides keep the public prices in Pi's catalog.
       - name: Configure Pi runtime
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         env:
           REVIEW_AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL }}
           REVIEW_EXPLICIT_PROMPT_CACHE: ${{ vars.REVIEW_EXPLICIT_PROMPT_CACHE }}
@@ -300,6 +340,7 @@ jobs:
 
       - name: Run Pi review
         id: pi-review
+        if: ${{ steps.duplicate-review.outputs.should_review == 'true' }}
         # The review-tools extension enforces the agent budget; the step timeout only catches a single hung tool call.
         timeout-minutes: 15
         uses: shaftoe/pi-coding-agent-action@v2.30.1
@@ -477,7 +518,7 @@ jobs:
       # When draft assembly or archiving fails, keep the raw diagnostic draft; it never enters next-round scope recovery.
       - name: Upload unarchived review draft
         id: diagnostic-workspace
-        if: ${{ always() && steps.review-workspace.outcome != 'success' && hashFiles('review-workspace/**') != '' }}
+        if: ${{ always() && steps.duplicate-review.outputs.should_review == 'true' && steps.review-workspace.outcome != 'success' && hashFiles('review-workspace/**') != '' }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: review-draft-workspace-${{ inputs.repository_id }}-${{ inputs.pull_number }}-${{ inputs.trigger_source }}-${{ github.run_id }}-${{ github.run_attempt }}

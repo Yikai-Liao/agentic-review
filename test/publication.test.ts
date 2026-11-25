@@ -857,9 +857,10 @@ test('The workflow continues by dependency; publication or storage failures neve
   assert.equal(execution.find((step: { id?: string }) => step.id === 'publish-review').env.REVIEW_REPOSITORY_ID,
     '${{ inputs.repository_id }}');
   const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = Object.fromEntries([
-    'pi-review', 'review-context', 'review-check', 'review-workspace',
+    'duplicate-review', 'pi-review', 'review-context', 'review-check', 'review-workspace',
     'publication-token', 'publish-review', 'diagnostic-workspace',
   ].map(id => [id, { outcome: 'success', outputs: {} }]));
+  steps['duplicate-review'].outputs.should_review = 'true';
   steps['review-check'].outputs.check_id = '1';
   steps['review-context'].outputs.context_digest = 'trusted-digest';
   steps['publish-review'].outputs.workspace_ready = 'true';
@@ -948,6 +949,30 @@ test('The workflow continues by dependency; publication or storage failures neve
   assert.equal(await conclusion('failure', 'skipped', 'failure'), 'failure');
   assert.equal(await conclusion('cancelled', 'skipped', 'cancelled'), 'cancelled');
   assert.equal(await conclusion('cancelled'), 'cancelled');
+});
+
+test('a duplicate decision gates every step after snapshot resolution and lookup', () => {
+  const workflow = parse(readFileSync(new URL('../.github/workflows/review-execution.yml', import.meta.url), 'utf8'));
+  const { steps } = workflow.jobs.review;
+  const decision = steps.findIndex((step: { id?: string }) => step.id === 'duplicate-review');
+  assert.ok(decision > steps.findIndex((step: { id?: string }) => step.id === 'snapshot'));
+  const gated = steps.slice(decision + 1);
+  for (const id of ['review-check', 'pi-review', 'publish-review', 'complete-check']) {
+    assert.ok(gated.some((step: { id?: string }) => step.id === id), `${id} must follow the duplicate lookup`);
+  }
+  for (const shouldReview of ['false', '']) {
+    const state = Object.fromEntries(gated.filter((step: { id?: string }) => step.id).map((step: { id: string }) => [
+      step.id, { outcome: 'skipped', outputs: new Proxy({}, { get: () => '' }) },
+    ]));
+    state['duplicate-review'] = { outcome: 'success', outputs: { should_review: shouldReview } };
+    for (const step of gated) {
+      const expression = step.if?.match(/^\$\{\{ (.+) \}\}$/)?.[1];
+      assert.ok(expression, `${step.name} must have a gate`);
+      assert.equal(runInNewContext(expression.replace(/steps\.([\w-]+)\./g, 'steps["$1"].'), {
+        steps: state, cancelled: () => false, always: () => true, hashFiles: () => 'draft-files',
+      }), false, `${step.name} must be skipped`);
+    }
+  }
 });
 
 

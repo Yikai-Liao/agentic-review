@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import {
+  findPublishedAutomaticReview,
   findReviewCheckpoint,
   findReviewCheckpointSafely,
   findReviewWorkspaceArtifact,
@@ -48,6 +49,102 @@ async function find(fetchImpl: typeof fetch) {
     fetchImpl,
   });
 }
+
+const controlSha = 'e'.repeat(40);
+const publishedCheck = {
+  name: 'Agentic Review / audit', app: { slug: 'review-app' }, status: 'completed', conclusion: 'success',
+  external_id: `1:7:${base}:${current}:automatic:99:2`,
+};
+const publishedAttempt = { head_sha: controlSha, status: 'completed', conclusion: 'success' };
+
+function duplicateLookup(fetchImpl: typeof fetch, source = 'automatic') {
+  return findPublishedAutomaticReview({
+    source, repository: 'owner/repo', repositoryId: '1', pullNumber: '7', baseSha: base, headSha: current,
+    appSlug: 'review-app', token: 'target-token', controlRepository: 'control/review', controlSha,
+    controlToken: 'control-token', api: 'https://api.github.test', fetchImpl,
+  });
+}
+
+for (const conclusion of ['success', 'action_required']) {
+  test(`skips the same snapshot after a published ${conclusion} audit`, async () => {
+    let calls = 0;
+    const result = await duplicateLookup(async (input, init) => {
+      const url = new URL(String(input));
+      calls++;
+      if (calls === 1) {
+        assert.equal(url.pathname, `/repos/owner/repo/commits/${current}/check-runs`);
+        assert.equal(url.searchParams.get('filter'), 'all');
+        assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer target-token');
+        return Response.json({ check_runs: [{ ...publishedCheck, conclusion }] });
+      }
+      assert.equal(url.pathname, '/repos/control/review/actions/runs/99/attempts/2');
+      assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer control-token');
+      return Response.json(publishedAttempt);
+    });
+    assert.deepEqual(result, { id: '99', attempt: '2', baseSha: base });
+    assert.equal(calls, 2);
+  });
+}
+
+for (const [name, overrides] of Object.entries({
+  'base SHA': { external_id: publishedCheck.external_id.replace(base, reviewed) },
+  'head SHA': { external_id: publishedCheck.external_id.replace(current, reviewed) },
+  'repository id': { external_id: publishedCheck.external_id.replace('1:7:', '2:7:') },
+  'PR number': { external_id: publishedCheck.external_id.replace('1:7:', '1:8:') },
+  'check source': { external_id: publishedCheck.external_id.replace('automatic', 'pr_comment') },
+  'Check name': { name: 'Agentic Review / requested' },
+  'app slug': { app: { slug: 'another-app' } },
+  'check status': { status: 'in_progress' },
+  'check conclusion': { conclusion: 'failure' },
+})) {
+  test(`reviews when the audit has a different ${name}`, async () => {
+    assert.equal(await duplicateLookup(async (input) => {
+      assert.match(String(input), /\/check-runs\?/);
+      return Response.json({ check_runs: [{ ...publishedCheck, ...overrides }] });
+    }), null);
+  });
+}
+
+test('reviews when the matching audit ran on a different control SHA', async () => {
+  assert.equal(await duplicateLookup(async (input) => String(input).includes('/check-runs?')
+    ? Response.json({ check_runs: [publishedCheck] })
+    : Response.json({ ...publishedAttempt, head_sha: reviewed })), null);
+});
+
+// The serialized queue starts the next run as soon as the earlier job ends, before its Actions run is marked completed.
+test('skips the same snapshot while the earlier Actions run is still finishing', async () => {
+  assert.deepEqual(await duplicateLookup(async (input) => String(input).includes('/check-runs?')
+    ? Response.json({ check_runs: [publishedCheck] })
+    : Response.json({ ...publishedAttempt, status: 'in_progress', conclusion: null })), { id: '99', attempt: '2', baseSha: base });
+});
+
+test('finds an older matching audit after a different control SHA and across check pages', async () => {
+  const newerCheck = { ...publishedCheck, external_id: publishedCheck.external_id.replace(':99:2', ':100:1') };
+  assert.equal((await duplicateLookup(async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/check-runs')) {
+      return Response.json({ check_runs: url.searchParams.get('page') === '1'
+        ? [newerCheck, ...Array(99).fill({ ...publishedCheck, conclusion: 'cancelled' })]
+        : [publishedCheck] });
+    }
+    return Response.json(url.pathname.endsWith('/100/attempts/1') ? { ...publishedAttempt, head_sha: reviewed } : publishedAttempt);
+  }))?.id, '99');
+});
+
+test('explicit review sources do not look up prior reviews', async () => {
+  for (const source of ['pr_comment', 'thread']) {
+    assert.equal(await duplicateLookup(async () => assert.fail('Explicit request queried GitHub'), source), null);
+  }
+});
+
+test('duplicate lookup throws on a check lookup error', async () => {
+  await assert.rejects(duplicateLookup(async () => new Response(null, { status: 503 })), /audit check lookup failed: 503/);
+});
+
+test('duplicate lookup throws on a control run lookup error', async () => {
+  await assert.rejects(duplicateLookup(async (input) => String(input).includes('/check-runs?')
+    ? Response.json({ check_runs: [publishedCheck] }) : new Response(null, { status: 403 })), /review run lookup failed: 403/);
+});
 
 test('finds the newest valid checkpoint in one GraphQL request', async () => {
   const requested: Array<{ url: string; body: Record<string, unknown> }> = [];
