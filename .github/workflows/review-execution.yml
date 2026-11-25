@@ -155,6 +155,7 @@ jobs:
             const { findPublishedAutomaticReview } = await import(`${process.env.GITHUB_WORKSPACE}/control/scripts/find-review-checkpoint.ts`);
             const previous = await findPublishedAutomaticReview({
               source: process.env.TRIGGER_SOURCE,
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
               repository: process.env.REPOSITORY,
               repositoryId: process.env.REPOSITORY_ID,
               pullNumber: process.env.PULL_NUMBER,

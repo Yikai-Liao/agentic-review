@@ -54,17 +54,19 @@ function automaticReviewRun(externalId: unknown, sha: string, repositoryId: stri
 }
 
 export async function findPublishedAutomaticReview({
-  source, repository, repositoryId, pullNumber, baseSha, headSha, appSlug, token,
+  source, runAttempt, repository, repositoryId, pullNumber, baseSha, headSha, appSlug, token,
   controlRepository, controlSha, controlToken, api = 'https://api.github.com', fetchImpl = fetch,
 }: Omit<FindOptions, 'commits' | 'graphql'> & {
   source: string;
+  runAttempt: string;
   headSha: string;
   controlRepository: string;
   controlSha: string;
   controlToken: string;
   api?: string;
 }) {
-  if (source !== 'automatic') return null;
+  // Webhook dispatches are always first attempts; a manual rerun asks to reassess the same snapshot, such as after a partial audit.
+  if (source !== 'automatic' || runAttempt !== '1') return null;
 
   for (let page = 1; ; page++) {
     const query = new URLSearchParams({ check_name: checkName, filter: 'all', status: 'completed', per_page: '100', page: String(page) });

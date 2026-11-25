@@ -57,9 +57,9 @@ const publishedCheck = {
 };
 const publishedAttempt = { head_sha: controlSha, status: 'completed', conclusion: 'success' };
 
-function duplicateLookup(fetchImpl: typeof fetch, source = 'automatic') {
+function duplicateLookup(fetchImpl: typeof fetch, source = 'automatic', runAttempt = '1') {
   return findPublishedAutomaticReview({
-    source, repository: 'owner/repo', repositoryId: '1', pullNumber: '7', baseSha: base, headSha: current,
+    source, runAttempt, repository: 'owner/repo', repositoryId: '1', pullNumber: '7', baseSha: base, headSha: current,
     appSlug: 'review-app', token: 'target-token', controlRepository: 'control/review', controlSha,
     controlToken: 'control-token', api: 'https://api.github.test', fetchImpl,
   });
@@ -135,6 +135,10 @@ test('explicit review sources do not look up prior reviews', async () => {
   for (const source of ['pr_comment', 'thread']) {
     assert.equal(await duplicateLookup(async () => assert.fail('Explicit request queried GitHub'), source), null);
   }
+});
+
+test('manual reruns of an automatic review do not look up prior reviews', async () => {
+  assert.equal(await duplicateLookup(async () => assert.fail('Rerun queried GitHub'), 'automatic', '2'), null);
 });
 
 test('duplicate lookup throws on a check lookup error', async () => {
