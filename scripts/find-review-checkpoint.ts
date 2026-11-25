@@ -38,6 +38,67 @@ function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function automaticReviewRun(externalId: unknown, sha: string, repositoryId: string, pullNumber: string, baseSha: string | undefined) {
+  const parts = typeof externalId === 'string' ? externalId.split(':') : [];
+  if (parts.length === 7
+    && parts[0] === repositoryId
+    && parts[1] === pullNumber
+    && (baseSha === undefined || parts[2] === baseSha)
+    && parts[3] === sha
+    && parts[4] === 'automatic'
+    && /^[0-9]+$/.test(parts[5]!)
+    && /^[0-9]+$/.test(parts[6]!)) {
+    return { id: parts[5]!, attempt: parts[6]!, baseSha: parts[2]! };
+  }
+  return null;
+}
+
+export async function findPublishedAutomaticReview({
+  source, runAttempt, repository, repositoryId, pullNumber, baseSha, headSha, appSlug, token,
+  controlRepository, controlSha, controlToken, api = 'https://api.github.com', fetchImpl = fetch,
+}: Omit<FindOptions, 'commits' | 'graphql'> & {
+  source: string;
+  runAttempt: string;
+  headSha: string;
+  controlRepository: string;
+  controlSha: string;
+  controlToken: string;
+  api?: string;
+}) {
+  // Webhook dispatches are always first attempts; a manual rerun asks to reassess the same snapshot, such as after a partial audit.
+  if (source !== 'automatic' || runAttempt !== '1') return null;
+
+  for (let page = 1; ; page++) {
+    const query = new URLSearchParams({ check_name: checkName, filter: 'all', status: 'completed', per_page: '100', page: String(page) });
+    const response = await fetchImpl(`${api}/repos/${repository}/commits/${headSha}/check-runs?${query}`, {
+      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`GitHub audit check lookup failed: ${response.status}`);
+    const body: unknown = await response.json();
+    if (!isRecord(body) || !Array.isArray(body.check_runs)) throw new Error('Invalid GitHub audit check response');
+
+    for (const check of body.check_runs) {
+      if (!isRecord(check)) throw new Error('Invalid GitHub audit check response');
+      if (check.name !== checkName || !isRecord(check.app) || check.app.slug !== appSlug
+        || check.status !== 'completed' || (check.conclusion !== 'success' && check.conclusion !== 'action_required')) continue;
+      const run = automaticReviewRun(check.external_id, headSha, repositoryId, pullNumber, baseSha);
+      if (!run) continue;
+
+      const attempt = await fetchImpl(`${api}/repos/${controlRepository}/actions/runs/${run.id}/attempts/${run.attempt}`, {
+        headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${controlToken}` },
+      });
+      if (!attempt.ok) throw new Error(`GitHub review run lookup failed: ${attempt.status}`);
+      const record: unknown = await attempt.json();
+      if (!isRecord(record) || typeof record.head_sha !== 'string' || !shaPattern.test(record.head_sha)) {
+        throw new Error('Invalid GitHub review run response');
+      }
+      // The audit conclusion already proves publication; the earlier run may still be finishing when the queue starts this one.
+      if (record.head_sha === controlSha) return run;
+    }
+    if (body.check_runs.length < 100) return null;
+  }
+}
+
 // runs limits successful records per suite; when several PRs share one head, the target PR's record may fall after the first 10.
 export function checkpointQuery(count: number, runs = 10) {
   const oids = Array.from({ length: count }, (_, index) => `$oid${index}: GitObjectID!`).join(', ');
@@ -104,20 +165,9 @@ export function reviewedCheck(
 
     for (const check of suite.checkRuns.nodes) {
       if (!isRecord(check)) throw new Error('Invalid GitHub GraphQL checkpoint response');
-      const parts = typeof check.externalId === 'string' ? check.externalId.split(':') : [];
-      if (check.name === checkName
-        && check.status === 'COMPLETED'
-        && check.conclusion === 'SUCCESS'
-        && parts.length === 7
-        && parts[0] === repositoryId
-        && parts[1] === pullNumber
-        && (baseSha === undefined || parts[2] === baseSha)
-        && parts[3] === sha
-        && parts[4] === 'automatic'
-        && /^[0-9]+$/.test(parts[5]!)
-        && /^[0-9]+$/.test(parts[6]!)) {
-        return { runId: `${parts[5]}:${parts[6]}`, baseSha: parts[2]! };
-      }
+      if (check.name !== checkName || check.status !== 'COMPLETED' || check.conclusion !== 'SUCCESS') continue;
+      const run = automaticReviewRun(check.externalId, sha, repositoryId, pullNumber, baseSha);
+      if (run) return { runId: `${run.id}:${run.attempt}`, baseSha: run.baseSha };
     }
   }
   return null;
